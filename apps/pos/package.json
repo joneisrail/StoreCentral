@@ -1,0 +1,10 @@
+{
+  "name": "@dtc/pos",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Minimal web POS for the Point of Sale sales channel.",
+  "scripts": {
+    "dev": "node server.js",
+    "start": "node server.js"
+  }
+}

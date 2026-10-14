@@ -1,0 +1,448 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Point of Sale</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --panel-2: #1e222b;
+    --border: #2a2f3a;
+    --text: #e8eaed;
+    --muted: #9aa0ac;
+    --accent: #6366f1;
+    --accent-2: #4f46e5;
+    --good: #22c55e;
+    --bad: #ef4444;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    overflow: hidden;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 20px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+  }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+  header .badge {
+    font-size: 12px;
+    color: var(--muted);
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 4px 10px;
+  }
+  main {
+    display: grid;
+    grid-template-columns: 1fr 360px;
+    height: calc(100vh - 53px);
+  }
+  .products {
+    overflow-y: auto;
+    padding: 16px;
+  }
+  .search {
+    width: 100%;
+    padding: 10px 12px;
+    margin-bottom: 14px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--panel-2);
+    color: var(--text);
+    font-size: 14px;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 12px;
+  }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px;
+    cursor: pointer;
+    transition: border-color 0.15s;
+  }
+  .card:hover { border-color: var(--accent); }
+  .card img {
+    width: 100%;
+    aspect-ratio: 1;
+    object-fit: cover;
+    border-radius: 6px;
+    background: var(--panel-2);
+    margin-bottom: 8px;
+  }
+  .card .title { font-size: 13px; font-weight: 500; line-height: 1.3; }
+  .card .price { font-size: 13px; color: var(--muted); margin-top: 4px; }
+  .cart {
+    background: var(--panel);
+    border-left: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+  }
+  .cart-header {
+    padding: 16px;
+    border-bottom: 1px solid var(--border);
+    font-weight: 600;
+  }
+  .cart-items { flex: 1; overflow-y: auto; padding: 8px 16px; }
+  .cart-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+    gap: 8px;
+  }
+  .cart-item .name { font-size: 13px; flex: 1; }
+  .cart-item .qty-controls {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .qty-controls button {
+    width: 22px;
+    height: 22px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    background: var(--panel-2);
+    color: var(--text);
+    cursor: pointer;
+  }
+  .cart-item .line-total { font-size: 13px; color: var(--muted); min-width: 56px; text-align: right; }
+  .cart-empty { color: var(--muted); font-size: 13px; padding: 20px 0; text-align: center; }
+  .cart-footer { padding: 16px; border-top: 1px solid var(--border); }
+  .totals-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 14px;
+    margin-bottom: 6px;
+    color: var(--muted);
+  }
+  .totals-row.grand { color: var(--text); font-weight: 600; font-size: 16px; margin-top: 10px; }
+  .checkout-btn {
+    width: 100%;
+    padding: 12px;
+    margin-top: 12px;
+    border-radius: 8px;
+    border: none;
+    background: var(--accent);
+    color: white;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .checkout-btn:hover { background: var(--accent-2); }
+  .checkout-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .status {
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 8px;
+    min-height: 16px;
+  }
+  .status.error { color: var(--bad); }
+  .status.ok { color: var(--good); }
+  .overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.6);
+    display: none;
+    align-items: center;
+    justify-content: center;
+  }
+  .overlay.show { display: flex; }
+  .receipt {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 28px;
+    width: 320px;
+    text-align: center;
+  }
+  .receipt .check {
+    width: 48px; height: 48px;
+    border-radius: 50%;
+    background: var(--good);
+    display: flex; align-items: center; justify-content: center;
+    margin: 0 auto 14px;
+    font-size: 24px;
+  }
+  .receipt h2 { margin: 0 0 6px; font-size: 16px; }
+  .receipt p { margin: 0 0 18px; color: var(--muted); font-size: 13px; }
+  .receipt button {
+    width: 100%;
+    padding: 10px;
+    border-radius: 8px;
+    border: none;
+    background: var(--accent);
+    color: white;
+    cursor: pointer;
+    font-weight: 600;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>⬤ Point of Sale</h1>
+  <span class="badge" id="channel-badge">connecting…</span>
+</header>
+
+<main>
+  <section class="products">
+    <input class="search" id="search" placeholder="Search products…" />
+    <div class="grid" id="grid"></div>
+  </section>
+
+  <aside class="cart">
+    <div class="cart-header">Current Sale</div>
+    <div class="cart-items" id="cart-items">
+      <div class="cart-empty">Tap a product to add it</div>
+    </div>
+    <div class="cart-footer">
+      <div class="totals-row"><span>Subtotal</span><span id="subtotal">—</span></div>
+      <div class="totals-row grand"><span>Total</span><span id="total">—</span></div>
+      <button class="checkout-btn" id="checkout-btn" disabled>Charge & Complete Sale</button>
+      <div class="status" id="status"></div>
+    </div>
+  </aside>
+</main>
+
+<div class="overlay" id="overlay">
+  <div class="receipt">
+    <div class="check">✓</div>
+    <h2 id="receipt-title">Sale Complete</h2>
+    <p id="receipt-sub"></p>
+    <button id="new-sale-btn">New Sale</button>
+  </div>
+</div>
+
+<script>
+const BACKEND_URL = "http://localhost:9000"
+const PUBLISHABLE_KEY = "pk_779ccdf872a0a62dcbcfee2da4fc71ea535bb791e2f8e947964a9166cc9a55f3"
+
+const state = {
+  region: null,
+  currencyCode: "eur",
+  products: [],
+  cart: {}, // variant_id -> { variant, product, quantity }
+}
+
+const el = {
+  grid: document.getElementById("grid"),
+  search: document.getElementById("search"),
+  cartItems: document.getElementById("cart-items"),
+  subtotal: document.getElementById("subtotal"),
+  total: document.getElementById("total"),
+  checkoutBtn: document.getElementById("checkout-btn"),
+  status: document.getElementById("status"),
+  channelBadge: document.getElementById("channel-badge"),
+  overlay: document.getElementById("overlay"),
+  receiptTitle: document.getElementById("receipt-title"),
+  receiptSub: document.getElementById("receipt-sub"),
+  newSaleBtn: document.getElementById("new-sale-btn"),
+}
+
+function money(amount, currency) {
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: (currency || state.currencyCode).toUpperCase() }).format(amount)
+}
+
+async function api(path, options = {}) {
+  const res = await fetch(`${BACKEND_URL}${path}`, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      "x-publishable-api-key": PUBLISHABLE_KEY,
+      ...(options.headers || {}),
+    },
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    throw new Error(body.message || `Request to ${path} failed (${res.status})`)
+  }
+  return res.json()
+}
+
+function cheapestPrice(variant) {
+  return variant?.calculated_price?.calculated_amount ?? null
+}
+
+function setStatus(message, kind) {
+  el.status.textContent = message || ""
+  el.status.className = "status" + (kind ? " " + kind : "")
+}
+
+async function init() {
+  try {
+    const { regions } = await api("/store/regions")
+    state.region = regions[0]
+    state.currencyCode = state.region.currency_code
+    el.channelBadge.textContent = "Point of Sale · " + state.region.name
+
+    const { products } = await api(
+      `/store/products?region_id=${state.region.id}&limit=100&fields=id,title,thumbnail,*variants,*variants.calculated_price`
+    )
+    state.products = products
+    renderGrid(products)
+  } catch (err) {
+    el.channelBadge.textContent = "offline"
+    setStatus(err.message, "error")
+  }
+}
+
+function renderGrid(products) {
+  el.grid.innerHTML = ""
+  for (const product of products) {
+    const variant = product.variants?.[0]
+    const price = variant ? cheapestPrice(variant) : null
+    const card = document.createElement("div")
+    card.className = "card"
+    card.innerHTML = `
+      <img src="${product.thumbnail || ""}" onerror="this.style.visibility='hidden'" />
+      <div class="title">${product.title}</div>
+      <div class="price">${price != null ? money(price) : "—"}</div>
+    `
+    card.addEventListener("click", () => addToCart(product))
+    el.grid.appendChild(card)
+  }
+}
+
+function addToCart(product) {
+  const variant = product.variants?.[0]
+  if (!variant) return
+  const existing = state.cart[variant.id]
+  if (existing) {
+    existing.quantity += 1
+  } else {
+    state.cart[variant.id] = { variant, product, quantity: 1 }
+  }
+  renderCart()
+}
+
+function changeQty(variantId, delta) {
+  const item = state.cart[variantId]
+  if (!item) return
+  item.quantity += delta
+  if (item.quantity <= 0) delete state.cart[variantId]
+  renderCart()
+}
+
+function renderCart() {
+  const items = Object.values(state.cart)
+  el.cartItems.innerHTML = ""
+  if (!items.length) {
+    el.cartItems.innerHTML = '<div class="cart-empty">Tap a product to add it</div>'
+  }
+  let subtotal = 0
+  for (const item of items) {
+    const price = cheapestPrice(item.variant) || 0
+    const lineTotal = price * item.quantity
+    subtotal += lineTotal
+    const row = document.createElement("div")
+    row.className = "cart-item"
+    row.innerHTML = `
+      <div class="name">${item.product.title}</div>
+      <div class="qty-controls">
+        <button data-action="dec">−</button>
+        <span>${item.quantity}</span>
+        <button data-action="inc">+</button>
+      </div>
+      <div class="line-total">${money(lineTotal)}</div>
+    `
+    row.querySelector('[data-action="dec"]').addEventListener("click", () => changeQty(item.variant.id, -1))
+    row.querySelector('[data-action="inc"]').addEventListener("click", () => changeQty(item.variant.id, 1))
+    el.cartItems.appendChild(row)
+  }
+  el.subtotal.textContent = money(subtotal)
+  el.total.textContent = money(subtotal)
+  el.checkoutBtn.disabled = items.length === 0
+}
+
+el.search.addEventListener("input", () => {
+  const q = el.search.value.trim().toLowerCase()
+  const filtered = !q
+    ? state.products
+    : state.products.filter((p) => p.title.toLowerCase().includes(q))
+  renderGrid(filtered)
+})
+
+async function checkout() {
+  el.checkoutBtn.disabled = true
+  try {
+    setStatus("Creating sale…")
+    const { cart } = await api("/store/carts", {
+      method: "POST",
+      body: JSON.stringify({
+        region_id: state.region.id,
+        items: Object.values(state.cart).map((item) => ({
+          variant_id: item.variant.id,
+          quantity: item.quantity,
+        })),
+      }),
+    })
+
+    setStatus("Adding fulfillment…")
+    const { shipping_options } = await api(`/store/shipping-options?cart_id=${cart.id}`)
+    if (shipping_options?.[0]) {
+      await api(`/store/carts/${cart.id}/shipping-methods`, {
+        method: "POST",
+        body: JSON.stringify({ option_id: shipping_options[0].id }),
+      })
+    }
+
+    setStatus("Authorizing payment…")
+    const { payment_collection } = await api("/store/payment-collections", {
+      method: "POST",
+      body: JSON.stringify({ cart_id: cart.id }),
+    })
+    await api(`/store/payment-collections/${payment_collection.id}/payment-sessions`, {
+      method: "POST",
+      body: JSON.stringify({ provider_id: "pp_system_default" }),
+    })
+
+    setStatus("Completing sale…")
+    const result = await api(`/store/carts/${cart.id}/complete`, { method: "POST" })
+
+    if (result.type !== "order") {
+      throw new Error(result.error?.message || "Could not complete the sale")
+    }
+
+    showReceipt(result.order)
+  } catch (err) {
+    setStatus(err.message, "error")
+    el.checkoutBtn.disabled = false
+  }
+}
+
+function showReceipt(order) {
+  el.receiptTitle.textContent = `Order #${order.display_id}`
+  el.receiptSub.textContent = money(order.total, order.currency_code) + " · " + order.items.length + " item(s)"
+  el.overlay.classList.add("show")
+}
+
+el.newSaleBtn.addEventListener("click", () => {
+  state.cart = {}
+  renderCart()
+  setStatus("")
+  el.overlay.classList.remove("show")
+})
+
+el.checkoutBtn.addEventListener("click", checkout)
+
+init()
+</script>
+</body>
+</html>
