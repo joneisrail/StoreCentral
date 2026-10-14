@@ -14,7 +14,18 @@ export type SyncQueueName =
   | "order-sync"
 
 const DEFAULT_ATTEMPTS = 5
-const DEFAULT_BACKOFF = { type: "exponential" as const, delay: 1000 }
+// `jitter` is required by the plan's Global Constraints section
+// ("exponential backoff + jitter") for every queue, not just this one's
+// literal default — without it, BullMQ's exponential backoff
+// (bullmq's `Backoffs.builtinStrategies.exponential`) fires every retrying
+// job across all four queues at perfectly synchronized 1s/2s/4s/8s/16s
+// marks, i.e. exactly the thundering-herd pattern jitter exists to avoid.
+// 0.2 spreads each retry over +/-20% of its exponential delay.
+const DEFAULT_BACKOFF = {
+  type: "exponential" as const,
+  delay: 1000,
+  jitter: 0.2,
+}
 
 /**
  * A sync error that will fail identically no matter how many times it's
