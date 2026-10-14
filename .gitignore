@@ -50,6 +50,9 @@ yarn-error.log*
 # vercel
 .vercel
 
+# git worktrees (subagent-driven-development scratch workspaces)
+.worktrees
+
 # macOS system files
 .DS_Store
 .DS_Store?
