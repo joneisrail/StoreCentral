@@ -1,3 +1,10 @@
+/**
+ * DDL for the `seller_hub` Postgres schema. Kept as a TS string constant
+ * (rather than a loose `.sql` file read from disk at runtime) so it survives
+ * `tsc` compilation as-is — a static asset copy step would be needed
+ * otherwise, since `dist/` only contains compiled `.js` output.
+ */
+export const SCHEMA_SQL = `
 CREATE SCHEMA IF NOT EXISTS seller_hub;
 
 CREATE TABLE IF NOT EXISTS seller_hub.integration_account (
@@ -38,3 +45,4 @@ CREATE TABLE IF NOT EXISTS seller_hub.sync_job (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (integration_account_id, sync_type, external_id)
 );
+`
