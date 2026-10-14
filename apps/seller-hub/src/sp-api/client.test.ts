@@ -211,6 +211,68 @@ test("refreshes the access token again once the cached one is within 60s of expi
   }
 })
 
+test("backs off exponentially (400ms, then 800ms) when no Retry-After header is present", async () => {
+  vi.useFakeTimers()
+  try {
+    let operationCalls = 0
+    const fakeFetch = vi.fn().mockImplementation(async (url: string) => {
+      if (url.toString().startsWith(TOKEN_URL)) {
+        return tokenResponse()
+      }
+      operationCalls += 1
+      if (operationCalls < 3) {
+        return {
+          ok: false,
+          status: 503,
+          headers: new Headers(), // no Retry-After
+          json: async () => ({}),
+        }
+      }
+      return {
+        ok: true,
+        status: 200,
+        headers: new Headers(),
+        json: async () => ({ done: true }),
+      }
+    })
+
+    const client = new SpApiClient({
+      baseUrl: BASE_URL,
+      refreshToken: "r",
+      clientId: "c",
+      clientSecret: "s",
+      fetchImpl: fakeFetch as unknown as typeof fetch,
+    })
+
+    let resolved = false
+    const promise = client
+      .request({
+        name: "getOrder",
+        method: "GET",
+        path: "/x",
+        rateLimit: { ratePerSecond: 10, burst: 10 },
+      })
+      .then((value) => {
+        resolved = true
+        return value
+      })
+
+    // 1st failure -> wait 2**1*200 = 400ms before the 2nd attempt
+    await vi.advanceTimersByTimeAsync(400)
+    // 2nd attempt fails too -> wait 2**2*200 = 800ms before the 3rd attempt,
+    // so we should still be waiting right after the first backoff elapses
+    expect(resolved).toBe(false)
+
+    await vi.advanceTimersByTimeAsync(800)
+    expect(resolved).toBe(true)
+
+    expect(await promise).toEqual({ done: true })
+    expect(operationCalls).toBe(3)
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
 test("applies a separate rate-limit bucket per operation name", async () => {
   vi.useFakeTimers()
   try {
