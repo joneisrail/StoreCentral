@@ -43,6 +43,19 @@
     border-radius: 6px;
     padding: 4px 10px;
   }
+  header .header-right {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  #region-select {
+    font-size: 12px;
+    color: var(--text);
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 5px 8px;
+  }
   main {
     display: grid;
     grid-template-columns: 1fr 360px;
@@ -198,7 +211,10 @@
 
 <header>
   <h1>⬤ Point of Sale</h1>
-  <span class="badge" id="channel-badge">connecting…</span>
+  <div class="header-right">
+    <select id="region-select" disabled><option>loading…</option></select>
+    <span class="badge" id="channel-badge">connecting…</span>
+  </div>
 </header>
 
 <main>
@@ -235,6 +251,7 @@ const BACKEND_URL = "http://localhost:9000"
 const PUBLISHABLE_KEY = "pk_779ccdf872a0a62dcbcfee2da4fc71ea535bb791e2f8e947964a9166cc9a55f3"
 
 const state = {
+  regions: [],
   region: null,
   currencyCode: "eur",
   products: [],
@@ -250,6 +267,7 @@ const el = {
   checkoutBtn: document.getElementById("checkout-btn"),
   status: document.getElementById("status"),
   channelBadge: document.getElementById("channel-badge"),
+  regionSelect: document.getElementById("region-select"),
   overlay: document.getElementById("overlay"),
   receiptTitle: document.getElementById("receipt-title"),
   receiptSub: document.getElementById("receipt-sub"),
@@ -285,20 +303,54 @@ function setStatus(message, kind) {
   el.status.className = "status" + (kind ? " " + kind : "")
 }
 
+const LAST_REGION_KEY = "pos.lastRegionId"
+
 async function init() {
   try {
     const { regions } = await api("/store/regions")
-    state.region = regions[0]
-    state.currencyCode = state.region.currency_code
-    el.channelBadge.textContent = "Point of Sale · " + state.region.name
+    state.regions = regions
 
-    const { products } = await api(
-      `/store/products?region_id=${state.region.id}&limit=100&fields=id,title,thumbnail,*variants,*variants.calculated_price`
-    )
-    state.products = products
-    renderGrid(products)
+    const savedId = localStorage.getItem(LAST_REGION_KEY)
+    const defaultRegion = regions.find((r) => r.id === savedId) || regions[0]
+
+    populateRegionSelect(regions, defaultRegion.id)
+    el.regionSelect.disabled = false
+    el.regionSelect.addEventListener("change", () => switchRegion(el.regionSelect.value))
+
+    await switchRegion(defaultRegion.id)
   } catch (err) {
     el.channelBadge.textContent = "offline"
+    setStatus(err.message, "error")
+  }
+}
+
+function populateRegionSelect(regions, selectedId) {
+  el.regionSelect.innerHTML = regions
+    .map((r) => `<option value="${r.id}">${r.name} (${r.currency_code.toUpperCase()})</option>`)
+    .join("")
+  el.regionSelect.value = selectedId
+}
+
+async function switchRegion(regionId) {
+  const region = state.regions.find((r) => r.id === regionId)
+  if (!region) return
+
+  state.region = region
+  state.currencyCode = region.currency_code
+  state.cart = {}
+  localStorage.setItem(LAST_REGION_KEY, region.id)
+  el.channelBadge.textContent = "Point of Sale · " + region.name
+  renderCart()
+
+  try {
+    const { products } = await api(
+      `/store/products?region_id=${region.id}&limit=100&fields=id,title,thumbnail,*variants,*variants.calculated_price`
+    )
+    state.products = products
+    el.search.value = ""
+    renderGrid(products)
+    setStatus("")
+  } catch (err) {
     setStatus(err.message, "error")
   }
 }
