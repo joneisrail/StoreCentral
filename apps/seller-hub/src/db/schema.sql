@@ -1,0 +1,40 @@
+CREATE SCHEMA IF NOT EXISTS seller_hub;
+
+CREATE TABLE IF NOT EXISTS seller_hub.integration_account (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  marketplace TEXT NOT NULL,              -- 'amazon'
+  status TEXT NOT NULL DEFAULT 'disconnected', -- 'connected' | 'disconnected' | 'error'
+  lwa_refresh_token_encrypted TEXT,
+  last_synced_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS seller_hub.channel_listing (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  integration_account_id UUID NOT NULL REFERENCES seller_hub.integration_account(id),
+  medusa_product_id TEXT NOT NULL,
+  medusa_variant_id TEXT NOT NULL,
+  external_sku TEXT NOT NULL,
+  external_asin TEXT,
+  status TEXT NOT NULL DEFAULT 'draft',   -- 'draft'|'pending'|'published'|'rejected'|'error'
+  price_rule JSONB,                        -- e.g. {"type":"percentage","value":10}
+  last_error TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (integration_account_id, external_sku)
+);
+
+CREATE TABLE IF NOT EXISTS seller_hub.sync_job (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  integration_account_id UUID NOT NULL REFERENCES seller_hub.integration_account(id),
+  sync_type TEXT NOT NULL,                -- 'product'|'inventory'|'price'|'order'
+  external_id TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending', -- 'pending'|'processing'|'succeeded'|'failed'
+  attempts INT NOT NULL DEFAULT 0,
+  last_error TEXT,
+  medusa_entity_id TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (integration_account_id, sync_type, external_id)
+);
