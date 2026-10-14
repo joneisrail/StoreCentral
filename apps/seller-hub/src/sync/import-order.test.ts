@@ -241,3 +241,126 @@ test(
   },
   25_000
 )
+
+test(
+  "importAmazonOrder retries a previously failed job once the mapping is fixed, instead of reporting it skipped forever",
+  async () => {
+    const amazonOrderId = "TEST-RETRY-" + Date.now()
+    const retrySku = "RETRY-SKU-" + Date.now()
+    const order: NormalizedAmazonOrder = {
+      amazonOrderId,
+      buyerEmail: "buyer@example.com",
+      items: [{ sku: retrySku, quantity: 1 }],
+      shippingAddress,
+    }
+
+    // First attempt fails: the sku isn't mapped yet.
+    const first = await importAmazonOrder(order, deps)
+    expect(first.status).toBe("needs_attention")
+
+    const { rows: failedRows } = await pool.query(
+      `SELECT status, attempts FROM seller_hub.sync_job
+       WHERE integration_account_id = $1 AND sync_type = 'order' AND external_id = $2`,
+      [integrationAccountId, amazonOrderId]
+    )
+    expect(failedRows[0].status).toBe("failed")
+    const attemptsAfterFirstFailure = failedRows[0].attempts
+
+    // Fix the problem: map the sku, same as an operator resolving the
+    // needs_attention case (or Task 7's retry firing after the mapping
+    // was added).
+    const productsResponse = await fetch(
+      `${BASE_URL}/admin/products?limit=1&fields=id,title,*variants`,
+      { headers: authHeaders }
+    )
+    const { products } = (await productsResponse.json()) as {
+      products: { id: string; variants: { id: string }[] }[]
+    }
+    const variant = products[0]!.variants[0]!
+    await pool.query(
+      `INSERT INTO seller_hub.channel_listing
+         (integration_account_id, medusa_product_id, medusa_variant_id, external_sku, status)
+       VALUES ($1, $2, $3, $4, 'published')`,
+      [integrationAccountId, products[0]!.id, variant.id, retrySku]
+    )
+
+    // Retrying with the same amazonOrderId must now actually proceed and
+    // create a real order — not report "skipped" as if already handled.
+    const second = await importAmazonOrder(order, deps)
+    expect(second.status).toBe("created")
+    expect(second.medusaOrderId).toBeDefined()
+    expect(second.medusaOrderId).toMatch(/^order_/)
+
+    const { rows: succeededRows } = await pool.query(
+      `SELECT status, attempts, medusa_entity_id, last_error FROM seller_hub.sync_job
+       WHERE integration_account_id = $1 AND sync_type = 'order' AND external_id = $2`,
+      [integrationAccountId, amazonOrderId]
+    )
+    expect(succeededRows).toHaveLength(1)
+    expect(succeededRows[0].status).toBe("succeeded")
+    expect(succeededRows[0].medusa_entity_id).toBe(second.medusaOrderId)
+    expect(succeededRows[0].last_error).toBeNull()
+    expect(succeededRows[0].attempts).toBeGreaterThan(attemptsAfterFirstFailure)
+
+    const count = await countOrdersWithAmazonOrderId(amazonOrderId)
+    expect(count).toBe(1)
+  },
+  25_000
+)
+
+test(
+  "two concurrent retries of the same failed job still only ever produce one real order",
+  async () => {
+    const amazonOrderId = "TEST-RETRY-CONCURRENT-" + Date.now()
+    const retrySku = "RETRY-CONCURRENT-SKU-" + Date.now()
+    const order: NormalizedAmazonOrder = {
+      amazonOrderId,
+      buyerEmail: "buyer@example.com",
+      items: [{ sku: retrySku, quantity: 1 }],
+      shippingAddress,
+    }
+
+    // First attempt fails: unmapped sku.
+    const first = await importAmazonOrder(order, deps)
+    expect(first.status).toBe("needs_attention")
+
+    // Fix the mapping.
+    const productsResponse = await fetch(
+      `${BASE_URL}/admin/products?limit=1&fields=id,title,*variants`,
+      { headers: authHeaders }
+    )
+    const { products } = (await productsResponse.json()) as {
+      products: { id: string; variants: { id: string }[] }[]
+    }
+    const variant = products[0]!.variants[0]!
+    await pool.query(
+      `INSERT INTO seller_hub.channel_listing
+         (integration_account_id, medusa_product_id, medusa_variant_id, external_sku, status)
+       VALUES ($1, $2, $3, $4, 'published')`,
+      [integrationAccountId, products[0]!.id, variant.id, retrySku]
+    )
+
+    // Two genuinely concurrent retries racing to claim the same `failed`
+    // row — only one may win the atomic `UPDATE ... WHERE status = 'failed'`
+    // claim, so at most one proceeds to create a real Medusa order.
+    const [retryA, retryB] = await Promise.all([
+      importAmazonOrder(order, deps),
+      importAmazonOrder(order, deps),
+    ])
+
+    const statuses = [retryA.status, retryB.status].sort()
+    expect(statuses).toEqual(["created", "skipped"])
+
+    const count = await countOrdersWithAmazonOrderId(amazonOrderId)
+    expect(count).toBe(1)
+
+    const { rows } = await pool.query(
+      `SELECT status FROM seller_hub.sync_job
+       WHERE integration_account_id = $1 AND sync_type = 'order' AND external_id = $2`,
+      [integrationAccountId, amazonOrderId]
+    )
+    expect(rows).toHaveLength(1)
+    expect(rows[0].status).toBe("succeeded")
+  },
+  25_000
+)

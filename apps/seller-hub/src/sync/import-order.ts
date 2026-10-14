@@ -26,7 +26,8 @@ type SyncJobRow = {
 
 /**
  * Imports a single normalized Amazon order into Medusa as a real order,
- * exactly once per `(integrationAccountId, amazonOrderId)` pair.
+ * exactly once per `(integrationAccountId, amazonOrderId)` pair — unless a
+ * prior attempt `failed`, in which case a later call retries it.
  *
  * Idempotency is enforced by the DB, not by application logic: the
  * `seller_hub.sync_job` table has a
@@ -38,6 +39,20 @@ type SyncJobRow = {
  * only one of them can win the INSERT — the loser never reaches the
  * Medusa API calls below, so at most one real Medusa order is ever
  * created per Amazon order.
+ *
+ * Retrying a `failed` job (e.g. after a transient Medusa error, or after
+ * fixing a missing `channel_listing` mapping) uses the same pattern one
+ * level down: claiming the existing row via
+ * `UPDATE ... SET status = 'processing' WHERE id = $1 AND status = 'failed'`.
+ * That `WHERE status = 'failed'` guard is what makes the claim atomic —
+ * Postgres' row lock means only one of several concurrent retries can
+ * flip the row from `failed` to `processing`; every other concurrent
+ * claimer's `UPDATE` then sees a row that's no longer `failed` and affects
+ * zero rows, so it backs off instead of also proceeding. This matters
+ * because Task 7's BullMQ retry/backoff re-invokes this exact function
+ * with the same Amazon order id on a transient failure — without this,
+ * a retry would silently report "skipped" forever instead of actually
+ * retrying.
  */
 export const importAmazonOrder = async (
   order: NormalizedAmazonOrder,
@@ -77,10 +92,7 @@ export const importAmazonOrder = async (
 
   let syncJobId: string
   if (inserted.rows.length === 0) {
-    // Lost the race (or a row already existed from a previous run). Defer
-    // to whatever the winner's row says rather than making our own Medusa
-    // call — this is the guarantee that matters: this caller makes zero
-    // Medusa calls once it knows it didn't win the insert.
+    // Lost the insert (or a row already existed from a previous run).
     const conflictRow = await pool.query<SyncJobRow>(
       `SELECT id, status, medusa_entity_id
        FROM seller_hub.sync_job
@@ -88,12 +100,55 @@ export const importAmazonOrder = async (
       [integrationAccountId, order.amazonOrderId]
     )
     const row = conflictRow.rows[0]
-    return {
-      status: "skipped",
-      medusaOrderId: row?.medusa_entity_id ?? undefined,
+
+    if (!row) {
+      // Vanishingly unlikely (row deleted between the failed insert and
+      // this select) — nothing to retry, nothing to report as created.
+      return { status: "skipped" }
     }
+
+    if (row.status === "succeeded") {
+      return {
+        status: "skipped",
+        medusaOrderId: row.medusa_entity_id ?? undefined,
+      }
+    }
+
+    if (row.status !== "failed") {
+      // status === 'processing': another caller is actively working this
+      // job right now. Defer to it rather than making our own Medusa
+      // call — this is the guarantee that matters: this caller makes zero
+      // Medusa calls once it knows it didn't win the claim.
+      return {
+        status: "skipped",
+        medusaOrderId: row.medusa_entity_id ?? undefined,
+      }
+    }
+
+    // row.status === 'failed': a prior attempt gave up (transient Medusa
+    // error, unmapped SKU since fixed, etc). Atomically claim it for a
+    // retry — see the function-level doc comment for why the
+    // `WHERE status = 'failed'` guard is what keeps this race-free.
+    const claimed = await pool.query<{ id: string }>(
+      `UPDATE seller_hub.sync_job
+       SET status = 'processing', attempts = attempts + 1, updated_at = now()
+       WHERE id = $1 AND status = 'failed'
+       RETURNING id`,
+      [row.id]
+    )
+
+    if (claimed.rows.length === 0) {
+      // Lost the claim race to another concurrent retry.
+      return {
+        status: "skipped",
+        medusaOrderId: row.medusa_entity_id ?? undefined,
+      }
+    }
+
+    syncJobId = claimed.rows[0]!.id
+  } else {
+    syncJobId = inserted.rows[0]!.id
   }
-  syncJobId = inserted.rows[0]!.id
 
   // Step 3: resolve every line item's SKU to a Medusa variant via
   // channel_listing. Any unmapped SKU fails the whole order before any
@@ -146,7 +201,7 @@ export const importAmazonOrder = async (
 
     await pool.query(
       `UPDATE seller_hub.sync_job
-       SET status = 'succeeded', medusa_entity_id = $1, updated_at = now()
+       SET status = 'succeeded', medusa_entity_id = $1, last_error = NULL, updated_at = now()
        WHERE id = $2`,
       [realOrder.id, syncJobId]
     )
