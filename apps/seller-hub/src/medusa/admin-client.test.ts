@@ -1,4 +1,4 @@
-import { beforeAll, expect, test } from "vitest"
+import { beforeAll, expect, test, vi } from "vitest"
 import { MedusaAdminClient } from "./admin-client.js"
 
 const BASE_URL = process.env.MEDUSA_BACKEND_URL ?? "http://localhost:9000"
@@ -128,4 +128,92 @@ test("findOrderByMetadata returns null when nothing matches", async () => {
     "does-not-exist-" + Date.now()
   )
   expect(found).toBeNull()
+})
+
+// Real order volume in this dev environment is far below the 100-order page
+// `findOrderByMetadata` fetches, so a real end-to-end test can't exercise
+// "a match falls outside the first unsorted page" without creating 100+
+// real orders first (impractical/slow here). Instead, this locks in the
+// actual request shape with a fake fetch: as long as the query always asks
+// for the most-recently-created orders first, a just-created order can
+// never be pushed off the first page by older orders once volume grows.
+test("findOrderByMetadata sorts by -created_at so newer orders are never pushed off the first page", async () => {
+  const requestedUrls: string[] = []
+  const fakeFetch = vi.fn().mockImplementation(async (url: string) => {
+    requestedUrls.push(url.toString())
+    if (url.toString().includes("/auth/user/emailpass")) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ token: "fake-token" }),
+      }
+    }
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ orders: [] }),
+    }
+  })
+
+  const client = new MedusaAdminClient({
+    baseUrl: BASE_URL,
+    email: "fake@example.com",
+    password: "fake-password",
+    fetchImpl: fakeFetch as unknown as typeof fetch,
+  })
+
+  await client.findOrderByMetadata("amazon_order_id", "whatever")
+
+  const ordersRequest = requestedUrls.find((url) =>
+    url.includes("/admin/orders")
+  )
+  expect(ordersRequest).toContain("order=-created_at")
+})
+
+test("createDraftOrder logs a warning instead of silently miscategorizing when no region covers the shipping country", async () => {
+  const fakeFetch = vi.fn().mockImplementation(async (url: string) => {
+    const u = url.toString()
+    if (u.includes("/auth/user/emailpass")) {
+      return { ok: true, status: 200, json: async () => ({ token: "t" }) }
+    }
+    if (u.includes("/admin/regions")) {
+      // Only a region for "us" exists; the shipping address below is "zz",
+      // which matches nothing, so the fallback path must fire.
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          regions: [{ id: "reg_us_only", countries: [{ iso_2: "us" }] }],
+        }),
+      }
+    }
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ draft_order: { id: "order_fake" } }),
+    }
+  })
+
+  const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {})
+  try {
+    const client = new MedusaAdminClient({
+      baseUrl: BASE_URL,
+      email: "fake@example.com",
+      password: "fake-password",
+      fetchImpl: fakeFetch as unknown as typeof fetch,
+    })
+
+    await client.createDraftOrder({
+      sales_channel_id: "sc_fake",
+      email: "buyer@example.com",
+      items: [{ variant_id: "variant_fake", quantity: 1 }],
+      shipping_address: { country_code: "zz" },
+      metadata: {},
+    })
+
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+    expect(warnSpy.mock.calls[0]?.[0]).toContain("zz")
+  } finally {
+    warnSpy.mockRestore()
+  }
 })

@@ -112,6 +112,18 @@ export class MedusaAdminClient {
         "No Medusa region found to create a draft order against."
       )
     }
+    if (!match) {
+      // Region selection feeds the order's currency_code server-side, so a
+      // silent fallback here could miscategorize a real order into the
+      // wrong region/currency. Make it loud instead of indistinguishable
+      // from the correct-match path.
+      console.warn(
+        `[MedusaAdminClient] No region found covering shipping country ` +
+          `"${countryCode ?? "<none given>"}" — falling back to region ` +
+          `${region.id} (first available). Order may be placed in the ` +
+          `wrong region/currency.`
+      )
+    }
     return region.id
   }
 
@@ -131,14 +143,18 @@ export class MedusaAdminClient {
    * params (see `AdminGetOrdersParamsBase` in Medusa core, which doesn't
    * allowlist a `metadata` field) — so this fetches a bounded page of
    * orders and filters client-side. Fine for seller-hub's single-tenant,
-   * modest order volume.
+   * modest order volume. Sorted by `-created_at` so that, once order
+   * volume exceeds the `limit`, the most recently created orders (the
+   * ones most likely to be the target of a just-synced-in lookup) are
+   * the ones guaranteed to land on this first page, instead of depending
+   * on the DB's unspecified default order.
    */
   async findOrderByMetadata(
     key: string,
     value: string
   ): Promise<{ id: string } | null> {
     const response = await this.authedFetch(
-      "/admin/orders?limit=100&fields=id,metadata"
+      "/admin/orders?limit=100&order=-created_at&fields=id,metadata"
     )
     const body = (await response.json()) as {
       orders: { id: string; metadata?: Record<string, unknown> | null }[]
