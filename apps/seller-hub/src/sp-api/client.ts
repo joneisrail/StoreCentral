@@ -128,9 +128,13 @@ export class SpApiClient {
 
   /**
    * Backoff before the next attempt. Prefers the `Retry-After` header
-   * (seconds) when present, otherwise `min(2**attempt * 200, 5000)` ms,
-   * where `attempt` is the number of attempts made so far (1 after the
-   * first failure, 2 after the second, ...).
+   * (seconds) when present — that's a server-dictated wait, so it is
+   * honored exactly, with no jitter. Otherwise falls back to
+   * `min(2**attempt * 200, 5000)` ms with +/-50% jitter (uniformly
+   * randomized to 50%-100% of that value), per the plan's global
+   * "exponential backoff + jitter" constraint for transient-error
+   * retries. `attempt` is the number of attempts made so far (1 after
+   * the first failure, 2 after the second, ...).
    */
   private backoffMs(attempt: number, headers: Headers): number {
     const retryAfter = headers.get("Retry-After")
@@ -140,7 +144,9 @@ export class SpApiClient {
         return seconds * 1000
       }
     }
-    return Math.min(2 ** attempt * 200, 5000)
+    const base = Math.min(2 ** attempt * 200, 5000)
+    const jitterMultiplier = 0.5 + Math.random() * 0.5
+    return base * jitterMultiplier
   }
 }
 

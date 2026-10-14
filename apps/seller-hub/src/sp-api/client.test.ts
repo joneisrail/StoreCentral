@@ -211,7 +211,7 @@ test("refreshes the access token again once the cached one is within 60s of expi
   }
 })
 
-test("backs off exponentially (400ms, then 800ms) when no Retry-After header is present", async () => {
+test("backs off exponentially with jitter when no Retry-After header is present", async () => {
   vi.useFakeTimers()
   try {
     let operationCalls = 0
@@ -257,13 +257,19 @@ test("backs off exponentially (400ms, then 800ms) when no Retry-After header is 
         return value
       })
 
-    // 1st failure -> wait 2**1*200 = 400ms before the 2nd attempt
-    await vi.advanceTimersByTimeAsync(400)
-    // 2nd attempt fails too -> wait 2**2*200 = 800ms before the 3rd attempt,
-    // so we should still be waiting right after the first backoff elapses
+    // Backoff #1 is jittered to 50%-100% of 2**1*200 = 400ms, i.e. a value
+    // in [200, 400). 199ms is below that guaranteed minimum, so the retry
+    // timer cannot have fired yet no matter how the jitter rolled.
+    await vi.advanceTimersByTimeAsync(199)
     expect(resolved).toBe(false)
 
-    await vi.advanceTimersByTimeAsync(800)
+    // Backoff #2 (after the 2nd attempt also fails) is jittered to
+    // 50%-100% of 2**2*200 = 800ms, i.e. a value in [400, 800). Even in the
+    // worst case (both backoffs near their unjittered max), total elapsed
+    // time before the 3rd attempt fires is strictly less than 400 + 800 =
+    // 1200ms. Advancing well past that guarantees completion regardless of
+    // how the jitter rolled.
+    await vi.advanceTimersByTimeAsync(1200)
     expect(resolved).toBe(true)
 
     expect(await promise).toEqual({ done: true })
