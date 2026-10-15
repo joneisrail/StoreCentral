@@ -227,3 +227,55 @@ test("scheduleReconciliation adds a repeatable job to the given queue", async ()
     { repeat: { every: 60_000 } }
   )
 })
+
+test("one listing whose Medusa variant no longer exists doesn't stop the rest of the scan from being reconciled", async () => {
+  const accountId = await createIntegrationAccount()
+  // Rows are scanned in insertion order (ORDER BY created_at, id), so the
+  // good row sits between two bad ones: it's only reconciled if the scan
+  // survives the first bad row, and the second bad row proves isolation
+  // holds for rows after it too.
+  const badBefore = await insertChannelListing({
+    accountId,
+    variantId: "variant_DELETED_BEFORE_" + Date.now(),
+    lastSyncedQuantity: 1,
+    lastSyncedPrice: 10,
+  })
+  const good = await insertChannelListing({
+    accountId,
+    variantId: inventoryVariantId,
+    lastSyncedQuantity: realInventoryQuantity + 5,
+  })
+  const badAfter = await insertChannelListing({
+    accountId,
+    variantId: "variant_DELETED_AFTER_" + Date.now(),
+    lastSyncedQuantity: 1,
+  })
+  const inventoryQueue = { add: vi.fn() } as unknown as Queue
+  const priceQueue = { add: vi.fn() } as unknown as Queue
+  const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+
+  try {
+    const result = await reconcile({
+      pool,
+      medusaClient,
+      integrationAccountId: accountId,
+      inventoryQueue,
+      priceQueue,
+    })
+
+    expect(result.driftFound).toBe(1)
+    // badBefore: inventory + price checks; badAfter: inventory check.
+    expect(result.failedChecks).toBe(3)
+    expect(inventoryQueue.add).toHaveBeenCalledTimes(1)
+    expect(inventoryQueue.add).toHaveBeenCalledWith("reconcile", {
+      channelListingId: good,
+    })
+    expect(priceQueue.add).not.toHaveBeenCalled()
+
+    const loggedListingIds = errorSpy.mock.calls.map((call) => String(call[0]))
+    expect(loggedListingIds.some((msg) => msg.includes(badBefore))).toBe(true)
+    expect(loggedListingIds.some((msg) => msg.includes(badAfter))).toBe(true)
+  } finally {
+    errorSpy.mockRestore()
+  }
+})

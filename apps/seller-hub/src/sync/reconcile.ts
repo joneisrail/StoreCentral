@@ -49,41 +49,76 @@ type ChannelListingRow = {
  */
 export const reconcile = async (
   deps: ReconcileDeps
-): Promise<{ driftFound: number }> => {
+): Promise<{ driftFound: number; failedChecks: number }> => {
   const { pool, medusaClient, integrationAccountId, inventoryQueue, priceQueue } =
     deps
 
   const { rows } = await pool.query<ChannelListingRow>(
     `SELECT id, medusa_variant_id, price_rule, last_synced_quantity, last_synced_price
      FROM seller_hub.channel_listing
-     WHERE integration_account_id = $1`,
+     WHERE integration_account_id = $1
+     ORDER BY created_at, id`,
     [integrationAccountId]
   )
 
   let driftFound = 0
+  let failedChecks = 0
 
-  for (const row of rows) {
-    if (row.last_synced_quantity !== null) {
-      const inventory = await medusaClient.getVariantInventory(
-        row.medusa_variant_id
+  // Each check is isolated in its own try/catch: one listing whose Medusa
+  // variant was deleted, or has no price set, must not abort the scan for
+  // every listing after it. Without this, such a row throws on *every*
+  // scheduled run (the row order is stable), permanently starving the rest
+  // of the account's listings of reconciliation -- and every BullMQ retry of
+  // the failed scan job re-enqueues duplicate corrective jobs for the rows
+  // processed before it. Inventory and price are isolated from each other
+  // too, so e.g. a variant with no price still gets its stock reconciled.
+  // A failed check is logged and retried naturally on the next scheduled
+  // scan; the scan itself still succeeds.
+  const runCheck = async (
+    row: ChannelListingRow,
+    kind: "inventory" | "price",
+    check: () => Promise<void>
+  ): Promise<void> => {
+    try {
+      await check()
+    } catch (err) {
+      failedChecks++
+      console.error(
+        `[reconcile] ${kind} check failed for channel_listing ${row.id} ` +
+          `(variant ${row.medusa_variant_id}); skipping it this run:`,
+        err
       )
-      if (inventory.quantity !== row.last_synced_quantity) {
-        await inventoryQueue.add("reconcile", { channelListingId: row.id })
-        driftFound++
-      }
-    }
-
-    if (row.last_synced_price !== null) {
-      const pricing = await medusaClient.getVariantPricing(row.medusa_variant_id)
-      const expectedAmount = applyPriceRule(pricing.amount, row.price_rule)
-      if (expectedAmount !== Number(row.last_synced_price)) {
-        await priceQueue.add("reconcile", { channelListingId: row.id })
-        driftFound++
-      }
     }
   }
 
-  return { driftFound }
+  for (const row of rows) {
+    if (row.last_synced_quantity !== null) {
+      await runCheck(row, "inventory", async () => {
+        const inventory = await medusaClient.getVariantInventory(
+          row.medusa_variant_id
+        )
+        if (inventory.quantity !== row.last_synced_quantity) {
+          await inventoryQueue.add("reconcile", { channelListingId: row.id })
+          driftFound++
+        }
+      })
+    }
+
+    if (row.last_synced_price !== null) {
+      await runCheck(row, "price", async () => {
+        const pricing = await medusaClient.getVariantPricing(
+          row.medusa_variant_id
+        )
+        const expectedAmount = applyPriceRule(pricing.amount, row.price_rule)
+        if (expectedAmount !== Number(row.last_synced_price)) {
+          await priceQueue.add("reconcile", { channelListingId: row.id })
+          driftFound++
+        }
+      })
+    }
+  }
+
+  return { driftFound, failedChecks }
 }
 
 /**
