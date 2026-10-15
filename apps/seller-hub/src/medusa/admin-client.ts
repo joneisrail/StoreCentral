@@ -29,6 +29,19 @@ export type VariantInventory = {
   quantity: number
 }
 
+type InventoryItemWithLevelsAndVariants = {
+  id: string
+  location_levels?: { id: string }[]
+  variants?: { id: string }[]
+}
+
+// Caps `findVariantIdByInventoryLevelId`'s page scan (see its doc comment) so
+// an inventory_level id that matches nothing can't page through the whole
+// catalog forever. 10 pages of 200 covers 2,000 inventory items, comfortably
+// above this single-tenant service's expected catalog size.
+const INVENTORY_ITEM_PAGE_SIZE = 200
+const MAX_INVENTORY_ITEM_PAGES = 10
+
 /**
  * Thin HTTP wrapper around Medusa's Admin API, scoped to exactly what
  * seller-hub needs: logging in as the dedicated admin user, and
@@ -250,6 +263,62 @@ export class MedusaAdminClient {
     }
 
     return { quantity: variant.inventory_quantity ?? 0 }
+  }
+
+  /**
+   * Resolves a Medusa `inventory_level` id -- the id Medusa's
+   * "inventory-level.updated" event carries, and the only thing the
+   * seller-hub webhook receiver gets to enqueue an inventory-sync job with
+   * (see `webhook/server.ts`) -- back to the id of the Medusa product
+   * variant that inventory level belongs to.
+   *
+   * There's no Admin API route or filter that goes directly from a
+   * location-level's own id to its owning variant: `/admin/inventory-items`
+   * (confirmed against this version's `AdminGetInventoryItemsParamsFields`)
+   * only supports filtering its nested `location_levels` by `location_id`,
+   * not by the level's own `id`, and the dedicated location-levels routes
+   * are all nested under a specific `:id` (inventory item) path segment we
+   * don't have. So, like `findOrderByMetadata` above (which hits the same
+   * kind of gap for order lookup-by-metadata), this pages through inventory
+   * items -- each with its `location_levels` and linked `variants`, both
+   * valid relation projections per this version's joiner config -- until it
+   * finds the one owning `inventoryLevelId`, capped at
+   * `MAX_INVENTORY_ITEM_PAGES` pages so a never-matching id can't page
+   * forever.
+   *
+   * Returns `null` if no inventory item owning this level id is found
+   * within that cap, or if the matching item has no linked variant.
+   */
+  async findVariantIdByInventoryLevelId(
+    inventoryLevelId: string
+  ): Promise<string | null> {
+    for (let page = 0; page < MAX_INVENTORY_ITEM_PAGES; page++) {
+      const offset = page * INVENTORY_ITEM_PAGE_SIZE
+      const response = await this.authedFetch(
+        `/admin/inventory-items?limit=${INVENTORY_ITEM_PAGE_SIZE}&offset=${offset}` +
+          `&fields=id,*location_levels.id,*variants.id`
+      )
+      const body = (await response.json()) as {
+        inventory_items: InventoryItemWithLevelsAndVariants[]
+        count: number
+      }
+
+      const match = body.inventory_items.find((item) =>
+        item.location_levels?.some((level) => level.id === inventoryLevelId)
+      )
+      if (match) {
+        return match.variants?.[0]?.id ?? null
+      }
+
+      const itemsSeenSoFar = offset + body.inventory_items.length
+      if (
+        body.inventory_items.length < INVENTORY_ITEM_PAGE_SIZE ||
+        itemsSeenSoFar >= body.count
+      ) {
+        break
+      }
+    }
+    return null
   }
 
   /**

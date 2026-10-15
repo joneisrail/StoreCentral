@@ -319,3 +319,52 @@ test("getVariantInventory throws for a variant id that doesn't exist", async () 
     client.getVariantInventory("variant_does_not_exist")
   ).rejects.toThrow(/not found/i)
 })
+
+test("findVariantIdByInventoryLevelId resolves a real inventory level id to its owning variant", async () => {
+  // Discovers `pricingVariantId`'s own inventory level id directly against
+  // the real backend, independently of the method under test, so this
+  // assertion isn't circular.
+  const inventoryItemsResponse = await fetch(
+    `${BASE_URL}/admin/inventory-items?limit=100&fields=id,*location_levels.id,*variants.id`,
+    { headers: authHeaders }
+  )
+  const { inventory_items } = (await inventoryItemsResponse.json()) as {
+    inventory_items: {
+      location_levels?: { id: string }[]
+      variants?: { id: string }[]
+    }[]
+  }
+  const item = inventory_items.find((candidate) =>
+    candidate.variants?.some((variant) => variant.id === pricingVariantId)
+  )
+  const levelId = item?.location_levels?.[0]?.id
+  if (!levelId) {
+    throw new Error(
+      `No inventory location level found for variant ${pricingVariantId}.`
+    )
+  }
+
+  const client = new MedusaAdminClient({
+    baseUrl: BASE_URL,
+    email: ADMIN_EMAIL,
+    password: ADMIN_PASSWORD,
+  })
+
+  const resolvedVariantId = await client.findVariantIdByInventoryLevelId(levelId)
+
+  expect(resolvedVariantId).toBe(pricingVariantId)
+})
+
+test("findVariantIdByInventoryLevelId returns null for an inventory level id that doesn't exist", async () => {
+  const client = new MedusaAdminClient({
+    baseUrl: BASE_URL,
+    email: ADMIN_EMAIL,
+    password: ADMIN_PASSWORD,
+  })
+
+  const resolvedVariantId = await client.findVariantIdByInventoryLevelId(
+    "ilev_does_not_exist"
+  )
+
+  expect(resolvedVariantId).toBeNull()
+})
