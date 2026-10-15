@@ -42,40 +42,66 @@ export const createWebhookServer = (
     })
 
     req.on("end", () => {
-      let body: MedusaWebhookBody
-      try {
-        body = JSON.parse(rawBody)
-      } catch {
-        respondBadRequest(res, "Malformed JSON body")
-        return
-      }
-
-      if (typeof body.event !== "string" || !body.event) {
-        respondBadRequest(res, "Missing required field: event")
-        return
-      }
-      if (typeof body.data?.id !== "string" || !body.data.id) {
-        respondBadRequest(res, "Missing required field: data.id")
-        return
-      }
-
-      try {
-        routeEvent(body, { inventoryQueue, priceQueue })
-      } catch (err) {
-        // A failure to enqueue (e.g. Redis unreachable) must not crash this
-        // process -- log it and still ack the webhook so Medusa doesn't
-        // retry a request whose only problem is seller-hub's own queue.
-        console.error(
-          `[webhook] failed to enqueue job for event "${body.event}":`,
-          err
-        )
-      }
-
-      res.writeHead(200, { "Content-Type": "application/json" }).end(
-        JSON.stringify({ received: true })
-      )
+      void handleRequestBody(rawBody, res, { inventoryQueue, priceQueue })
     })
   })
+}
+
+/**
+ * Parses and validates a raw request body, then routes it, responding
+ * `400`/`200` as appropriate. Pulled out of the `req.on("end", ...)`
+ * handler so it can be `async` and `await` `routeEvent`'s queue writes --
+ * without that, a rejecting `Queue#add()` call (e.g. Redis unreachable)
+ * would become an unhandled promise rejection and crash the process,
+ * exactly the hazard this file exists to avoid.
+ */
+const handleRequestBody = async (
+  rawBody: string,
+  res: http.ServerResponse,
+  queues: CreateWebhookServerDeps
+): Promise<void> => {
+  let body: unknown
+  try {
+    body = JSON.parse(rawBody)
+  } catch {
+    respondBadRequest(res, "Malformed JSON body")
+    return
+  }
+
+  // `JSON.parse` happily accepts `null`, `42`, `"a string"`, `[1,2]`, etc. --
+  // all valid JSON, none of them an object we can read `.event`/`.data` off
+  // of without throwing.
+  if (typeof body !== "object" || body === null) {
+    respondBadRequest(res, "Request body must be a JSON object")
+    return
+  }
+
+  const webhookBody = body as MedusaWebhookBody
+
+  if (typeof webhookBody.event !== "string" || !webhookBody.event) {
+    respondBadRequest(res, "Missing required field: event")
+    return
+  }
+  if (typeof webhookBody.data?.id !== "string" || !webhookBody.data.id) {
+    respondBadRequest(res, "Missing required field: data.id")
+    return
+  }
+
+  try {
+    await routeEvent(webhookBody, queues)
+  } catch (err) {
+    // A failure to enqueue (e.g. Redis unreachable) must not crash this
+    // process -- log it and still ack the webhook so Medusa doesn't retry a
+    // request whose only problem is seller-hub's own queue.
+    console.error(
+      `[webhook] failed to enqueue job for event "${webhookBody.event}":`,
+      err
+    )
+  }
+
+  res.writeHead(200, { "Content-Type": "application/json" }).end(
+    JSON.stringify({ received: true })
+  )
 }
 
 // Confirmed empirically against a real running Medusa backend (Task 9
@@ -99,21 +125,21 @@ const PRICE_EVENT_PREFIX = "product-variant."
  * forward-compatible no-op (ignored, not an error) -- see `createWebhookServer`'s
  * doc comment.
  */
-const routeEvent = (
+const routeEvent = async (
   body: MedusaWebhookBody,
   queues: CreateWebhookServerDeps
-): void => {
+): Promise<void> => {
   const { event, data } = body
 
   if (event.startsWith(INVENTORY_EVENT_PREFIX)) {
     console.log(`[webhook] received "${event}" -- enqueuing inventory sync`)
-    queues.inventoryQueue.add(event, { inventoryLevelId: data.id })
+    await queues.inventoryQueue.add(event, { inventoryLevelId: data.id })
     return
   }
 
   if (event.startsWith(PRICE_EVENT_PREFIX)) {
     console.log(`[webhook] received "${event}" -- enqueuing price sync`)
-    queues.priceQueue.add(event, { variantId: data.id })
+    await queues.priceQueue.add(event, { variantId: data.id })
     return
   }
 
