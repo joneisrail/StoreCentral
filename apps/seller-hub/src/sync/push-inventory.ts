@@ -49,6 +49,7 @@ export const pushInventoryUpdate = async (
   } = deps
 
   const syncJobId = await claimSyncJob(pool, integrationAccountId, channelListingId)
+  let pushedQuantity: number | undefined
 
   try {
     const listing = await fetchChannelListing(
@@ -65,6 +66,7 @@ export const pushInventoryUpdate = async (
     const inventory = await medusaClient.getVariantInventory(
       listing.medusa_variant_id
     )
+    pushedQuantity = inventory.quantity
 
     await submitListingFeed(spApiClient, {
       sku: listing.external_sku,
@@ -73,11 +75,26 @@ export const pushInventoryUpdate = async (
     })
 
     await markSyncJobSucceeded(pool, syncJobId)
-    await recordLastSyncedQuantity(pool, channelListingId, inventory.quantity)
   } catch (err) {
     const toThrow = classifySyncError(err)
     await markSyncJobFailed(pool, syncJobId, toThrow.message)
     throw toThrow
+  }
+
+  // By this point the Amazon push and the sync_job "succeeded" write have
+  // both genuinely completed. Recording last_synced_quantity is best-effort
+  // bookkeeping for Task 11's `reconcile` baseline only -- a failure here
+  // must not be allowed to flip sync_job back to "failed" for a push that
+  // actually succeeded, so it's deliberately outside the try/catch above
+  // and swallows its own errors (logged, not rethrown).
+  try {
+    await recordLastSyncedQuantity(pool, channelListingId, pushedQuantity!)
+  } catch (err) {
+    console.error(
+      `[push-inventory] push to Amazon succeeded, but failed to record ` +
+        `last_synced_quantity for channel_listing ${channelListingId}:`,
+      err
+    )
   }
 }
 

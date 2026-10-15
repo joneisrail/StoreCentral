@@ -54,6 +54,7 @@ export const pushPriceUpdate = async (
   } = deps
 
   const syncJobId = await claimSyncJob(pool, integrationAccountId, channelListingId)
+  let pushedAmount: number | undefined
 
   try {
     const listing = await fetchChannelListing(
@@ -71,6 +72,7 @@ export const pushPriceUpdate = async (
       listing.medusa_variant_id
     )
     const amount = applyPriceRule(pricing.amount, listing.price_rule)
+    pushedAmount = amount
 
     await submitPriceUpdate(spApiClient, {
       sku: listing.external_sku,
@@ -79,11 +81,26 @@ export const pushPriceUpdate = async (
     })
 
     await markSyncJobSucceeded(pool, syncJobId)
-    await recordLastSyncedPrice(pool, channelListingId, amount)
   } catch (err) {
     const toThrow = classifySyncError(err)
     await markSyncJobFailed(pool, syncJobId, toThrow.message)
     throw toThrow
+  }
+
+  // By this point the Amazon push and the sync_job "succeeded" write have
+  // both genuinely completed. Recording last_synced_price is best-effort
+  // bookkeeping for Task 11's `reconcile` baseline only -- a failure here
+  // must not be allowed to flip sync_job back to "failed" for a push that
+  // actually succeeded, so it's deliberately outside the try/catch above
+  // and swallows its own errors (logged, not rethrown).
+  try {
+    await recordLastSyncedPrice(pool, channelListingId, pushedAmount!)
+  } catch (err) {
+    console.error(
+      `[push-price] push to Amazon succeeded, but failed to record ` +
+        `last_synced_price for channel_listing ${channelListingId}:`,
+      err
+    )
   }
 }
 

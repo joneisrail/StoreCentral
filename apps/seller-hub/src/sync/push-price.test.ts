@@ -147,6 +147,56 @@ test("pushPriceUpdate applies a percentage markup from channel_listing.price_rul
   expect(Number(listingRows[0].last_synced_price)).toBe(32.99)
 })
 
+test("pushPriceUpdate keeps sync_job 'succeeded' even if recording last_synced_price fails", async () => {
+  await setVariantPrice(productId, variantId, 29.99)
+  const channelListingId = await insertChannelListing({
+    type: "percentage",
+    value: 10,
+  })
+  const fakeSpApiClient = makeFakeSpApiClient()
+  // Delegates every query to the real pool except the UPDATE that records
+  // last_synced_price, which it fails -- simulating a DB hiccup that happens
+  // strictly after the Amazon push (and the sync_job "succeeded" write)
+  // already went through for real.
+  const poolThatFailsLastSyncedWrite = {
+    query: (text: string, params?: unknown[]) => {
+      if (typeof text === "string" && text.includes("SET last_synced_price")) {
+        return Promise.reject(new Error("simulated DB failure"))
+      }
+      return pool.query(text, params as never[])
+    },
+  } as unknown as Pool
+
+  const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+  try {
+    await pushPriceUpdate({
+      pool: poolThatFailsLastSyncedWrite,
+      medusaClient,
+      spApiClient: fakeSpApiClient as unknown as SpApiClient,
+      integrationAccountId,
+      channelListingId,
+    })
+
+    expect(errorSpy).toHaveBeenCalledTimes(1)
+  } finally {
+    errorSpy.mockRestore()
+  }
+
+  const { rows } = await pool.query(
+    `SELECT status, last_error FROM seller_hub.sync_job
+     WHERE integration_account_id = $1 AND sync_type = 'price' AND external_id = $2`,
+    [integrationAccountId, channelListingId]
+  )
+  expect(rows[0].status).toBe("succeeded")
+  expect(rows[0].last_error).toBeNull()
+
+  const { rows: listingRows } = await pool.query(
+    `SELECT last_synced_price FROM seller_hub.channel_listing WHERE id = $1`,
+    [channelListingId]
+  )
+  expect(listingRows[0].last_synced_price).toBeNull()
+})
+
 test("pushPriceUpdate applies a fixed price override from channel_listing.price_rule", async () => {
   await setVariantPrice(productId, variantId, 50)
   const channelListingId = await insertChannelListing({

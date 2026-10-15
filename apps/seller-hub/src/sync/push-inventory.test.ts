@@ -134,6 +134,52 @@ test("pushInventoryUpdate submits the real Medusa stock quantity via submitListi
   expect(listingRows[0].last_synced_quantity).toBe(realInventoryQuantity)
 })
 
+test("pushInventoryUpdate keeps sync_job 'succeeded' even if recording last_synced_quantity fails", async () => {
+  const channelListingId = await insertChannelListing("B00TESTASIN_DRIFT")
+  const fakeSpApiClient = makeFakeSpApiClient()
+  // Delegates every query to the real pool except the UPDATE that records
+  // last_synced_quantity, which it fails -- simulating a DB hiccup that
+  // happens strictly after the Amazon push (and the sync_job "succeeded"
+  // write) already went through for real.
+  const poolThatFailsLastSyncedWrite = {
+    query: (text: string, params?: unknown[]) => {
+      if (typeof text === "string" && text.includes("SET last_synced_quantity")) {
+        return Promise.reject(new Error("simulated DB failure"))
+      }
+      return pool.query(text, params as never[])
+    },
+  } as unknown as Pool
+
+  const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+  try {
+    await pushInventoryUpdate({
+      pool: poolThatFailsLastSyncedWrite,
+      medusaClient,
+      spApiClient: fakeSpApiClient as unknown as SpApiClient,
+      integrationAccountId,
+      channelListingId,
+    })
+
+    expect(errorSpy).toHaveBeenCalledTimes(1)
+  } finally {
+    errorSpy.mockRestore()
+  }
+
+  const { rows } = await pool.query(
+    `SELECT status, last_error FROM seller_hub.sync_job
+     WHERE integration_account_id = $1 AND sync_type = 'inventory' AND external_id = $2`,
+    [integrationAccountId, channelListingId]
+  )
+  expect(rows[0].status).toBe("succeeded")
+  expect(rows[0].last_error).toBeNull()
+
+  const { rows: listingRows } = await pool.query(
+    `SELECT last_synced_quantity FROM seller_hub.channel_listing WHERE id = $1`,
+    [channelListingId]
+  )
+  expect(listingRows[0].last_synced_quantity).toBeNull()
+})
+
 test("pushInventoryUpdate works without an external_asin (sku-only listing)", async () => {
   const channelListingId = await insertChannelListing(undefined)
   const fakeSpApiClient = makeFakeSpApiClient()
