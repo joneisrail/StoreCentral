@@ -162,13 +162,22 @@ const claimSyncJob = async (
 /**
  * Classifies a caught error per this task's retry convention (shared,
  * identically, by `push-inventory.ts` and `push-product.ts`):
- * - A 4xx-class HTTP failure (from the SP-API client's or Medusa admin
- *   client's own error message, both of which embed the status code — see
- *   `sp-api/client.ts`'s `SP-API request "..." failed with status ${status}`
- *   and `medusa/admin-client.ts`'s equivalent — or the brief's own simpler
+ * - A 4xx-class HTTP failure *other than 429* (from the SP-API client's or
+ *   Medusa admin client's own error message, both of which embed the status
+ *   code — see `sp-api/client.ts`'s
+ *   `SP-API request "..." failed with status ${status}` and
+ *   `medusa/admin-client.ts`'s equivalent — or the brief's own simpler
  *   `"400: ..."`-shaped test fixture) is wrapped as `PermanentSyncError`,
  *   since retrying an identical request that Amazon/Medusa already
  *   rejected as invalid cannot succeed.
+ * - 429 (rate limit) and 5xx are transient per the plan's Global
+ *   Constraint ("transient errors (429, 5xx) retry with exponential
+ *   backoff + jitter, capped attempts; permanent errors (4xx validation)
+ *   fail immediately") even though 429 is numerically a 4xx — it means
+ *   "you were throttled," not "this request is invalid." `sp-api/client.ts`
+ *   itself already retries 429/5xx up to its own `MAX_ATTEMPTS`; once that
+ *   is exhausted, re-throwing as-is here lets Task 7's BullMQ-level
+ *   retry/backoff keep trying later instead of killing the job permanently.
  * - Anything else (a `PermanentSyncError` thrown earlier in this same
  *   function, e.g. for a missing `channel_listing` row, is passed through
  *   unchanged; everything else is assumed transient) is re-thrown as-is, so
@@ -180,7 +189,7 @@ const classifySyncError = (err: unknown): Error => {
   }
   if (err instanceof Error) {
     const status = extractHttpStatus(err.message)
-    if (status !== null && status >= 400 && status <= 499) {
+    if (status !== null && status >= 400 && status <= 499 && status !== 429) {
       return new PermanentSyncError(err.message)
     }
     return err

@@ -52,6 +52,11 @@ const POLL_INTERVAL_MS = 25
  *   network error) is *not* a confirmed rejection — the listing is left at
  *   `pending` (not forced to `rejected`) and the original error is
  *   re-thrown unchanged, so Task 7's worker retries the whole push later.
+ * - `sync_job` is marked failed exactly once, from the single `catch`
+ *   block below, for every failure path (missing `channel_listing`,
+ *   CANCELLED/FATAL, or a transient error) — there is no early-return
+ *   special case, so no path can skip it and leave `sync_job` stuck at
+ *   `processing`.
  */
 export const pushProductListing = async (
   deps: PushProductListingDeps
@@ -103,28 +108,25 @@ export const pushProductListing = async (
       return
     }
 
-    // CANCELLED | FATAL: a confirmed, terminal rejection from Amazon.
+    // CANCELLED | FATAL: a confirmed, terminal rejection from Amazon. Only
+    // channel_listing is updated here — sync_job is marked failed exactly
+    // once, from the catch block below, for every failure path.
     const errorMessage =
       result.errors?.join("; ") ??
       `Feed ${feedId} ended with status ${result.status}`
     await setChannelListingStatus(pool, channelListingId, "rejected", errorMessage)
-    await markSyncJobFailed(pool, syncJobId, errorMessage)
     throw new PermanentSyncError(errorMessage)
   } catch (err) {
-    if (err instanceof PermanentSyncError) {
-      // Already recorded on both channel_listing and sync_job above (the
-      // "not found" branch and the CANCELLED/FATAL branch both do so before
-      // throwing) — just propagate.
-      throw err
-    }
-
     const toThrow = classifySyncError(err)
     await markSyncJobFailed(pool, syncJobId, toThrow.message)
-    // Deliberately does NOT move channel_listing to 'rejected' here: this
-    // is a transient SP-API/Medusa failure (or a non-4xx error), not a
-    // confirmed bad feed outcome, so the listing is left at whatever status
-    // it already reached ('pending', if the submission itself is what
-    // failed) for the worker's retry to pick back up.
+    // Deliberately does NOT move channel_listing to 'rejected' here: only
+    // the CANCELLED/FATAL branch above (which already sets channel_listing
+    // to 'rejected' before throwing) represents a confirmed bad feed
+    // outcome. Every other failure (missing channel_listing, a transient
+    // SP-API/Medusa error) leaves channel_listing at whatever status it
+    // already reached ('pending', if the submission itself is what failed,
+    // or unchanged if the row was never found) for the worker's retry to
+    // pick back up.
     throw toThrow
   }
 }
@@ -205,13 +207,16 @@ const claimSyncJob = async (
 
 // See `push-price.ts`'s `classifySyncError`/`extractHttpStatus` for the
 // full rationale — identical convention, duplicated per file on purpose.
+// Note: 429 is excluded from the permanent-error bucket despite being a
+// 4xx status — it's a transient throttling signal, not an invalid-request
+// rejection (see the plan's Global Constraint cited in push-price.ts).
 const classifySyncError = (err: unknown): Error => {
   if (err instanceof PermanentSyncError) {
     return err
   }
   if (err instanceof Error) {
     const status = extractHttpStatus(err.message)
-    if (status !== null && status >= 400 && status <= 499) {
+    if (status !== null && status >= 400 && status <= 499 && status !== 429) {
       return new PermanentSyncError(err.message)
     }
     return err

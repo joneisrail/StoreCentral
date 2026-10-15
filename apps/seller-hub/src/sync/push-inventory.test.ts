@@ -186,3 +186,21 @@ test("pushInventoryUpdate rethrows the original error for a transient SP-API fai
   await expect(rejection).rejects.toThrow(/500/)
   await expect(rejection).rejects.not.toBeInstanceOf(PermanentSyncError)
 })
+
+test("pushInventoryUpdate rethrows the original error (not PermanentSyncError) for a 429, so the worker retries instead of treating throttling as permanent", async () => {
+  const channelListingId = await insertChannelListing("B00TESTASIN4")
+  const fakeSpApiClient = {
+    request: vi.fn().mockRejectedValue(new Error("429: rate limited")),
+  }
+
+  const rejection = pushInventoryUpdate({
+    pool,
+    medusaClient,
+    spApiClient: fakeSpApiClient as unknown as SpApiClient,
+    integrationAccountId,
+    channelListingId,
+  })
+
+  await expect(rejection).rejects.toThrow(/429/)
+  await expect(rejection).rejects.not.toBeInstanceOf(PermanentSyncError)
+})

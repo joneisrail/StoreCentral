@@ -225,6 +225,36 @@ test("pushPriceUpdate rethrows the original error (not PermanentSyncError) for a
   expect(rows[0].last_error).toContain("503")
 })
 
+test("pushPriceUpdate rethrows the original error (not PermanentSyncError) for a 429, so the worker retries instead of treating throttling as permanent", async () => {
+  await setVariantPrice(productId, variantId, 10)
+  const channelListingId = await insertChannelListing({
+    type: "percentage",
+    value: 5,
+  })
+  const fakeSpApiClient = {
+    request: vi.fn().mockRejectedValue(new Error("429: rate limited")),
+  }
+
+  const rejection = pushPriceUpdate({
+    pool,
+    medusaClient,
+    spApiClient: fakeSpApiClient as unknown as SpApiClient,
+    integrationAccountId,
+    channelListingId,
+  })
+
+  await expect(rejection).rejects.toThrow(/429/)
+  await expect(rejection).rejects.not.toBeInstanceOf(PermanentSyncError)
+
+  const { rows } = await pool.query(
+    `SELECT status, last_error FROM seller_hub.sync_job
+     WHERE integration_account_id = $1 AND sync_type = 'price' AND external_id = $2`,
+    [integrationAccountId, channelListingId]
+  )
+  expect(rows[0].status).toBe("failed")
+  expect(rows[0].last_error).toContain("429")
+})
+
 test("pushPriceUpdate throws a PermanentSyncError when the channel_listing row doesn't exist", async () => {
   const fakeSpApiClient = makeFakeSpApiClient()
 

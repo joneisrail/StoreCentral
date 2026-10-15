@@ -249,6 +249,32 @@ test("pushProductListing lands on rejected when the feed is CANCELLED", async ()
   expect(after.status).toBe("rejected")
 })
 
+test("pushProductListing throws a PermanentSyncError and marks sync_job failed (not stuck at processing) when the channel_listing row doesn't exist", async () => {
+  const fakeSpApiClient = {
+    request: vi.fn(),
+  }
+  const missingChannelListingId = "00000000-0000-0000-0000-000000000000"
+
+  await expect(
+    pushProductListing({
+      pool,
+      medusaClient,
+      spApiClient: fakeSpApiClient as unknown as SpApiClient,
+      integrationAccountId,
+      channelListingId: missingChannelListingId,
+    })
+  ).rejects.toThrow(PermanentSyncError)
+
+  expect(fakeSpApiClient.request).not.toHaveBeenCalled()
+
+  // Regression guard: sync_job must not be left at 'processing' forever —
+  // it must be marked 'failed' even though channel_listing was never found
+  // (so there's no row to update there).
+  const syncJob = await getSyncJob(missingChannelListingId)
+  expect(syncJob.status).toBe("failed")
+  expect(syncJob.last_error).toContain(missingChannelListingId)
+})
+
 test("pushProductListing rethrows the original error (not PermanentSyncError) when submitListingFeed fails transiently, so the worker retries", async () => {
   const channelListingId = await insertChannelListing()
 
@@ -270,6 +296,31 @@ test("pushProductListing rethrows the original error (not PermanentSyncError) wh
   // Moved to 'pending' before the failed submission attempt, and stays
   // there (not forced to 'rejected') since this is a transient failure the
   // worker will retry, not a terminal feed outcome.
+  const after = await getChannelListing(channelListingId)
+  expect(after.status).toBe("pending")
+
+  const syncJob = await getSyncJob(channelListingId)
+  expect(syncJob.status).toBe("failed")
+})
+
+test("pushProductListing rethrows the original error (not PermanentSyncError) when submitListingFeed fails with a 429, so the worker retries instead of treating throttling as permanent", async () => {
+  const channelListingId = await insertChannelListing()
+
+  const fakeSpApiClient = {
+    request: vi.fn().mockRejectedValue(new Error("429: rate limited")),
+  }
+
+  const rejection = pushProductListing({
+    pool,
+    medusaClient,
+    spApiClient: fakeSpApiClient as unknown as SpApiClient,
+    integrationAccountId,
+    channelListingId,
+  })
+
+  await expect(rejection).rejects.toThrow(/429/)
+  await expect(rejection).rejects.not.toBeInstanceOf(PermanentSyncError)
+
   const after = await getChannelListing(channelListingId)
   expect(after.status).toBe("pending")
 

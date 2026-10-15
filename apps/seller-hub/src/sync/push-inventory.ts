@@ -117,13 +117,16 @@ const claimSyncJob = async (
 
 // See `push-price.ts`'s `classifySyncError`/`extractHttpStatus` for the
 // full rationale — identical convention, duplicated per file on purpose.
+// Note: 429 is excluded from the permanent-error bucket despite being a
+// 4xx status — it's a transient throttling signal, not an invalid-request
+// rejection (see the plan's Global Constraint cited in push-price.ts).
 const classifySyncError = (err: unknown): Error => {
   if (err instanceof PermanentSyncError) {
     return err
   }
   if (err instanceof Error) {
     const status = extractHttpStatus(err.message)
-    if (status !== null && status >= 400 && status <= 499) {
+    if (status !== null && status >= 400 && status <= 499 && status !== 429) {
       return new PermanentSyncError(err.message)
     }
     return err
