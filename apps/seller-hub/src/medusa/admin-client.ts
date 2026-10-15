@@ -186,6 +186,25 @@ export class MedusaAdminClient {
   }
 
   /**
+   * Looks up a sales channel's id by its exact `name` (e.g. `"Amazon"`),
+   * used by `apps/seller-hub/src/index.ts`'s order-sync worker to resolve
+   * the `salesChannelId` `importAmazonOrder` needs. Uses this class's own
+   * `authedFetch` -- its cached bearer token and 401-retry-once behavior --
+   * rather than a separate login/fetch implementation, same as every other
+   * method on this class.
+   */
+  async findSalesChannelIdByName(name: string): Promise<string | null> {
+    const response = await this.authedFetch(
+      "/admin/sales-channels?limit=100&fields=id,name"
+    )
+    const body = (await response.json()) as {
+      sales_channels: { id: string; name: string }[]
+    }
+    const match = body.sales_channels.find((channel) => channel.name === name)
+    return match ? match.id : null
+  }
+
+  /**
    * Reads a variant's current price via Medusa's Admin API, in the store's
    * default currency.
    *

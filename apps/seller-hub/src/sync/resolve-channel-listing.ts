@@ -47,7 +47,14 @@ export type PriceSyncJobData =
  * empty: retrying an unmapped inventory level or variant with the exact same
  * input can't succeed until something changes on the Medusa/`channel_listing`
  * side, which looks identical to "will never succeed" from the worker's
- * point of view.
+ * point of view. Either way (and for any other error either hop raises),
+ * the failure is recorded on `seller_hub.sync_job` (sync_type `'inventory'`,
+ * `external_id` = the raw `inventoryLevelId` -- there's no `channelListingId`
+ * yet at this point, so it can't be keyed the same way `pushInventoryUpdate`'s
+ * own tracking row is) before being rethrown, so an unmapped listing -- the
+ * expected steady state for any product that exists in Medusa before it's
+ * been listed on Amazon -- is visible in the same place every other failure
+ * in this codebase is, instead of only existing in BullMQ's own job state.
  */
 export const resolveInventoryChannelListingId = async (
   data: InventorySyncJobData,
@@ -57,21 +64,32 @@ export const resolveInventoryChannelListingId = async (
     return data.channelListingId
   }
 
-  const variantId = await deps.medusaClient.findVariantIdByInventoryLevelId(
-    data.inventoryLevelId
-  )
-  if (!variantId) {
-    throw new PermanentSyncError(
-      `No Medusa variant found for inventory level ${data.inventoryLevelId}`
+  try {
+    const variantId = await deps.medusaClient.findVariantIdByInventoryLevelId(
+      data.inventoryLevelId
     )
-  }
+    if (!variantId) {
+      throw new PermanentSyncError(
+        `No Medusa variant found for inventory level ${data.inventoryLevelId}`
+      )
+    }
 
-  return resolveChannelListingIdByVariant(
-    deps.pool,
-    deps.integrationAccountId,
-    variantId,
-    `inventory level ${data.inventoryLevelId} (variant ${variantId})`
-  )
+    return await resolveChannelListingIdByVariant(
+      deps.pool,
+      deps.integrationAccountId,
+      variantId,
+      `inventory level ${data.inventoryLevelId} (variant ${variantId})`
+    )
+  } catch (err) {
+    await recordResolutionFailure(
+      deps.pool,
+      deps.integrationAccountId,
+      "inventory",
+      data.inventoryLevelId,
+      errorMessage(err)
+    )
+    throw err
+  }
 }
 
 /**
@@ -83,7 +101,12 @@ export const resolveInventoryChannelListingId = async (
  * column stores.
  *
  * Throws `PermanentSyncError` (no BullMQ retry) if the variant has no
- * `channel_listing` mapping for this integration account.
+ * `channel_listing` mapping for this integration account -- recorded on
+ * `seller_hub.sync_job` (sync_type `'price'`, `external_id` = the raw
+ * `variantId`) first, for the same reason `resolveInventoryChannelListingId`
+ * records its own failures: this is the expected steady state for any
+ * not-yet-listed product, and should be visible there like every other
+ * failure in this codebase.
  */
 export const resolvePriceChannelListingId = async (
   data: PriceSyncJobData,
@@ -93,12 +116,23 @@ export const resolvePriceChannelListingId = async (
     return data.channelListingId
   }
 
-  return resolveChannelListingIdByVariant(
-    deps.pool,
-    deps.integrationAccountId,
-    data.variantId,
-    `variant ${data.variantId}`
-  )
+  try {
+    return await resolveChannelListingIdByVariant(
+      deps.pool,
+      deps.integrationAccountId,
+      data.variantId,
+      `variant ${data.variantId}`
+    )
+  } catch (err) {
+    await recordResolutionFailure(
+      deps.pool,
+      deps.integrationAccountId,
+      "price",
+      data.variantId,
+      errorMessage(err)
+    )
+    throw err
+  }
 }
 
 const resolveChannelListingIdByVariant = async (
@@ -119,4 +153,36 @@ const resolveChannelListingIdByVariant = async (
     )
   }
   return row.id
+}
+
+const errorMessage = (err: unknown): string =>
+  err instanceof Error ? err.message : String(err)
+
+/**
+ * Claims-and-fails a `seller_hub.sync_job` row for a resolution failure, in
+ * one upsert (unlike `push-*.ts`'s claim-as-'processing'-then-mark-failed
+ * two-step, since resolution has no meaningful intermediate "processing"
+ * state worth recording -- it either resolves or it doesn't, synchronously
+ * from the caller's perspective). Keyed by `(integration_account_id,
+ * sync_type, external_id)`, same as every other `sync_job` row, but with
+ * `external_id` set to the raw `inventoryLevelId`/`variantId` rather than a
+ * `channelListingId` -- distinct from (and never colliding with) the row
+ * `pushInventoryUpdate`/`pushPriceUpdate` themselves claim once resolution
+ * succeeds, since those are keyed by `channelListingId` instead.
+ */
+const recordResolutionFailure = async (
+  pool: Pool,
+  integrationAccountId: string,
+  syncType: "inventory" | "price",
+  externalId: string,
+  error: string
+): Promise<void> => {
+  await pool.query(
+    `INSERT INTO seller_hub.sync_job
+       (integration_account_id, sync_type, external_id, status, attempts, last_error)
+     VALUES ($1, $2, $3, 'failed', 1, $4)
+     ON CONFLICT (integration_account_id, sync_type, external_id)
+     DO UPDATE SET status = 'failed', last_error = $4, attempts = seller_hub.sync_job.attempts + 1, updated_at = now()`,
+    [integrationAccountId, syncType, externalId, error]
+  )
 }

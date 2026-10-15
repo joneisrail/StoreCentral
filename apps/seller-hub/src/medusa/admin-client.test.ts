@@ -91,6 +91,32 @@ test("login caches a bearer token usable for subsequent admin calls", async () =
   // 2xx, since an unauthenticated call would 401
 })
 
+test("findSalesChannelIdByName finds the real \"Amazon\" sales channel", async () => {
+  const client = new MedusaAdminClient({
+    baseUrl: BASE_URL,
+    email: ADMIN_EMAIL,
+    password: ADMIN_PASSWORD,
+  })
+
+  const found = await client.findSalesChannelIdByName("Amazon")
+
+  expect(found).toBe(amazonSalesChannelId)
+})
+
+test("findSalesChannelIdByName returns null for a name that doesn't exist", async () => {
+  const client = new MedusaAdminClient({
+    baseUrl: BASE_URL,
+    email: ADMIN_EMAIL,
+    password: ADMIN_PASSWORD,
+  })
+
+  const found = await client.findSalesChannelIdByName(
+    "Does Not Exist " + Date.now()
+  )
+
+  expect(found).toBeNull()
+})
+
 test(
   "createDraftOrder then convertDraftOrderToOrder produces a real order",
   async () => {

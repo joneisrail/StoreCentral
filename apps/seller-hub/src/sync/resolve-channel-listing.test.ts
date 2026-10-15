@@ -49,6 +49,18 @@ const fakeMedusaClient = (
     findVariantIdByInventoryLevelId: vi.fn(findVariantIdByInventoryLevelId),
   }) as unknown as MedusaAdminClient
 
+const findSyncJob = async (
+  syncType: "inventory" | "price",
+  externalId: string
+): Promise<{ status: string; last_error: string | null } | undefined> => {
+  const { rows } = await pool.query<{ status: string; last_error: string | null }>(
+    `SELECT status, last_error FROM seller_hub.sync_job
+     WHERE integration_account_id = $1 AND sync_type = $2 AND external_id = $3`,
+    [integrationAccountId, syncType, externalId]
+  )
+  return rows[0]
+}
+
 beforeAll(async () => {
   const env = loadEnv()
   pool = createPool(env)
@@ -88,26 +100,38 @@ test("resolveInventoryChannelListingId resolves an inventoryLevelId via the vari
   expect(result).toBe(channelListingId)
 })
 
-test("resolveInventoryChannelListingId throws PermanentSyncError when the inventory level has no owning variant", async () => {
+test("resolveInventoryChannelListingId throws PermanentSyncError when the inventory level has no owning variant, and records it on sync_job", async () => {
   const medusaClient = fakeMedusaClient(async () => null)
+  const inventoryLevelId = "ilev_unmapped_" + Date.now()
 
   await expect(
     resolveInventoryChannelListingId(
-      { inventoryLevelId: "ilev_unmapped" },
+      { inventoryLevelId },
       { pool, medusaClient, integrationAccountId }
     )
   ).rejects.toThrow(PermanentSyncError)
+
+  const syncJob = await findSyncJob("inventory", inventoryLevelId)
+  expect(syncJob?.status).toBe("failed")
+  expect(syncJob?.last_error).toContain(
+    `No Medusa variant found for inventory level ${inventoryLevelId}`
+  )
 })
 
-test("resolveInventoryChannelListingId throws PermanentSyncError when the resolved variant has no channel_listing mapping", async () => {
+test("resolveInventoryChannelListingId throws PermanentSyncError when the resolved variant has no channel_listing mapping, and records it on sync_job", async () => {
   const medusaClient = fakeMedusaClient(async () => "variant_unmapped_" + Date.now())
+  const inventoryLevelId = "ilev_456_" + Date.now()
 
   await expect(
     resolveInventoryChannelListingId(
-      { inventoryLevelId: "ilev_456" },
+      { inventoryLevelId },
       { pool, medusaClient, integrationAccountId }
     )
   ).rejects.toThrow(PermanentSyncError)
+
+  const syncJob = await findSyncJob("inventory", inventoryLevelId)
+  expect(syncJob?.status).toBe("failed")
+  expect(syncJob?.last_error).toContain("No channel_listing mapping found")
 })
 
 test("resolvePriceChannelListingId passes a channelListingId through unchanged", async () => {
@@ -141,15 +165,35 @@ test("resolvePriceChannelListingId resolves a variantId directly against channel
   expect(result).toBe(channelListingId)
 })
 
-test("resolvePriceChannelListingId throws PermanentSyncError when the variant has no channel_listing mapping", async () => {
+test("resolvePriceChannelListingId throws PermanentSyncError when the variant has no channel_listing mapping, and records it on sync_job", async () => {
   const medusaClient = fakeMedusaClient(async () => {
     throw new Error("should not be called for price resolution")
   })
+  const variantId = "variant_unmapped_price_" + Date.now()
 
   await expect(
     resolvePriceChannelListingId(
-      { variantId: "variant_unmapped_price_" + Date.now() },
+      { variantId },
       { pool, medusaClient, integrationAccountId }
     )
   ).rejects.toThrow(PermanentSyncError)
+
+  const syncJob = await findSyncJob("price", variantId)
+  expect(syncJob?.status).toBe("failed")
+  expect(syncJob?.last_error).toContain("No channel_listing mapping found")
+})
+
+test("resolveInventoryChannelListingId's channelListingId passthrough never touches sync_job", async () => {
+  const medusaClient = fakeMedusaClient(async () => {
+    throw new Error("should not be called")
+  })
+  const channelListingId = "cl_direct_no_tracking_" + Date.now()
+
+  await resolveInventoryChannelListingId(
+    { channelListingId },
+    { pool, medusaClient, integrationAccountId }
+  )
+
+  const syncJob = await findSyncJob("inventory", channelListingId)
+  expect(syncJob).toBeUndefined()
 })

@@ -6,7 +6,7 @@ import {
 import { decrypt } from "./crypto/secret-box.js"
 import { createPool } from "./db/client.js"
 import { runMigrations } from "./db/migrate.js"
-import { loadEnv, type SellerHubEnv } from "./env.js"
+import { loadEnv } from "./env.js"
 import { MedusaAdminClient } from "./medusa/admin-client.js"
 import { createRedisConnection } from "./queue/connection.js"
 import { createSyncQueue, createSyncWorker } from "./queue/queues.js"
@@ -14,12 +14,11 @@ import { getOrder } from "./sp-api/orders.js"
 import { SpApiClient } from "./sp-api/client.js"
 import { SqsConsumer, type SqsClientLike } from "./sqs/consumer.js"
 import { importAmazonOrder } from "./sync/import-order.js"
-import { pushInventoryUpdate } from "./sync/push-inventory.js"
+import { processInventorySyncJob } from "./sync/inventory-sync-processor.js"
 import { pushPriceUpdate } from "./sync/push-price.js"
 import { pushProductListing } from "./sync/push-product.js"
-import { reconcile, scheduleReconciliation } from "./sync/reconcile.js"
+import { scheduleReconciliation } from "./sync/reconcile.js"
 import {
-  resolveInventoryChannelListingId,
   resolvePriceChannelListingId,
   type InventorySyncJobData,
   type PriceSyncJobData,
@@ -81,42 +80,18 @@ const resolveIntegrationAccountId = async (
  * failure (Medusa unreachable, no such channel yet) rather than throwing --
  * this is called lazily from the order-sync worker below, and a failure here
  * must fail that one job, not the whole process.
+ *
+ * Delegates to `MedusaAdminClient#findSalesChannelIdByName` rather than
+ * reimplementing a login/fetch here -- that reuses the same cached bearer
+ * token (and 401-retry-once behavior) `medusaClient` already uses for every
+ * other Medusa call this process makes, instead of a second, independent
+ * Medusa HTTP client that logs in fresh every time this is called.
  */
 const resolveAmazonSalesChannelId = async (
-  env: SellerHubEnv
+  medusaClient: MedusaAdminClient
 ): Promise<string | null> => {
   try {
-    const loginResponse = await fetch(
-      `${env.medusaBackendUrl}/auth/user/emailpass`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: env.medusaAdminEmail,
-          password: env.medusaAdminPassword,
-        }),
-      }
-    )
-    if (!loginResponse.ok) {
-      throw new Error(
-        `Medusa admin login failed with status ${loginResponse.status}`
-      )
-    }
-    const { token } = (await loginResponse.json()) as { token: string }
-
-    const channelsResponse = await fetch(
-      `${env.medusaBackendUrl}/admin/sales-channels?limit=100&fields=id,name`,
-      { headers: { Authorization: `Bearer ${token}` } }
-    )
-    if (!channelsResponse.ok) {
-      throw new Error(
-        `Medusa sales-channels lookup failed with status ${channelsResponse.status}`
-      )
-    }
-    const { sales_channels } = (await channelsResponse.json()) as {
-      sales_channels: { id: string; name: string }[]
-    }
-    return sales_channels.find((channel) => channel.name === "Amazon")?.id ?? null
+    return await medusaClient.findSalesChannelIdByName("Amazon")
   } catch (err) {
     console.error(
       "[seller-hub] failed to resolve the Amazon sales channel:",
@@ -177,6 +152,11 @@ const main = async (): Promise<void> => {
   const orderSyncQueue = createSyncQueue("order-sync", redisConnection)
   const inventorySyncQueue = createSyncQueue("inventory-sync", redisConnection)
   const priceSyncQueue = createSyncQueue("price-sync", redisConnection)
+  // No producer enqueues onto this yet -- no webhook event or reconcile path
+  // targets product-sync (only inventory/price have those). Created now
+  // anyway so `createSyncWorker("product-sync", ...)` below has a live
+  // queue to attach to; reserved for a future producer (e.g. an admin
+  // action to list/relist a product) per the brief's Task 8 scope.
   const productSyncQueue = createSyncQueue("product-sync", redisConnection)
 
   let cachedSalesChannelId: string | null = null
@@ -185,10 +165,14 @@ const main = async (): Promise<void> => {
     "order-sync",
     redisConnection,
     async (job) => {
-      const order = await getOrder(spApiClient, job.data.amazonOrderId)
-
+      // Checked *before* `getOrder` (which spends SP-API's own tightly
+      // rate-limited budget -- 0.5 req/s, burst 30, per `sp-api/orders.ts`)
+      // so a missing sales channel fails this job immediately, on every one
+      // of BullMQ's retry attempts, without re-fetching the same order from
+      // SP-API first for a request that can't succeed regardless of what
+      // SP-API returns.
       if (!cachedSalesChannelId) {
-        cachedSalesChannelId = await resolveAmazonSalesChannelId(env)
+        cachedSalesChannelId = await resolveAmazonSalesChannelId(medusaClient)
       }
       if (!cachedSalesChannelId) {
         throw new Error(
@@ -196,6 +180,7 @@ const main = async (): Promise<void> => {
         )
       }
 
+      const order = await getOrder(spApiClient, job.data.amazonOrderId)
       await importAmazonOrder(order, {
         pool,
         integrationAccountId,
@@ -205,37 +190,20 @@ const main = async (): Promise<void> => {
     }
   )
 
-  // Jobs on this queue arrive in one of three shapes: the webhook flow's
-  // `{ inventoryLevelId }`, reconciliation's corrective `{ channelListingId }`,
-  // or the empty-payload `"reconcile"` job `scheduleReconciliation` adds on
-  // its own repeat schedule below. See `sync/resolve-channel-listing.ts` for
-  // why `{ inventoryLevelId }` needs an extra Medusa Admin API hop that
-  // `{ channelListingId }`/`{ variantId }` (price-sync, below) don't.
+  // See `sync/inventory-sync-processor.ts` for why this dispatches on the
+  // job's data shape rather than its name: reconciliation's own corrective
+  // job and its scan-trigger job share the literal name `"reconcile"`.
   createSyncWorker<InventorySyncJobData | Record<string, never>>(
     "inventory-sync",
     redisConnection,
     async (job) => {
-      if (job.name === "reconcile") {
-        await reconcile({
-          pool,
-          medusaClient,
-          integrationAccountId,
-          inventoryQueue: inventorySyncQueue,
-          priceQueue: priceSyncQueue,
-        })
-        return
-      }
-
-      const channelListingId = await resolveInventoryChannelListingId(
-        job.data as InventorySyncJobData,
-        { pool, medusaClient, integrationAccountId }
-      )
-      await pushInventoryUpdate({
+      await processInventorySyncJob(job.data, {
         pool,
         medusaClient,
         spApiClient,
         integrationAccountId,
-        channelListingId,
+        inventoryQueue: inventorySyncQueue,
+        priceQueue: priceSyncQueue,
       })
     }
   )
