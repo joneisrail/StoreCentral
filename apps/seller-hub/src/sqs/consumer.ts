@@ -51,16 +51,20 @@ const POLL_INTERVAL_MS = 1_000
  * docs; the plan's open item about this shape being unverified is
  * resolved).
  *
- * A message whose body can't be parsed as JSON, or that's missing
- * `Payload.OrderChangeNotification.AmazonOrderId`, is logged and still
- * deleted (via the `finally` in `processMessage`) rather than left on the
- * queue -- an unparsable message will never become parsable by being
- * retried, so leaving it in place would just block the queue forever.
- * Likewise, a message whose `onOrderChange` call itself fails is still
- * deleted: this consumer's job is to notify, not to guarantee delivery
- * through to the eventual order-import workflow, and Task 13's queue layer
- * (BullMQ, with its own attempts/backoff) is what actually owns retrying
- * that downstream work.
+ * A message is deleted only once it has been fully handed off:
+ * - `onOrderChange` resolved -- the order change is now durably enqueued
+ *   as a BullMQ `order-sync` job, whose own attempts/backoff and
+ *   `sync_job` tracking own everything downstream of this point.
+ * - its body can't be parsed as JSON, or is missing
+ *   `Payload.OrderChangeNotification.AmazonOrderId` -- logged and deleted,
+ *   since an unparsable message will never become parsable by being
+ *   redelivered.
+ *
+ * A message whose `onOrderChange` call rejects is *not* deleted. In real
+ * wiring that call is `orderSyncQueue.add(...)`, so a rejection means the
+ * job was never enqueued (e.g. Redis unreachable) and deleting the message
+ * would drop the order change with no trace anywhere. Leaving it on the
+ * queue lets SQS's own visibility timeout and redrive policy redeliver it.
  */
 export class SqsConsumer {
   private readonly sqsClient: SqsClientLike
@@ -134,24 +138,40 @@ export class SqsConsumer {
     Body: string
     ReceiptHandle: string
   }): Promise<void> {
+    const amazonOrderId = parseAmazonOrderId(message.Body)
+    if (!amazonOrderId) {
+      console.error(
+        "[sqs-consumer] malformed or unrecognized message body, deleting",
+        message.Body
+      )
+      await this.deleteMessage(message)
+      return
+    }
+
     try {
-      const amazonOrderId = parseAmazonOrderId(message.Body)
-      if (!amazonOrderId) {
-        console.error(
-          "[sqs-consumer] malformed or unrecognized message body, skipping",
-          message.Body
-        )
-        return
-      }
       await this.onOrderChange(amazonOrderId)
     } catch (err) {
-      console.error("[sqs-consumer] onOrderChange failed", err)
-    } finally {
-      await this.sqsClient.deleteMessage({
-        QueueUrl: this.queueUrl,
-        ReceiptHandle: message.ReceiptHandle,
-      })
+      // Not deleted: the hand-off never happened (e.g. `queue.add` rejected
+      // because Redis is unreachable), so nothing downstream knows about
+      // this order change. Leaving the message in place lets SQS redeliver
+      // it once its visibility timeout lapses (and route it to the queue's
+      // redrive/dead-letter target if it keeps failing).
+      console.error(
+        `[sqs-consumer] onOrderChange failed for Amazon order ${amazonOrderId}; ` +
+          `leaving the message for SQS to redeliver`,
+        err
+      )
+      return
     }
+
+    await this.deleteMessage(message)
+  }
+
+  private async deleteMessage(message: { ReceiptHandle: string }): Promise<void> {
+    await this.sqsClient.deleteMessage({
+      QueueUrl: this.queueUrl,
+      ReceiptHandle: message.ReceiptHandle,
+    })
   }
 }
 

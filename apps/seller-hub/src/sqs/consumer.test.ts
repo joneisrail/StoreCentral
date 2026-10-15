@@ -103,7 +103,7 @@ test("pollOnce deletes a message with a missing AmazonOrderId without calling on
   })
 })
 
-test("pollOnce still deletes the message when onOrderChange itself rejects", async () => {
+test("pollOnce leaves the message on the queue for SQS to redeliver when onOrderChange itself rejects (e.g. the enqueue failed)", async () => {
   const fakeSqs: SqsClientLike = {
     receiveMessage: vi.fn().mockResolvedValue({
       Messages: [
@@ -118,18 +118,70 @@ test("pollOnce still deletes the message when onOrderChange itself rejects", asy
     }),
     deleteMessage: vi.fn().mockResolvedValue(undefined),
   }
-  const onOrderChange = vi.fn().mockRejectedValue(new Error("downstream boom"))
+  const onOrderChange = vi
+    .fn()
+    .mockRejectedValue(new Error("Connection is closed (Redis unreachable)"))
   const consumer = new SqsConsumer({
     sqsClient: fakeSqs,
     queueUrl: "https://sqs.fake/queue",
     onOrderChange,
   })
+  const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
 
-  await expect(consumer.pollOnce()).resolves.not.toThrow()
+  try {
+    await expect(consumer.pollOnce()).resolves.not.toThrow()
+  } finally {
+    errorSpy.mockRestore()
+  }
 
+  expect(onOrderChange).toHaveBeenCalledWith("ORDER-FAIL")
+  // The hand-off never happened, so deleting would lose the order change
+  // with no trace anywhere; SQS's visibility timeout redelivers it instead.
+  expect(fakeSqs.deleteMessage).not.toHaveBeenCalled()
+})
+
+test("in a batch, a message whose hand-off fails is kept while the others are still deleted", async () => {
+  const fakeSqs: SqsClientLike = {
+    receiveMessage: vi.fn().mockResolvedValue({
+      Messages: [
+        {
+          Body: JSON.stringify({
+            NotificationType: "ORDER_CHANGE",
+            Payload: { OrderChangeNotification: { AmazonOrderId: "ORDER-OK" } },
+          }),
+          ReceiptHandle: "rh-ok",
+        },
+        {
+          Body: JSON.stringify({
+            NotificationType: "ORDER_CHANGE",
+            Payload: { OrderChangeNotification: { AmazonOrderId: "ORDER-BAD" } },
+          }),
+          ReceiptHandle: "rh-bad",
+        },
+      ],
+    }),
+    deleteMessage: vi.fn().mockResolvedValue(undefined),
+  }
+  const onOrderChange = vi.fn(async (amazonOrderId: string) => {
+    if (amazonOrderId === "ORDER-BAD") throw new Error("enqueue failed")
+  })
+  const consumer = new SqsConsumer({
+    sqsClient: fakeSqs,
+    queueUrl: "https://sqs.fake/queue",
+    onOrderChange,
+  })
+  const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+
+  try {
+    await consumer.pollOnce()
+  } finally {
+    errorSpy.mockRestore()
+  }
+
+  expect(fakeSqs.deleteMessage).toHaveBeenCalledTimes(1)
   expect(fakeSqs.deleteMessage).toHaveBeenCalledWith({
     QueueUrl: "https://sqs.fake/queue",
-    ReceiptHandle: "rh-4",
+    ReceiptHandle: "rh-ok",
   })
 })
 
