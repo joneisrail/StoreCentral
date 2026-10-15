@@ -1,8 +1,9 @@
-import { beforeAll, expect, test } from "vitest"
+import { beforeAll, expect, test, vi } from "vitest"
 import { loadEnv } from "../env.js"
 import { createPool } from "../db/client.js"
 import { runMigrations } from "../db/migrate.js"
 import { MedusaAdminClient } from "../medusa/admin-client.js"
+import { PermanentSyncError } from "../queue/queues.js"
 import { importAmazonOrder } from "./import-order.js"
 import type { NormalizedAmazonOrder } from "./types.js"
 import type { Pool } from "pg"
@@ -170,7 +171,7 @@ test("importAmazonOrder is idempotent — re-importing the same Amazon order is 
   expect(count).toBe(1)
 }, 25_000)
 
-test("importAmazonOrder reports needs_attention for an unmapped SKU without creating a partial order", async () => {
+test("importAmazonOrder throws PermanentSyncError for an unmapped SKU without creating a partial order", async () => {
   const order: NormalizedAmazonOrder = {
     amazonOrderId: "TEST-UNMAPPED-" + Date.now(),
     buyerEmail: "buyer@example.com",
@@ -178,11 +179,15 @@ test("importAmazonOrder reports needs_attention for an unmapped SKU without crea
     shippingAddress,
   }
 
-  const result = await importAmazonOrder(order, deps)
+  const error = await importAmazonOrder(order, deps).then(
+    () => null,
+    (err: unknown) => err
+  )
 
-  expect(result.status).toBe("needs_attention")
-  expect(result.reason).toMatch(/channel_listing|sku/i)
-  expect(result.medusaOrderId).toBeUndefined()
+  // Permanent: retrying with the same mapping can't succeed, so BullMQ
+  // must not burn its attempts on it.
+  expect(error).toBeInstanceOf(PermanentSyncError)
+  expect((error as Error).message).toMatch(/channel_listing|sku/i)
 
   const { rows } = await pool.query(
     `SELECT status, last_error, medusa_entity_id FROM seller_hub.sync_job
@@ -190,6 +195,7 @@ test("importAmazonOrder reports needs_attention for an unmapped SKU without crea
     [integrationAccountId, order.amazonOrderId]
   )
   expect(rows[0].status).toBe("failed")
+  expect(rows[0].last_error).toMatch(/NO-SUCH-SKU/)
   expect(rows[0].medusa_entity_id).toBeNull()
 
   // The real proof that no partial/real order was created: zero Medusa
@@ -255,8 +261,9 @@ test(
     }
 
     // First attempt fails: the sku isn't mapped yet.
-    const first = await importAmazonOrder(order, deps)
-    expect(first.status).toBe("needs_attention")
+    await expect(importAmazonOrder(order, deps)).rejects.toBeInstanceOf(
+      PermanentSyncError
+    )
 
     const { rows: failedRows } = await pool.query(
       `SELECT status, attempts FROM seller_hub.sync_job
@@ -267,8 +274,7 @@ test(
     const attemptsAfterFirstFailure = failedRows[0].attempts
 
     // Fix the problem: map the sku, same as an operator resolving the
-    // needs_attention case (or Task 7's retry firing after the mapping
-    // was added).
+    // failed job (a later ORDER_CHANGE notification then retries it).
     const productsResponse = await fetch(
       `${BASE_URL}/admin/products?limit=1&fields=id,title,*variants`,
       { headers: authHeaders }
@@ -321,8 +327,9 @@ test(
     }
 
     // First attempt fails: unmapped sku.
-    const first = await importAmazonOrder(order, deps)
-    expect(first.status).toBe("needs_attention")
+    await expect(importAmazonOrder(order, deps)).rejects.toBeInstanceOf(
+      PermanentSyncError
+    )
 
     // Fix the mapping.
     const productsResponse = await fetch(
@@ -363,4 +370,396 @@ test(
     expect(rows[0].status).toBe("succeeded")
   },
   25_000
+)
+
+// ---------------------------------------------------------------------------
+// Reclaim safety (final-review Finding 2): a `failed` or stale `processing`
+// row must never be retried into a second real Medusa order.
+// ---------------------------------------------------------------------------
+
+/** A fresh client per test, so per-test spies can't leak across tests. */
+const newClient = (): MedusaAdminClient =>
+  new MedusaAdminClient({
+    baseUrl: BASE_URL,
+    email: ADMIN_EMAIL,
+    password: ADMIN_PASSWORD,
+  })
+
+const newMappedOrder = (prefix: string): NormalizedAmazonOrder => ({
+  amazonOrderId: `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+  buyerEmail: "buyer@example.com",
+  items: [{ sku: MAPPED_SKU, quantity: 1 }],
+  shippingAddress,
+})
+
+const readSyncJob = async (amazonOrderId: string) => {
+  const { rows } = await pool.query<{
+    status: string
+    attempts: number
+    medusa_entity_id: string | null
+    last_error: string | null
+  }>(
+    `SELECT status, attempts, medusa_entity_id, last_error FROM seller_hub.sync_job
+     WHERE integration_account_id = $1 AND sync_type = 'order' AND external_id = $2`,
+    [integrationAccountId, amazonOrderId]
+  )
+  expect(rows).toHaveLength(1)
+  return rows[0]!
+}
+
+const settle = (promise: Promise<unknown>): Promise<unknown> =>
+  promise.then(
+    () => null,
+    (err: unknown) => err
+  )
+
+test(
+  "reclaiming a failed row whose order already exists in Medusa records it as succeeded instead of creating a duplicate (success UPDATE lost)",
+  async () => {
+    const order = newMappedOrder("TEST-RECLAIM-EXISTING")
+    const first = await importAmazonOrder(order, deps)
+    expect(first.status).toBe("created")
+
+    // Simulate the finding's scenario (b): the convert succeeded, but the
+    // `succeeded` UPDATE was lost and the catch's `failed` UPDATE landed
+    // instead -- and with no draft id on the row, so only the
+    // findOrderByMetadata check can catch it.
+    await pool.query(
+      `UPDATE seller_hub.sync_job
+       SET status = 'failed', medusa_entity_id = NULL, last_error = 'simulated DB blip'
+       WHERE integration_account_id = $1 AND sync_type = 'order' AND external_id = $2`,
+      [integrationAccountId, order.amazonOrderId]
+    )
+
+    const client = newClient()
+    const findSpy = vi.spyOn(client, "findOrderByMetadata")
+    const createSpy = vi.spyOn(client, "createDraftOrder")
+    const convertSpy = vi.spyOn(client, "convertDraftOrderToOrder")
+
+    const retry = await importAmazonOrder(order, { ...deps, medusaClient: client })
+
+    expect(retry.status).toBe("recovered")
+    expect(retry.medusaOrderId).toBe(first.medusaOrderId)
+    expect(findSpy).toHaveBeenCalledWith("amazon_order_id", order.amazonOrderId)
+    expect(createSpy).not.toHaveBeenCalled()
+    expect(convertSpy).not.toHaveBeenCalled()
+
+    const row = await readSyncJob(order.amazonOrderId)
+    expect(row.status).toBe("succeeded")
+    expect(row.medusa_entity_id).toBe(first.medusaOrderId)
+    expect(row.last_error).toBeNull()
+
+    expect(await countOrdersWithAmazonOrderId(order.amazonOrderId)).toBe(1)
+  },
+  30_000
+)
+
+test(
+  "a convert that landed server-side but looked failed client-side is recovered on retry, not duplicated",
+  async () => {
+    const order = newMappedOrder("TEST-RECLAIM-AMBIGUOUS-CONVERT")
+
+    // The finding's scenario (a): convert succeeds in Medusa, then the
+    // client sees a network error -- and the network is still down for the
+    // same attempt's own follow-up check, so only the retry can settle it.
+    const flaky = newClient()
+    vi.spyOn(flaky, "convertDraftOrderToOrder").mockImplementationOnce(
+      async (draftOrderId) => {
+        await MedusaAdminClient.prototype.convertDraftOrderToOrder.call(
+          flaky,
+          draftOrderId
+        )
+        throw new TypeError("fetch failed")
+      }
+    )
+    vi.spyOn(flaky, "getOrderById").mockRejectedValueOnce(
+      new TypeError("fetch failed")
+    )
+
+    const firstError = await settle(
+      importAmazonOrder(order, { ...deps, medusaClient: flaky })
+    )
+    // Transient: a plain Error, so BullMQ retries it.
+    expect(firstError).toBeInstanceOf(Error)
+    expect(firstError).not.toBeInstanceOf(PermanentSyncError)
+
+    const failedRow = await readSyncJob(order.amazonOrderId)
+    expect(failedRow.status).toBe("failed")
+    expect(failedRow.last_error).toMatch(/fetch failed/)
+    // The draft id was persisted before the convert was attempted.
+    expect(failedRow.medusa_entity_id).toMatch(/^order_/)
+
+    const client = newClient()
+    const createSpy = vi.spyOn(client, "createDraftOrder")
+    const convertSpy = vi.spyOn(client, "convertDraftOrderToOrder")
+
+    const retry = await importAmazonOrder(order, { ...deps, medusaClient: client })
+
+    expect(retry.status).toBe("recovered")
+    // Same id: a draft and the order it converts into share one id.
+    expect(retry.medusaOrderId).toBe(failedRow.medusa_entity_id)
+    expect(createSpy).not.toHaveBeenCalled()
+    expect(convertSpy).not.toHaveBeenCalled()
+
+    const row = await readSyncJob(order.amazonOrderId)
+    expect(row.status).toBe("succeeded")
+    expect(row.medusa_entity_id).toBe(retry.medusaOrderId)
+
+    expect(await countOrdersWithAmazonOrderId(order.amazonOrderId)).toBe(1)
+  },
+  30_000
+)
+
+test(
+  "reclaiming a failed row after a transient Medusa failure, with no order in Medusa, runs the normal create flow exactly once",
+  async () => {
+    const order = newMappedOrder("TEST-RECLAIM-NOTHING")
+
+    const flaky = newClient()
+    vi.spyOn(flaky, "createDraftOrder").mockRejectedValueOnce(
+      new Error(
+        "Medusa admin request POST /admin/draft-orders failed with status 503: {}"
+      )
+    )
+    const firstError = await settle(
+      importAmazonOrder(order, { ...deps, medusaClient: flaky })
+    )
+    expect(firstError).toBeInstanceOf(Error)
+    expect(firstError).not.toBeInstanceOf(PermanentSyncError)
+
+    const failedRow = await readSyncJob(order.amazonOrderId)
+    expect(failedRow.status).toBe("failed")
+    expect(failedRow.last_error).toMatch(/503/)
+    expect(failedRow.medusa_entity_id).toBeNull()
+    expect(await countOrdersWithAmazonOrderId(order.amazonOrderId)).toBe(0)
+
+    const client = newClient()
+    const findSpy = vi.spyOn(client, "findOrderByMetadata")
+    const createSpy = vi.spyOn(client, "createDraftOrder")
+    const convertSpy = vi.spyOn(client, "convertDraftOrderToOrder")
+
+    const retry = await importAmazonOrder(order, { ...deps, medusaClient: client })
+
+    expect(retry.status).toBe("created")
+    expect(findSpy).toHaveBeenCalledTimes(1)
+    expect(createSpy).toHaveBeenCalledTimes(1)
+    expect(convertSpy).toHaveBeenCalledTimes(1)
+
+    const row = await readSyncJob(order.amazonOrderId)
+    expect(row.status).toBe("succeeded")
+    expect(row.medusa_entity_id).toBe(retry.medusaOrderId)
+    expect(row.attempts).toBe(failedRow.attempts + 1)
+
+    expect(await countOrdersWithAmazonOrderId(order.amazonOrderId)).toBe(1)
+  },
+  30_000
+)
+
+test(
+  "a 4xx from Medusa is classified permanent (PermanentSyncError), not retried",
+  async () => {
+    const order = newMappedOrder("TEST-MEDUSA-4XX")
+
+    const client = newClient()
+    vi.spyOn(client, "createDraftOrder").mockRejectedValueOnce(
+      new Error(
+        "Medusa admin request POST /admin/draft-orders failed with status 400: {}"
+      )
+    )
+    await expect(
+      importAmazonOrder(order, { ...deps, medusaClient: client })
+    ).rejects.toBeInstanceOf(PermanentSyncError)
+    expect((await readSyncJob(order.amazonOrderId)).status).toBe("failed")
+  },
+  30_000
+)
+
+test(
+  "a retry after a convert that failed before landing converts the persisted draft instead of creating a second one",
+  async () => {
+    const order = newMappedOrder("TEST-RECLAIM-REUSE-DRAFT")
+
+    const flaky = newClient()
+    vi.spyOn(flaky, "convertDraftOrderToOrder").mockRejectedValueOnce(
+      new Error(
+        "Medusa admin request POST /admin/draft-orders/x/convert-to-order failed with status 502: {}"
+      )
+    )
+    const firstError = await settle(
+      importAmazonOrder(order, { ...deps, medusaClient: flaky })
+    )
+    expect(firstError).toBeInstanceOf(Error)
+    expect(firstError).not.toBeInstanceOf(PermanentSyncError)
+
+    const failedRow = await readSyncJob(order.amazonOrderId)
+    expect(failedRow.status).toBe("failed")
+    const draftId = failedRow.medusa_entity_id
+    expect(draftId).toMatch(/^order_/)
+    expect(await countOrdersWithAmazonOrderId(order.amazonOrderId)).toBe(0)
+
+    const client = newClient()
+    const createSpy = vi.spyOn(client, "createDraftOrder")
+    const convertSpy = vi.spyOn(client, "convertDraftOrderToOrder")
+
+    const retry = await importAmazonOrder(order, { ...deps, medusaClient: client })
+
+    expect(retry.status).toBe("created")
+    expect(retry.medusaOrderId).toBe(draftId)
+    expect(createSpy).not.toHaveBeenCalled()
+    expect(convertSpy).toHaveBeenCalledWith(draftId)
+
+    const row = await readSyncJob(order.amazonOrderId)
+    expect(row.status).toBe("succeeded")
+    expect(row.medusa_entity_id).toBe(draftId)
+
+    expect(await countOrdersWithAmazonOrderId(order.amazonOrderId)).toBe(1)
+  },
+  30_000
+)
+
+test(
+  "a stale processing row (holder killed after converting) is reclaimed and recovered, not duplicated",
+  async () => {
+    const order = newMappedOrder("TEST-STALE-EXISTING")
+    const first = await importAmazonOrder(order, deps)
+    expect(first.status).toBe("created")
+
+    // The holder was killed after the convert landed but before its
+    // `succeeded` UPDATE: the row is left `processing`, long untouched.
+    await pool.query(
+      `UPDATE seller_hub.sync_job
+       SET status = 'processing', updated_at = now() - interval '10 minutes'
+       WHERE integration_account_id = $1 AND sync_type = 'order' AND external_id = $2`,
+      [integrationAccountId, order.amazonOrderId]
+    )
+
+    const client = newClient()
+    const createSpy = vi.spyOn(client, "createDraftOrder")
+
+    const retry = await importAmazonOrder(order, { ...deps, medusaClient: client })
+
+    expect(retry.status).toBe("recovered")
+    expect(retry.medusaOrderId).toBe(first.medusaOrderId)
+    expect(createSpy).not.toHaveBeenCalled()
+    expect((await readSyncJob(order.amazonOrderId)).status).toBe("succeeded")
+    expect(await countOrdersWithAmazonOrderId(order.amazonOrderId)).toBe(1)
+  },
+  30_000
+)
+
+test(
+  "a stale processing row (holder killed before creating anything) is reclaimed and imported exactly once",
+  async () => {
+    const order = newMappedOrder("TEST-STALE-NOTHING")
+    await pool.query(
+      `INSERT INTO seller_hub.sync_job
+         (integration_account_id, sync_type, external_id, status, attempts, updated_at)
+       VALUES ($1, 'order', $2, 'processing', 1, now() - interval '10 minutes')`,
+      [integrationAccountId, order.amazonOrderId]
+    )
+
+    const client = newClient()
+    const createSpy = vi.spyOn(client, "createDraftOrder")
+
+    const retry = await importAmazonOrder(order, { ...deps, medusaClient: client })
+
+    expect(retry.status).toBe("created")
+    expect(createSpy).toHaveBeenCalledTimes(1)
+    const row = await readSyncJob(order.amazonOrderId)
+    expect(row.status).toBe("succeeded")
+    expect(row.attempts).toBe(2)
+    expect(await countOrdersWithAmazonOrderId(order.amazonOrderId)).toBe(1)
+  },
+  30_000
+)
+
+test("a fresh processing row is left to its holder: skipped with zero Medusa calls", async () => {
+  const order = newMappedOrder("TEST-FRESH-PROCESSING")
+  await pool.query(
+    `INSERT INTO seller_hub.sync_job
+       (integration_account_id, sync_type, external_id, status, attempts)
+     VALUES ($1, 'order', $2, 'processing', 1)`,
+    [integrationAccountId, order.amazonOrderId]
+  )
+
+  const client = newClient()
+  const findSpy = vi.spyOn(client, "findOrderByMetadata")
+  const createSpy = vi.spyOn(client, "createDraftOrder")
+
+  const result = await importAmazonOrder(order, { ...deps, medusaClient: client })
+
+  expect(result.status).toBe("skipped")
+  expect(findSpy).not.toHaveBeenCalled()
+  expect(createSpy).not.toHaveBeenCalled()
+  const row = await readSyncJob(order.amazonOrderId)
+  expect(row.status).toBe("processing")
+  expect(row.attempts).toBe(1)
+})
+
+test(
+  "a holder whose claim was taken over mid-flight stops before converting and records nothing",
+  async () => {
+    const order = newMappedOrder("TEST-LEASE-LOST")
+
+    const client = newClient()
+    vi.spyOn(client, "createDraftOrder").mockImplementationOnce(async (input) => {
+      const draft = await MedusaAdminClient.prototype.createDraftOrder.call(
+        client,
+        input
+      )
+      // While this holder was inside createDraftOrder, its claim went stale
+      // and another attempt reclaimed the row (attempts bumped).
+      await pool.query(
+        `UPDATE seller_hub.sync_job SET attempts = attempts + 1, updated_at = now()
+         WHERE integration_account_id = $1 AND sync_type = 'order' AND external_id = $2`,
+        [integrationAccountId, order.amazonOrderId]
+      )
+      return draft
+    })
+    const convertSpy = vi.spyOn(client, "convertDraftOrderToOrder")
+
+    const result = await importAmazonOrder(order, { ...deps, medusaClient: client })
+
+    expect(result.status).toBe("skipped")
+    expect(convertSpy).not.toHaveBeenCalled()
+    // The new holder's row is untouched: not flipped to failed/succeeded,
+    // and no draft id written over it.
+    const row = await readSyncJob(order.amazonOrderId)
+    expect(row.status).toBe("processing")
+    expect(row.attempts).toBe(2)
+    expect(row.medusa_entity_id).toBeNull()
+    expect(await countOrdersWithAmazonOrderId(order.amazonOrderId)).toBe(0)
+  },
+  30_000
+)
+
+test(
+  "a convert that landed server-side but errored client-side is confirmed within the same attempt when Medusa is reachable",
+  async () => {
+    const order = newMappedOrder("TEST-AMBIGUOUS-CONVERT-SAME-ATTEMPT")
+
+    const client = newClient()
+    vi.spyOn(client, "convertDraftOrderToOrder").mockImplementationOnce(
+      async (draftOrderId) => {
+        await MedusaAdminClient.prototype.convertDraftOrderToOrder.call(
+          client,
+          draftOrderId
+        )
+        throw new Error("The operation was aborted due to timeout")
+      }
+    )
+    const createSpy = vi.spyOn(client, "createDraftOrder")
+
+    const result = await importAmazonOrder(order, { ...deps, medusaClient: client })
+
+    expect(result.status).toBe("created")
+    expect(result.medusaOrderId).toMatch(/^order_/)
+    expect(createSpy).toHaveBeenCalledTimes(1)
+
+    const row = await readSyncJob(order.amazonOrderId)
+    expect(row.status).toBe("succeeded")
+    expect(row.medusa_entity_id).toBe(result.medusaOrderId)
+    expect(await countOrdersWithAmazonOrderId(order.amazonOrderId)).toBe(1)
+  },
+  30_000
 )

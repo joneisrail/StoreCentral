@@ -1,4 +1,4 @@
-import { Queue, UnrecoverableError, Worker } from "bullmq"
+import { DelayedError, Queue, UnrecoverableError, Worker } from "bullmq"
 import type { Job } from "bullmq"
 import type { Redis as IORedis } from "ioredis"
 
@@ -47,6 +47,33 @@ export class PermanentSyncError extends Error {
 }
 
 /**
+ * Thrown by a processor passed to `createSyncWorker` when the job can't make
+ * progress *yet* and should simply run again at (or after) `retryAt` (epoch
+ * ms) -- e.g. order import finding another attempt's still-live claim on the
+ * same Amazon order (see `sync/import-order.ts`'s stale-`processing`
+ * reclaim).
+ *
+ * Unlike a plain `Error`, this does not consume one of the job's
+ * `attempts`: `createSyncWorker` moves the job to BullMQ's delayed set via
+ * `job.moveToDelayed(retryAt, token)` and throws BullMQ's own
+ * `DelayedError`, which BullMQ treats as "rescheduled", not "failed". That
+ * matters when the wait has to outlast the whole exponential-backoff
+ * schedule (1s..16s across 5 attempts, ~31s total) -- e.g. waiting out a
+ * crashed caller's 5-minute claim lease -- which ordinary retries would
+ * exhaust long before.
+ */
+export class DeferSyncError extends Error {
+  readonly retryAt: number
+
+  constructor(message: string, retryAt: number) {
+    super(message)
+    this.name = "DeferSyncError"
+    this.retryAt = retryAt
+    Object.setPrototypeOf(this, DeferSyncError.prototype)
+  }
+}
+
+/**
  * Creates one of the four named BullMQ sync queues, with this plan's
  * default retry policy as the queue's `defaultJobOptions`: 5 attempts,
  * exponential backoff starting at 1s. Every job added to the queue without
@@ -71,6 +98,8 @@ export const createSyncQueue = (
  * - A processor that throws `PermanentSyncError` gets converted to BullMQ's
  *   `UnrecoverableError` before BullMQ sees it, so the job fails on its
  *   first attempt no matter what `attempts` it was given.
+ * - A processor that throws `DeferSyncError` gets its job moved to BullMQ's
+ *   delayed set until the error's `retryAt`, without consuming an attempt.
  * - Any other thrown error is re-thrown unchanged, so BullMQ's normal
  *   attempts/backoff retry applies.
  * - `options.attempts` (default 5) lets a worker cap the number of attempts
@@ -93,13 +122,21 @@ export const createSyncWorker = <T>(
 
   return new Worker<T>(
     name,
-    async (job) => {
+    async (job, token) => {
       job.opts.attempts = attempts
       try {
         await processor(job)
       } catch (err) {
         if (err instanceof Error && err.name === "PermanentSyncError") {
           throw new UnrecoverableError(err.message)
+        }
+        if (err instanceof DeferSyncError) {
+          console.warn(
+            `[${name}] deferring job ${job.id} until ` +
+              `${new Date(err.retryAt).toISOString()}: ${err.message}`
+          )
+          await job.moveToDelayed(err.retryAt, token)
+          throw new DelayedError()
         }
         throw err
       }

@@ -5,6 +5,7 @@ import { createRedisConnection } from "./connection.js"
 import {
   createSyncQueue,
   createSyncWorker,
+  DeferSyncError,
   PermanentSyncError,
 } from "./queues.js"
 
@@ -113,6 +114,46 @@ test(
 
     const finalState = await job.getState()
     expect(finalState).toBe("failed")
+  },
+  15_000
+)
+
+test(
+  "a processor that throws DeferSyncError is re-run after retryAt without consuming an attempt",
+  async () => {
+    const connection = createRedisConnection(loadEnv())
+    registerCleanup(() => connection.quit())
+
+    const queue = createSyncQueue("product-sync", connection)
+    registerCleanup(() => queue.close())
+
+    const runTimes: number[] = []
+    const deferMs = 700
+    const worker = createSyncWorker(
+      "product-sync",
+      connection,
+      async () => {
+        runTimes.push(Date.now())
+        if (runTimes.length === 1) {
+          throw new DeferSyncError("not yet", Date.now() + deferMs)
+        }
+      },
+      // A single attempt: if the deferral were counted as a failed attempt,
+      // the job would end `failed` instead of ever running a second time.
+      { attempts: 1 }
+    )
+    registerCleanup(() => worker.close())
+
+    const events = new QueueEvents("product-sync", { connection })
+    registerCleanup(() => events.close())
+
+    const job = await queue.add("test", {})
+    await job.waitUntilFinished(events)
+
+    expect(runTimes).toHaveLength(2)
+    // Re-run no earlier than retryAt (small tolerance for clock granularity).
+    expect(runTimes[1]! - runTimes[0]!).toBeGreaterThanOrEqual(deferMs - 50)
+    expect(await job.getState()).toBe("completed")
   },
   15_000
 )

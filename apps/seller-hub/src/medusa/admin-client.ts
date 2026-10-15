@@ -186,6 +186,36 @@ export class MedusaAdminClient {
   }
 
   /**
+   * Looks up a single order -- draft or real -- by id via
+   * `GET /admin/orders/:id`, returning `null` on a 404.
+   *
+   * Medusa v2 stores a draft order and the real order it converts into as
+   * the *same* `order` row: `convert-to-order` just flips
+   * `is_draft_order` to `false` and `status` to `pending` on that id (see
+   * `convertDraftOrderStep` in core-flows), and `/admin/orders/:id`, unlike
+   * the `/admin/orders` list route, doesn't filter drafts out. So for a
+   * draft id `importAmazonOrder` persisted earlier, this tells it whether
+   * that draft is still a draft (`isDraftOrder: true` -- safe to convert it
+   * rather than creating a second draft), was already converted into a
+   * real order (`isDraftOrder: false`), or no longer exists (`null`) --
+   * without depending on `findOrderByMetadata`'s bounded first page.
+   */
+  async getOrderById(
+    orderId: string
+  ): Promise<{ id: string; isDraftOrder: boolean } | null> {
+    const path = `/admin/orders/${encodeURIComponent(orderId)}?fields=id,is_draft_order`
+    const response = await this.authedFetchRaw(path)
+    if (response.status === 404) {
+      return null
+    }
+    await this.throwIfNotOk(response, path, {})
+    const body = (await response.json()) as {
+      order: { id: string; is_draft_order: boolean }
+    }
+    return { id: body.order.id, isDraftOrder: body.order.is_draft_order }
+  }
+
+  /**
    * Looks up a sales channel's id by its exact `name` (e.g. `"Amazon"`),
    * used by `apps/seller-hub/src/index.ts`'s order-sync worker to resolve
    * the `salesChannelId` `importAmazonOrder` needs. Uses this class's own
@@ -369,6 +399,20 @@ export class MedusaAdminClient {
     path: string,
     init: RequestInit = {}
   ): Promise<Response> {
+    const response = await this.authedFetchRaw(path, init)
+    await this.throwIfNotOk(response, path, init)
+    return response
+  }
+
+  /**
+   * `authedFetch` minus the non-2xx check, for callers (e.g.
+   * `getOrderById`) that need to treat a specific status like 404 as a
+   * normal outcome rather than an error.
+   */
+  private async authedFetchRaw(
+    path: string,
+    init: RequestInit = {}
+  ): Promise<Response> {
     if (!this.token) {
       await this.login()
     }
@@ -380,14 +424,20 @@ export class MedusaAdminClient {
       response = await this.doFetch(path, init)
     }
 
+    return response
+  }
+
+  private async throwIfNotOk(
+    response: Response,
+    path: string,
+    init: RequestInit
+  ): Promise<void> {
     if (!response.ok) {
       const body = await readBodySafely(response)
       throw new Error(
         `Medusa admin request ${init.method ?? "GET"} ${path} failed with status ${response.status}: ${body}`
       )
     }
-
-    return response
   }
 
   private doFetch(path: string, init: RequestInit): Promise<Response> {

@@ -13,8 +13,11 @@ import { createSyncQueue, createSyncWorker } from "./queue/queues.js"
 import { getOrder } from "./sp-api/orders.js"
 import { SpApiClient } from "./sp-api/client.js"
 import { SqsConsumer, type SqsClientLike } from "./sqs/consumer.js"
-import { importAmazonOrder } from "./sync/import-order.js"
 import { processInventorySyncJob } from "./sync/inventory-sync-processor.js"
+import {
+  processOrderSyncJob,
+  type OrderSyncJobData,
+} from "./sync/order-sync-processor.js"
 import { pushPriceUpdate } from "./sync/push-price.js"
 import { pushProductListing } from "./sync/push-product.js"
 import { scheduleReconciliation } from "./sync/reconcile.js"
@@ -72,33 +75,6 @@ const resolveIntegrationAccountId = async (
      RETURNING id`
   )
   return inserted.rows[0]!.id
-}
-
-/**
- * Looks up the id of Medusa's "Amazon" sales channel, used by order import
- * (`importAmazonOrder`'s `salesChannelId`). Logs and returns `null` on any
- * failure (Medusa unreachable, no such channel yet) rather than throwing --
- * this is called lazily from the order-sync worker below, and a failure here
- * must fail that one job, not the whole process.
- *
- * Delegates to `MedusaAdminClient#findSalesChannelIdByName` rather than
- * reimplementing a login/fetch here -- that reuses the same cached bearer
- * token (and 401-retry-once behavior) `medusaClient` already uses for every
- * other Medusa call this process makes, instead of a second, independent
- * Medusa HTTP client that logs in fresh every time this is called.
- */
-const resolveAmazonSalesChannelId = async (
-  medusaClient: MedusaAdminClient
-): Promise<string | null> => {
-  try {
-    return await medusaClient.findSalesChannelIdByName("Amazon")
-  } catch (err) {
-    console.error(
-      "[seller-hub] failed to resolve the Amazon sales channel:",
-      err
-    )
-    return null
-  }
 }
 
 const main = async (): Promise<void> => {
@@ -161,32 +137,32 @@ const main = async (): Promise<void> => {
 
   let cachedSalesChannelId: string | null = null
 
-  createSyncWorker<{ amazonOrderId: string }>(
+  // See `sync/order-sync-processor.ts` for the full outcome contract: the
+  // order's `sync_job` row is claimed before the sales channel is resolved
+  // or SP-API is called, every failure is recorded on that row, and failures
+  // are thrown classified (permanent vs transient) so BullMQ only retries
+  // the ones that can succeed on retry.
+  createSyncWorker<OrderSyncJobData>(
     "order-sync",
     redisConnection,
     async (job) => {
-      // Checked *before* `getOrder` (which spends SP-API's own tightly
-      // rate-limited budget -- 0.5 req/s, burst 30, per `sp-api/orders.ts`)
-      // so a missing sales channel fails this job immediately, on every one
-      // of BullMQ's retry attempts, without re-fetching the same order from
-      // SP-API first for a request that can't succeed regardless of what
-      // SP-API returns.
-      if (!cachedSalesChannelId) {
-        cachedSalesChannelId = await resolveAmazonSalesChannelId(medusaClient)
-      }
-      if (!cachedSalesChannelId) {
-        throw new Error(
-          "Amazon sales channel not found in Medusa -- cannot import order"
-        )
-      }
-
-      const order = await getOrder(spApiClient, job.data.amazonOrderId)
-      await importAmazonOrder(order, {
+      const result = await processOrderSyncJob(job.data, {
         pool,
-        integrationAccountId,
-        salesChannelId: cachedSalesChannelId,
         medusaClient,
+        integrationAccountId,
+        resolveSalesChannelId: async () => {
+          if (!cachedSalesChannelId) {
+            cachedSalesChannelId =
+              await medusaClient.findSalesChannelIdByName("Amazon")
+          }
+          return cachedSalesChannelId
+        },
+        fetchOrder: (amazonOrderId) => getOrder(spApiClient, amazonOrderId),
       })
+      console.log(
+        `[seller-hub] order-sync ${job.data.amazonOrderId}: ${result.status}` +
+          (result.medusaOrderId ? ` (${result.medusaOrderId})` : "")
+      )
     }
   )
 
