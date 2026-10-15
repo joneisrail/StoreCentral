@@ -32,6 +32,14 @@ CREATE TABLE IF NOT EXISTS seller_hub.channel_listing (
   UNIQUE (integration_account_id, external_sku)
 );
 
+-- Task 11: lets reconciliation detect drift between Medusa's current
+-- inventory/price and what was last successfully pushed to Amazon, without
+-- re-fetching Amazon's own current state (out of scope for this
+-- product-sync-only Listings integration). Set by Task 8's
+-- pushInventoryUpdate/pushPriceUpdate on success.
+ALTER TABLE seller_hub.channel_listing ADD COLUMN IF NOT EXISTS last_synced_quantity INT;
+ALTER TABLE seller_hub.channel_listing ADD COLUMN IF NOT EXISTS last_synced_price NUMERIC;
+
 CREATE TABLE IF NOT EXISTS seller_hub.sync_job (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   integration_account_id UUID NOT NULL REFERENCES seller_hub.integration_account(id),

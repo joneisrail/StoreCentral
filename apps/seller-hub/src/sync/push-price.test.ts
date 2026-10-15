@@ -139,6 +139,12 @@ test("pushPriceUpdate applies a percentage markup from channel_listing.price_rul
   expect(rows).toHaveLength(1)
   expect(rows[0].status).toBe("succeeded")
   expect(rows[0].last_error).toBeNull()
+
+  const { rows: listingRows } = await pool.query(
+    `SELECT last_synced_price FROM seller_hub.channel_listing WHERE id = $1`,
+    [channelListingId]
+  )
+  expect(Number(listingRows[0].last_synced_price)).toBe(32.99)
 })
 
 test("pushPriceUpdate applies a fixed price override from channel_listing.price_rule", async () => {

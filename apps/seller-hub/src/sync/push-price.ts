@@ -79,6 +79,7 @@ export const pushPriceUpdate = async (
     })
 
     await markSyncJobSucceeded(pool, syncJobId)
+    await recordLastSyncedPrice(pool, channelListingId, amount)
   } catch (err) {
     const toThrow = classifySyncError(err)
     await markSyncJobFailed(pool, syncJobId, toThrow.message)
@@ -129,6 +130,25 @@ const fetchChannelListing = async (
     [channelListingId, integrationAccountId]
   )
   return rows[0] ?? null
+}
+
+/**
+ * Records the (post-`price_rule`) amount just pushed to Amazon on the
+ * `channel_listing` row itself, so Task 11's `reconcile` can later detect
+ * drift between Medusa's current price and what Amazon was last told,
+ * without re-fetching Amazon's own current state.
+ */
+const recordLastSyncedPrice = async (
+  pool: Pool,
+  channelListingId: string,
+  amount: number
+): Promise<void> => {
+  await pool.query(
+    `UPDATE seller_hub.channel_listing
+     SET last_synced_price = $1, updated_at = now()
+     WHERE id = $2`,
+    [amount, channelListingId]
+  )
 }
 
 /**

@@ -73,6 +73,7 @@ export const pushInventoryUpdate = async (
     })
 
     await markSyncJobSucceeded(pool, syncJobId)
+    await recordLastSyncedQuantity(pool, channelListingId, inventory.quantity)
   } catch (err) {
     const toThrow = classifySyncError(err)
     await markSyncJobFailed(pool, syncJobId, toThrow.message)
@@ -92,6 +93,25 @@ const fetchChannelListing = async (
     [channelListingId, integrationAccountId]
   )
   return rows[0] ?? null
+}
+
+/**
+ * Records the quantity just pushed to Amazon on the `channel_listing` row
+ * itself, so Task 11's `reconcile` can later detect drift between Medusa's
+ * current inventory and what Amazon was last told, without re-fetching
+ * Amazon's own current state.
+ */
+const recordLastSyncedQuantity = async (
+  pool: Pool,
+  channelListingId: string,
+  quantity: number
+): Promise<void> => {
+  await pool.query(
+    `UPDATE seller_hub.channel_listing
+     SET last_synced_quantity = $1, updated_at = now()
+     WHERE id = $2`,
+    [quantity, channelListingId]
+  )
 }
 
 // See `push-price.ts`'s `claimSyncJob` for the full rationale (identical

@@ -126,6 +126,12 @@ test("pushInventoryUpdate submits the real Medusa stock quantity via submitListi
   expect(rows).toHaveLength(1)
   expect(rows[0].status).toBe("succeeded")
   expect(rows[0].last_error).toBeNull()
+
+  const { rows: listingRows } = await pool.query(
+    `SELECT last_synced_quantity FROM seller_hub.channel_listing WHERE id = $1`,
+    [channelListingId]
+  )
+  expect(listingRows[0].last_synced_quantity).toBe(realInventoryQuantity)
 })
 
 test("pushInventoryUpdate works without an external_asin (sku-only listing)", async () => {
