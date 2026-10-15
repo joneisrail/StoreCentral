@@ -20,6 +20,15 @@ export type MedusaAdminClientConfig = {
   fetchImpl?: typeof fetch
 }
 
+export type VariantPricing = {
+  amount: number
+  currencyCode: string
+}
+
+export type VariantInventory = {
+  quantity: number
+}
+
 /**
  * Thin HTTP wrapper around Medusa's Admin API, scoped to exactly what
  * seller-hub needs: logging in as the dedicated admin user, and
@@ -161,6 +170,106 @@ export class MedusaAdminClient {
     }
     const match = body.orders.find((order) => order.metadata?.[key] === value)
     return match ? { id: match.id } : null
+  }
+
+  /**
+   * Reads a variant's current price via Medusa's Admin API, in the store's
+   * default currency.
+   *
+   * Uses `GET /admin/product-variants?id[]={id}&fields=id,*prices` — the
+   * top-level `/admin/product-variants` list route (not the nested
+   * `/admin/products/:id/variants/:variant_id`, which needs a `product_id`
+   * we don't have on hand here). Confirmed against the real running backend
+   * (not assumed): `fields=id,*prices` returns each variant's full `prices`
+   * array, one entry per currency the store supports
+   * (`{ amount, currency_code, ... }`), not a single "the" price — a variant
+   * can simultaneously have e.g. a `eur` price and a `usd` price. Since
+   * "current price" is otherwise ambiguous, this picks the price in the
+   * store's configured default currency (falling back to the first price
+   * present if that currency has none), rather than an arbitrary array
+   * index.
+   */
+  async getVariantPricing(variantId: string): Promise<VariantPricing> {
+    const currencyCode = await this.resolveDefaultCurrencyCode()
+
+    const response = await this.authedFetch(
+      `/admin/product-variants?id[]=${encodeURIComponent(variantId)}&fields=id,*prices`
+    )
+    const body = (await response.json()) as {
+      variants: {
+        id: string
+        prices?: { amount: number; currency_code: string }[]
+      }[]
+    }
+
+    const variant = body.variants[0]
+    if (!variant) {
+      throw new Error(`Variant with id: ${variantId} was not found`)
+    }
+
+    const price =
+      variant.prices?.find((p) => p.currency_code === currencyCode) ??
+      variant.prices?.[0]
+    if (!price) {
+      throw new Error(`Variant with id: ${variantId} has no price set`)
+    }
+
+    return { amount: price.amount, currencyCode: price.currency_code }
+  }
+
+  /**
+   * Reads a variant's current available stock via Medusa's Admin API.
+   *
+   * Uses the same `/admin/product-variants` route as `getVariantPricing`,
+   * requesting the computed `inventory_quantity` field. Confirmed against
+   * the real running backend and against this version's source
+   * (`packages/medusa/src/api/utils/middlewares/products/variant-inventory-quantity.ts`
+   * in the Medusa core checkout): requesting `fields=...,inventory_quantity`
+   * triggers `wrapVariantsWithTotalInventoryQuantity`, which resolves the
+   * variant's total availability across all of its linked inventory items
+   * server-side — this one query config to a dedicated
+   * `/admin/inventory-items` lookup (the other approach the brief
+   * sketched), and it already matches the "current stock" the admin
+   * dashboard displays for a variant.
+   *
+   * A variant with `manage_inventory: false` never gets an
+   * `inventory_quantity` back (Medusa core's own wrapper skips it), so that
+   * case returns `{ quantity: 0 }` rather than `undefined`/`NaN`.
+   */
+  async getVariantInventory(variantId: string): Promise<VariantInventory> {
+    const response = await this.authedFetch(
+      `/admin/product-variants?id[]=${encodeURIComponent(variantId)}&fields=id,manage_inventory,inventory_quantity`
+    )
+    const body = (await response.json()) as {
+      variants: { id: string; inventory_quantity?: number | null }[]
+    }
+
+    const variant = body.variants[0]
+    if (!variant) {
+      throw new Error(`Variant with id: ${variantId} was not found`)
+    }
+
+    return { quantity: variant.inventory_quantity ?? 0 }
+  }
+
+  /**
+   * Resolves the store's default currency code (e.g. `"usd"`), used by
+   * `getVariantPricing` to pick which of a variant's several per-currency
+   * prices is "the" current price.
+   */
+  private async resolveDefaultCurrencyCode(): Promise<string> {
+    const response = await this.authedFetch(
+      "/admin/stores?fields=id,*supported_currencies"
+    )
+    const body = (await response.json()) as {
+      stores: {
+        supported_currencies?: { currency_code: string; is_default: boolean }[]
+      }[]
+    }
+    const defaultCurrency = body.stores[0]?.supported_currencies?.find(
+      (c) => c.is_default
+    )
+    return defaultCurrency?.currency_code ?? "usd"
   }
 
   /**
