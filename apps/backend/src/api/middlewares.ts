@@ -15,5 +15,15 @@ export default defineMiddlewares({
         }),
       ],
     },
+    {
+      // The EasyPost webhook route verifies the `X-Hmac-Signature` header
+      // against the exact raw request bytes, so the JSON bodyparser must
+      // preserve them on `req.rawBody` for this route specifically (it does
+      // not by default -- see packages/medusa/src/api/hooks/payment's own
+      // use of this same config for the built-in payment webhook route).
+      method: ['POST'],
+      matcher: '/webhooks/easypost',
+      bodyParser: { preserveRawBody: true },
+    },
   ],
 })
