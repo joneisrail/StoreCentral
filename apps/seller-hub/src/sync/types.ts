@@ -6,8 +6,17 @@
  */
 export type NormalizedAmazonOrder = {
   amazonOrderId: string
+  /**
+   * Amazon's `OrderStatus` for this order (e.g. `"Pending"`, `"Unshipped"`,
+   * `"Canceled"`). Optional so callers that don't need order-status
+   * filtering (existing tests, fixtures) can omit it -- `importAmazonOrder`
+   * treats a missing status as safe to import, since withholding import on
+   * an unrecognized/absent status would be a worse failure mode than
+   * importing an order whose exact state we can't tell.
+   */
+  orderStatus?: string
   buyerEmail: string
-  items: { sku: string; quantity: number }[]
+  items: { sku: string; quantity: number; unitPrice?: number }[]
   shippingAddress: {
     first_name: string
     last_name: string

@@ -21,6 +21,15 @@ import type { NormalizedAmazonOrder } from "./types.js"
  */
 export const STALE_PROCESSING_MS = 5 * 60 * 1000
 
+/**
+ * Amazon `OrderStatus` values this import flow acts on directly (see the
+ * check in `executeClaimedImport`). Every other status (`Unshipped`,
+ * `PartiallyShipped`, `Shipped`, `InvoiceUnconfirmed`, `Unfulfillable`, or a
+ * missing/unrecognized value) is treated as safe to import as-is.
+ */
+const CANCELED_ORDER_STATUS = "Canceled"
+const PENDING_ORDER_STATUS = "Pending"
+
 export type ImportAmazonOrderDeps = {
   pool: Pool
   integrationAccountId: string
@@ -273,7 +282,9 @@ const executeClaimedImport = async (
     }
   }
 
-  const recordSucceeded = async (medusaOrderId: string): Promise<void> => {
+  const recordSucceeded = async (
+    medusaOrderId?: string
+  ): Promise<void> => {
     const recorded = await markSyncJobSucceeded(
       pool,
       claim.syncJobId,
@@ -281,11 +292,13 @@ const executeClaimedImport = async (
       fence
     )
     if (!recorded) {
-      // The order exists in Medusa; a newer attempt owns the row and will
-      // find this order via the same existence check below.
+      // The outcome (an order, or an intentional no-op) is already decided;
+      // a newer attempt owns the row and will reach the same outcome via
+      // the same checks this attempt just ran.
       console.warn(
-        `[import-order] Medusa order ${medusaOrderId} for Amazon order ` +
-          `${amazonOrderId} exists, but this attempt lost its claim before recording it`
+        `[import-order] outcome for Amazon order ${amazonOrderId} ` +
+          `(medusaOrderId=${medusaOrderId ?? "none"}) decided, but this ` +
+          `attempt lost its claim before recording it`
       )
     }
   }
@@ -325,6 +338,33 @@ const executeClaimedImport = async (
     // its items, address and sales channel.
     const { order, salesChannelId } = await loadContext()
 
+    // Step 1c: a Canceled order is never imported -- that's terminal, so
+    // this is recorded `succeeded` (an intentional no-op, not a failure)
+    // rather than `failed`, and settles the row for good: a later duplicate
+    // notification for the same order will find it already `succeeded` and
+    // skip without re-checking anything.
+    if (order.orderStatus === CANCELED_ORDER_STATUS) {
+      await recordSucceeded(undefined)
+      return {
+        status: "skipped",
+        reason: `Amazon order ${amazonOrderId} is Canceled; not imported`,
+      }
+    }
+
+    // Step 1d: a Pending order's payment hasn't cleared yet -- unlike
+    // Canceled, this can still become importable later, so it must stay
+    // retryable rather than being settled. Throwing a plain (non-Permanent)
+    // Error marks the row `failed` and leaves it reclaimable: either
+    // BullMQ's own retry/backoff, or the next real ORDER_CHANGE notification
+    // Amazon sends once the order advances, will try again via the normal
+    // `failed`-row reclaim path in `claimOrderSyncJob`.
+    if (order.orderStatus === PENDING_ORDER_STATUS) {
+      throw new Error(
+        `Amazon order ${amazonOrderId} is still Pending (unpaid); will ` +
+          `retry once Amazon reports it ready`
+      )
+    }
+
     // Step 2: resolve every line item's SKU to a Medusa variant via
     // channel_listing. Any unmapped SKU fails the whole order before any
     // Medusa write (no partial order) -- permanently, since retrying with
@@ -353,6 +393,10 @@ const executeClaimedImport = async (
     const items: DraftOrderLineItemInput[] = order.items.map((item) => ({
       variant_id: variantIdBySku.get(item.sku)!,
       quantity: item.quantity,
+      // Preserves what the buyer actually paid on Amazon; omitted (falls
+      // back to Medusa's own current variant price) when Amazon's response
+      // didn't carry a per-item price.
+      ...(item.unitPrice !== undefined ? { unit_price: item.unitPrice } : {}),
     }))
 
     // Step 3: create the draft, then persist its id on the row *before*

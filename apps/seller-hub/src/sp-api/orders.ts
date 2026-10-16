@@ -14,6 +14,7 @@ const GET_ORDER_RATE_LIMIT = { ratePerSecond: 0.5, burst: 30 }
 
 type RawSpApiOrder = {
   AmazonOrderId: string
+  OrderStatus?: string
   BuyerInfo?: { BuyerEmail?: string }
   ShippingAddress?: {
     Name?: string
@@ -22,7 +23,11 @@ type RawSpApiOrder = {
     CountryCode?: string
     PostalCode?: string
   }
-  OrderItems?: { SellerSKU: string; QuantityOrdered: number }[]
+  OrderItems?: {
+    SellerSKU: string
+    QuantityOrdered: number
+    ItemPrice?: { Amount: string }
+  }[]
 }
 
 /**
@@ -46,6 +51,18 @@ type RawSpApiOrder = {
  * split here on the first space into `first_name`/`last_name` (remaining
  * words, if any, stay in `last_name`) since Medusa's address shape wants
  * them separate and SP-API gives no better signal to split on.
+ *
+ * `OrderStatus` is passed through as-is (used by `import-order.ts` to skip
+ * `Canceled` orders and defer `Pending` ones rather than import every
+ * order unconditionally).
+ *
+ * Each item's `ItemPrice.Amount` is, per SP-API's documented `OrderItem`
+ * schema, the *line total* for that item (i.e. already multiplied by
+ * `QuantityOrdered`), not a per-unit price -- so `unitPrice` here divides
+ * it back out and rounds to 2 decimals. Same caveat as the
+ * `getOrder`/`getOrderItems` split noted above: this is modeled against
+ * the documented schema and this task's test fixtures, not live traffic;
+ * confirm against a real sandbox order in Task 13's manual smoke checklist.
  */
 export const getOrder = async (
   client: SpApiClient,
@@ -62,10 +79,14 @@ export const getOrder = async (
 
   return {
     amazonOrderId: order.AmazonOrderId,
+    orderStatus: order.OrderStatus,
     buyerEmail: order.BuyerInfo?.BuyerEmail ?? "",
     items: (order.OrderItems ?? []).map((item) => ({
       sku: item.SellerSKU,
       quantity: item.QuantityOrdered,
+      unitPrice: item.ItemPrice
+        ? round2(Number(item.ItemPrice.Amount) / item.QuantityOrdered)
+        : undefined,
     })),
     shippingAddress: {
       first_name: firstName,
@@ -77,6 +98,9 @@ export const getOrder = async (
     },
   }
 }
+
+// Same duplicated-per-file convention as `push-price.ts`'s `round2`.
+const round2 = (value: number): number => Math.round(value * 100) / 100
 
 const splitName = (fullName: string): { firstName: string; lastName: string } => {
   const parts = fullName.trim().split(/\s+/).filter(Boolean)

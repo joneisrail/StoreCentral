@@ -204,6 +204,103 @@ test("importAmazonOrder throws PermanentSyncError for an unmapped SKU without cr
   expect(count).toBe(0)
 }, 20_000)
 
+test("importAmazonOrder skips a Canceled order without creating any Medusa order, and records it as succeeded (no-op by design, not a failure)", async () => {
+  const order: NormalizedAmazonOrder = {
+    amazonOrderId: "TEST-CANCELED-" + Date.now(),
+    orderStatus: "Canceled",
+    buyerEmail: "buyer@example.com",
+    items: [{ sku: MAPPED_SKU, quantity: 1 }],
+    shippingAddress,
+  }
+
+  const result = await importAmazonOrder(order, deps)
+
+  expect(result.status).toBe("skipped")
+  expect(result.medusaOrderId).toBeUndefined()
+  expect(result.reason).toMatch(/Canceled/)
+
+  const { rows } = await pool.query(
+    `SELECT status, medusa_entity_id FROM seller_hub.sync_job
+     WHERE integration_account_id = $1 AND sync_type = 'order' AND external_id = $2`,
+    [integrationAccountId, order.amazonOrderId]
+  )
+  expect(rows[0].status).toBe("succeeded")
+  expect(rows[0].medusa_entity_id).toBeNull()
+
+  const count = await countOrdersWithAmazonOrderId(order.amazonOrderId)
+  expect(count).toBe(0)
+}, 20_000)
+
+test("importAmazonOrder defers a Pending (unpaid) order instead of importing it, and the failed row can be retried once it's ready", async () => {
+  const amazonOrderId = "TEST-PENDING-" + Date.now()
+  const pendingOrder: NormalizedAmazonOrder = {
+    amazonOrderId,
+    orderStatus: "Pending",
+    buyerEmail: "buyer@example.com",
+    items: [{ sku: MAPPED_SKU, quantity: 1 }],
+    shippingAddress,
+  }
+
+  const error = await importAmazonOrder(pendingOrder, deps).then(
+    () => null,
+    (err: unknown) => err
+  )
+
+  // Transient, not PermanentSyncError: a later Amazon notification for the
+  // same order (once payment clears and status advances) must still be able
+  // to retry this via the normal `failed`-row reclaim path.
+  expect(error).not.toBeInstanceOf(PermanentSyncError)
+  expect(error).toBeInstanceOf(Error)
+  expect((error as Error).message).toMatch(/Pending/)
+
+  const { rows: failedRows } = await pool.query(
+    `SELECT status FROM seller_hub.sync_job
+     WHERE integration_account_id = $1 AND sync_type = 'order' AND external_id = $2`,
+    [integrationAccountId, amazonOrderId]
+  )
+  expect(failedRows[0].status).toBe("failed")
+  expect(await countOrdersWithAmazonOrderId(amazonOrderId)).toBe(0)
+
+  // Amazon later reports the same order as Unshipped (payment cleared) —
+  // the same amazonOrderId reclaims the failed row and actually imports.
+  const readyOrder: NormalizedAmazonOrder = {
+    ...pendingOrder,
+    orderStatus: "Unshipped",
+  }
+  const result = await importAmazonOrder(readyOrder, deps)
+
+  expect(result.status).toBe("created")
+  expect(result.medusaOrderId).toBeDefined()
+  expect(await countOrdersWithAmazonOrderId(amazonOrderId)).toBe(1)
+}, 25_000)
+
+test(
+  "importAmazonOrder sets each line item's unit_price from the normalized order when present",
+  async () => {
+    const order: NormalizedAmazonOrder = {
+      amazonOrderId: "TEST-UNITPRICE-" + Date.now(),
+      orderStatus: "Unshipped",
+      buyerEmail: "buyer@example.com",
+      items: [{ sku: MAPPED_SKU, quantity: 2, unitPrice: 12.5 }],
+      shippingAddress,
+    }
+
+    const result = await importAmazonOrder(order, deps)
+    expect(result.status).toBe("created")
+
+    const response = await fetch(
+      `${BASE_URL}/admin/orders/${result.medusaOrderId}?fields=id,*items`,
+      { headers: authHeaders }
+    )
+    const body = (await response.json()) as {
+      order: { items: { unit_price: number }[] }
+    }
+
+    expect(body.order.items[0]!.unit_price).toBe(12.5)
+  },
+  20_000
+)
+
 test(
   "importAmazonOrder enforces idempotency via the DB unique constraint under real concurrent duplicate calls",
   async () => {

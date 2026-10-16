@@ -6,6 +6,47 @@ test("getOrder maps a raw SP-API order response into NormalizedAmazonOrder", asy
   const fakeSpApiClient = {
     request: vi.fn().mockResolvedValue({
       AmazonOrderId: "ORDER-ABC",
+      OrderStatus: "Unshipped",
+      BuyerInfo: { BuyerEmail: "buyer@example.com" },
+      ShippingAddress: {
+        Name: "Jane Doe",
+        AddressLine1: "1 Test St",
+        City: "Seattle",
+        CountryCode: "US",
+        PostalCode: "98101",
+      },
+      OrderItems: [
+        {
+          SellerSKU: "TEST-SKU-1",
+          QuantityOrdered: 2,
+          ItemPrice: { Amount: "59.98" },
+        },
+      ],
+    }),
+  } as unknown as SpApiClient
+
+  const result = await getOrder(fakeSpApiClient, "ORDER-ABC")
+
+  expect(result).toEqual({
+    amazonOrderId: "ORDER-ABC",
+    orderStatus: "Unshipped",
+    buyerEmail: "buyer@example.com",
+    items: [{ sku: "TEST-SKU-1", quantity: 2, unitPrice: 29.99 }],
+    shippingAddress: {
+      first_name: "Jane",
+      last_name: "Doe",
+      address_1: "1 Test St",
+      city: "Seattle",
+      country_code: "us",
+      postal_code: "98101",
+    },
+  })
+})
+
+test("getOrder omits unitPrice and orderStatus when the raw response lacks ItemPrice/OrderStatus", async () => {
+  const fakeSpApiClient = {
+    request: vi.fn().mockResolvedValue({
+      AmazonOrderId: "ORDER-NOPRICE",
       BuyerInfo: { BuyerEmail: "buyer@example.com" },
       ShippingAddress: {
         Name: "Jane Doe",
@@ -18,21 +59,38 @@ test("getOrder maps a raw SP-API order response into NormalizedAmazonOrder", asy
     }),
   } as unknown as SpApiClient
 
-  const result = await getOrder(fakeSpApiClient, "ORDER-ABC")
+  const result = await getOrder(fakeSpApiClient, "ORDER-NOPRICE")
 
-  expect(result).toEqual({
-    amazonOrderId: "ORDER-ABC",
-    buyerEmail: "buyer@example.com",
-    items: [{ sku: "TEST-SKU-1", quantity: 2 }],
-    shippingAddress: {
-      first_name: "Jane",
-      last_name: "Doe",
-      address_1: "1 Test St",
-      city: "Seattle",
-      country_code: "us",
-      postal_code: "98101",
-    },
-  })
+  expect(result.orderStatus).toBeUndefined()
+  expect(result.items).toEqual([{ sku: "TEST-SKU-1", quantity: 2 }])
+})
+
+test("getOrder divides ItemPrice (the line total) by quantity and rounds to 2 decimals", async () => {
+  const fakeSpApiClient = {
+    request: vi.fn().mockResolvedValue({
+      AmazonOrderId: "ORDER-ROUNDING",
+      OrderStatus: "Shipped",
+      BuyerInfo: { BuyerEmail: "buyer@example.com" },
+      ShippingAddress: {
+        Name: "Jane Doe",
+        AddressLine1: "1 Test St",
+        City: "Seattle",
+        CountryCode: "US",
+        PostalCode: "98101",
+      },
+      OrderItems: [
+        {
+          SellerSKU: "TEST-SKU-1",
+          QuantityOrdered: 3,
+          ItemPrice: { Amount: "10.00" },
+        },
+      ],
+    }),
+  } as unknown as SpApiClient
+
+  const result = await getOrder(fakeSpApiClient, "ORDER-ROUNDING")
+
+  expect(result.items[0]!.unitPrice).toBe(3.33)
 })
 
 test("getOrder calls the SP-API client with the getOrder operation and amazonOrderId in the path", async () => {
@@ -66,6 +124,7 @@ test("getOrder maps multiple order items and a multi-word last name", async () =
   const fakeSpApiClient = {
     request: vi.fn().mockResolvedValue({
       AmazonOrderId: "ORDER-MULTI",
+      OrderStatus: "PartiallyShipped",
       BuyerInfo: { BuyerEmail: "multi@example.com" },
       ShippingAddress: {
         Name: "Mary Anne Smith Jones",
@@ -75,17 +134,26 @@ test("getOrder maps multiple order items and a multi-word last name", async () =
         PostalCode: "73301",
       },
       OrderItems: [
-        { SellerSKU: "SKU-1", QuantityOrdered: 1 },
-        { SellerSKU: "SKU-2", QuantityOrdered: 3 },
+        {
+          SellerSKU: "SKU-1",
+          QuantityOrdered: 1,
+          ItemPrice: { Amount: "9.99" },
+        },
+        {
+          SellerSKU: "SKU-2",
+          QuantityOrdered: 3,
+          ItemPrice: { Amount: "30.00" },
+        },
       ],
     }),
   } as unknown as SpApiClient
 
   const result = await getOrder(fakeSpApiClient, "ORDER-MULTI")
 
+  expect(result.orderStatus).toBe("PartiallyShipped")
   expect(result.items).toEqual([
-    { sku: "SKU-1", quantity: 1 },
-    { sku: "SKU-2", quantity: 3 },
+    { sku: "SKU-1", quantity: 1, unitPrice: 9.99 },
+    { sku: "SKU-2", quantity: 3, unitPrice: 10 },
   ])
   // "First word is first name, remainder is last name" per the brief's own
   // "Jane Doe" -> { first_name: "Jane", last_name: "Doe" } example.
