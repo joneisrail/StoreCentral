@@ -133,19 +133,19 @@ git commit -m "feat(fulfillment-easypost): scaffold package and EasyPost API cli
 - Test: `packages/modules/providers/fulfillment-easypost/src/services/__tests__/easypost-fulfillment.spec.ts`
 
 **Interfaces:**
-- Consumes: `EasyPostClient` from Task 1.
-- Produces: `CARRIER_SERVICE_MAP: Record<string, { code: string; name: string }[]>` keyed by EasyPost's carrier-account `type` string (confirmed against the real response in Step 1 below) — e.g. `{ UspsAccount: [{ code: "First", name: "USPS First Class" }, { code: "Priority", name: "USPS Priority" }, { code: "Express", name: "USPS Express" }], UpsAccount: [{ code: "Ground", name: "UPS Ground" }, { code: "2ndDayAir", name: "UPS 2nd Day Air" }, { code: "NextDayAir", name: "UPS Next Day Air" }] }` — confirm these exact service code strings against EasyPost's current API docs before finalizing; don't ship this plan's example values unverified.
-- Produces: `EasyPostFulfillmentService` class (constructor takes `{ logger }` deps and `{ apiKey }` options, matching the `AbstractFulfillmentProviderService` constructor convention shown in its own doc comment), `static identifier = "easypost"`, with `getFulfillmentOptions(): Promise<FulfillmentOption[]>` implemented. Each returned option's `id` is `"${carrierType}:${serviceCode}"` (e.g. `"UspsAccount:Priority"`) and carries `{ name, carrierType, serviceCode }` so later tasks can parse it back out without a second lookup.
+- Consumes: `EasyPostClient` from Task 1 — specifically `createShipment`, not `listCarrierAccounts`. **Plan correction (ruled by the controller after Task 1):** Task 1's implementer confirmed, both in the `@easypost/api` SDK's own type docstring and empirically (a real 403 against our test-mode key), that `GET /carrier_accounts` requires a *production* API key. Since only a test-mode key is available for this project, `getFulfillmentOptions()` cannot use the carrier-accounts endpoint at all — the plan's and spec's original design assumed this would work in test mode, and it doesn't. The corrected mechanism: create one representative `EasyPostClient.createShipment()` call (a generic domestic US from/to address pair and the configured default parcel — the same default-parcel values Task 7 defines, read via this service's own `options.defaultParcel`, not re-invented here) and read its returned `rates[]` array. Each rate's `carrier`/`service` fields are, together, exactly "what's actually quotable on this account" — which is a *better* fit for "reflects what's actually enabled" than a static accounts list would have been anyway, and it works with a test-mode key. This does mean `getFulfillmentOptions()` now makes a real EasyPost API call (a shipment creation) where the original design assumed a cheaper accounts-list call — not a performance concern at Medusa's own call frequency for this method (admin setup time only, not per-checkout).
+- Produces: `CARRIER_SERVICE_MAP: Record<string, { code: string; name: string }[]>` — **keyed by the `carrier` string a real EasyPost rate object actually returns** (confirmed in Step 1 below, e.g. `"USPS"`, not the carrier-*account* `type` string like `"UspsAccount"` the original design assumed — these are two different EasyPost vocabularies, don't conflate them), mapping each to this provider's own display names for the service-level strings that same rate's `service` field uses — e.g. `{ USPS: [{ code: "First", name: "USPS First Class" }, { code: "Priority", name: "USPS Priority" }, { code: "Express", name: "USPS Express" }], UPS: [{ code: "Ground", name: "UPS Ground" }, { code: "2ndDayAir", name: "UPS 2nd Day Air" }, { code: "NextDayAir", name: "UPS Next Day Air" }] }` — confirm these exact carrier/service strings against Step 1's real response, not this plan's guess.
+- Produces: `EasyPostFulfillmentService` class (constructor takes `{ logger }` deps and `{ apiKey, defaultParcel }` options, matching the `AbstractFulfillmentProviderService` constructor convention shown in its own doc comment), `static identifier = "easypost"`, with `getFulfillmentOptions(): Promise<FulfillmentOption[]>` implemented. Each returned option's `id` is `"${carrier}:${service}"` (e.g. `"USPS:Priority"`) and carries `{ name, carrier, service }` so later tasks can parse it back out without a second lookup. (Field renamed from `carrierType`/`serviceCode` to `carrier`/`service` throughout this task and every later task that consumes this shape, to match the real EasyPost rate vocabulary this correction surfaced — carry this renaming forward into Tasks 3, 4, and 5's own `optionData` shapes.)
 
-- [ ] **Step 1: Confirm the real carrier-account response shape against the test-mode account**
+- [ ] **Step 1: Confirm the real rate response shape against the test-mode account**
 
-Write a throwaway script (or a temporary `console.log` in a test you delete before committing) that calls `EasyPostClient.listCarrierAccounts()` against the real test-mode API key and logs the raw response. Confirm: what field actually identifies the carrier (`type`? a separate `readable` string? something else?), and whether the test account's default carrier(s) match what this task assumes. Update `CARRIER_SERVICE_MAP`'s keys to match what you actually see, not this plan's guess.
+Using the fixture addresses/parcel already proven to work in Task 1's own `createShipment` test, call `EasyPostClient.createShipment()` once against the real test-mode API and log the raw `rates[]` array. Confirm: the exact `carrier` and `service` string values the test account's rates actually use (don't assume `"USPS"`/`"Priority"` match reality until you've seen it), and how many distinct carrier+service combinations come back. Update `CARRIER_SERVICE_MAP` to match what you actually see.
 
 - [ ] **Step 2: Write the failing tests**
 
 ```ts
-test("getFulfillmentOptions returns one option per enabled carrier's known services", async () => {
-  const service = new EasyPostFulfillmentService({ logger: fakeLogger }, { apiKey: process.env.EASYPOST_API_KEY! })
+test("getFulfillmentOptions returns one option per carrier+service this account's rates actually quote", async () => {
+  const service = new EasyPostFulfillmentService({ logger: fakeLogger }, { apiKey: process.env.EASYPOST_API_KEY!, defaultParcel: { weight: 16, length: 10, width: 8, height: 4 } })
   const options = await service.getFulfillmentOptions()
   expect(options.length).toBeGreaterThan(0)
   // Every option's id must be parseable back into a carrier+service this
@@ -155,9 +155,9 @@ test("getFulfillmentOptions returns one option per enabled carrier's known servi
   }
 })
 
-test("getFulfillmentOptions returns an empty list, not an error, when the account has no carrier accounts", async () => {
-  const fakeClient = { listCarrierAccounts: async () => [] } as unknown as EasyPostClient
-  const service = new EasyPostFulfillmentService({ logger: fakeLogger }, { apiKey: "unused" })
+test("getFulfillmentOptions returns an empty list, not an error, when the representative shipment quotes no rates", async () => {
+  const fakeClient = { createShipment: async () => ({ id: "shp_fake", rates: [] }) } as unknown as EasyPostClient
+  const service = new EasyPostFulfillmentService({ logger: fakeLogger }, { apiKey: "unused", defaultParcel: { weight: 16, length: 10, width: 8, height: 4 } })
   // inject the fake client -- see Step 3's note on making the client swappable for this one test
   const options = await service.getFulfillmentOptions()
   expect(options).toEqual([])
@@ -171,7 +171,7 @@ Expected: FAIL — module not found.
 
 - [ ] **Step 4: Implement `EasyPostFulfillmentService` (constructor + `getFulfillmentOptions`)**
 
-Constructor builds an `EasyPostClient` from `options.apiKey` and stores it on a protected field (name it so the no-carrier-accounts test can substitute a fake — e.g. accept an optional injected client in the constructor's options for testing, following whatever pattern reads cleanest once you've read `payment-stripe`'s own constructor for precedent on handling test-time substitution). `getFulfillmentOptions()` calls `listCarrierAccounts()`, maps each account's carrier-type to `CARRIER_SERVICE_MAP`'s entries (skipping any carrier type not in the map, logging a warning rather than throwing — an account with a carrier this provider doesn't yet model is an expected, non-fatal case), and flattens into one `FulfillmentOption` per carrier+service pair.
+Constructor builds an `EasyPostClient` from `options.apiKey`, stores `options.defaultParcel`, and stores the client on a protected field (name it so the empty-rates test can substitute a fake — e.g. accept an optional injected client in the constructor's options for testing, following whatever pattern reads cleanest once you've read `payment-stripe`'s own constructor for precedent on handling test-time substitution). `getFulfillmentOptions()` builds a representative shipment (a generic domestic from/to address pair — pick one and keep it a named constant, not inlined magic strings — and `options.defaultParcel`), calls `createShipment()`, and for each returned rate maps its `carrier`/`service` to `CARRIER_SERVICE_MAP`'s entries (skipping any carrier not in the map, logging a warning rather than throwing — a carrier this provider doesn't yet model quoting a rate is an expected, non-fatal case), flattening into one `FulfillmentOption` per carrier+service pair actually returned.
 
 - [ ] **Step 5: Run tests to verify they pass**
 
@@ -260,7 +260,7 @@ test("calculatePrice returns a real EasyPost rate for the cart's real destinatio
     from_location: { address: { address_1: "118 2nd street", city: "San Francisco", province: "CA", postal_code: "94105", country_code: "us" } },
     items: [{ quantity: 1, variant: { weight: 16, length: 10, width: 8, height: 4 } }],
   } as unknown as CalculateShippingOptionPriceContext
-  const price = await service.calculatePrice({ carrierType: "UspsAccount", serviceCode: "Priority" }, {}, context)
+  const price = await service.calculatePrice({ carrier: "USPS", service: "Priority" }, {}, context)
   expect(price.calculated_amount).toBeGreaterThan(0)
 })
 
@@ -271,7 +271,7 @@ test("calculatePrice throws a clear error when EasyPost can't quote this carrier
   // don't fabricate one you haven't verified actually fails this way.
   const service = new EasyPostFulfillmentService({ logger: fakeLogger }, { apiKey: process.env.EASYPOST_API_KEY! })
   await expect(
-    service.calculatePrice({ carrierType: "NotEnabledAccount", serviceCode: "Fake" }, {}, validContextFixture)
+    service.calculatePrice({ carrier: "NotARealCarrier", service: "Fake" }, {}, validContextFixture)
   ).rejects.toThrow()
 })
 ```
@@ -285,7 +285,7 @@ Expected: FAIL — methods not implemented.
 
 **A real asymmetry to get right, not guess at:** `canCalculate(data: CreateShippingOptionDTO)`'s `data` param is confirmed (via `packages/core/types/src/fulfillment/mutations/shipping-option.ts`) to be the *whole* shipping-option-creation DTO, which has its own nested `data?: Record<string, unknown>` holding what `getFulfillmentOptions()` returned for the admin's chosen option — so this method checks `data.data?.id`, not `data.id`. `validateOption(data)` and `calculatePrice(optionData, data, context)`, by contrast, receive that nested data *directly* as their own first argument (confirmed via the abstract class's own doc comments for each) — so those check `data.id`/`optionData.id` with no extra nesting. Three methods, three different "what does `data` mean here" answers — write each one to match its own real parameter shape, not a copy-pasted assumption from the method next to it.
 
-`canCalculate(data)` returns `true` whenever `data.data?.id` matches this provider's `"carrierType:serviceCode"` id shape (no API call needed). `validateOption(data)` does the same shape check directly on `data.id` (no extra nesting — see note above). `calculatePrice(optionData, data, context)` builds the parcel via `buildParcel(context.items, this.options_.defaultParcel)`, calls `EasyPostClient.createShipment` with `context.shipping_address` and `context.from_location` mapped into EasyPost's address shape (confirmed field names from Task 1's Step 2) and the built parcel, finds the rate in the response matching `optionData`'s carrier+service, and returns `{ calculated_amount: Number(rate.rate), is_calculated_price_tax_inclusive: false }`. If no matching rate comes back, throw a descriptive error (per this task's Review Focus item) — Medusa's own checkout flow is responsible for dropping an option whose price calculation fails, not this provider.
+`canCalculate(data)` returns `true` whenever `data.data?.id` matches this provider's `"carrier:service"` id shape (no API call needed). `validateOption(data)` does the same shape check directly on `data.id` (no extra nesting — see note above). `calculatePrice(optionData, data, context)` builds the parcel via `buildParcel(context.items, this.options_.defaultParcel)`, calls `EasyPostClient.createShipment` with `context.shipping_address` and `context.from_location` mapped into EasyPost's address shape (confirmed field names from Task 1's Step 2) and the built parcel, finds the rate in the response matching `optionData`'s carrier+service, and returns `{ calculated_amount: Number(rate.rate), is_calculated_price_tax_inclusive: false }`. If no matching rate comes back, throw a descriptive error (per this task's Review Focus item) — Medusa's own checkout flow is responsible for dropping an option whose price calculation fails, not this provider.
 
 - [ ] **Step 8: Run tests to verify they pass**
 
@@ -317,7 +317,7 @@ git commit -m "feat(fulfillment-easypost): build parcels from real cart data and
 test("validateFulfillmentData persists a real shipment id and matching rate id for later purchase", async () => {
   const service = new EasyPostFulfillmentService({ logger: fakeLogger }, { apiKey: process.env.EASYPOST_API_KEY! })
   const result = await service.validateFulfillmentData(
-    { carrierType: "UspsAccount", serviceCode: "Priority" },
+    { carrier: "USPS", service: "Priority" },
     {},
     validContextFixture
   )
@@ -329,7 +329,7 @@ test("validateFulfillmentData persists a real shipment id and matching rate id f
 test("validateFulfillmentData throws when EasyPost can't quote this carrier+service for the destination (Review Focus)", async () => {
   const service = new EasyPostFulfillmentService({ logger: fakeLogger }, { apiKey: process.env.EASYPOST_API_KEY! })
   await expect(
-    service.validateFulfillmentData({ carrierType: "NotEnabledAccount", serviceCode: "Fake" }, {}, validContextFixture)
+    service.validateFulfillmentData({ carrier: "NotARealCarrier", service: "Fake" }, {}, validContextFixture)
   ).rejects.toThrow()
 })
 ```
@@ -372,7 +372,7 @@ git commit -m "feat(fulfillment-easypost): persist the checkout-time rate for ex
 ```ts
 test("createFulfillment buys the exact persisted rate and returns a tracking code + label", async () => {
   const service = new EasyPostFulfillmentService({ logger: fakeLogger }, { apiKey: process.env.EASYPOST_API_KEY! })
-  const validated = await service.validateFulfillmentData({ carrierType: "UspsAccount", serviceCode: "Priority" }, {}, validContextFixture)
+  const validated = await service.validateFulfillmentData({ carrier: "USPS", service: "Priority" }, {}, validContextFixture)
   const result = await service.createFulfillment(validated, [], undefined, {} as any)
   expect(result.data.easypost_tracking_code).toBeDefined()
   expect(result.labels[0].tracking_number).toBe(result.data.easypost_tracking_code)
@@ -381,7 +381,7 @@ test("createFulfillment buys the exact persisted rate and returns a tracking cod
 
 test("createFulfillment throws a clear error for an expired or already-bought rate (Review Focus)", async () => {
   const service = new EasyPostFulfillmentService({ logger: fakeLogger }, { apiKey: process.env.EASYPOST_API_KEY! })
-  const validated = await service.validateFulfillmentData({ carrierType: "UspsAccount", serviceCode: "Priority" }, {}, validContextFixture)
+  const validated = await service.validateFulfillmentData({ carrier: "USPS", service: "Priority" }, {}, validContextFixture)
   await service.createFulfillment(validated, [], undefined, {} as any) // first buy succeeds
   await expect(service.createFulfillment(validated, [], undefined, {} as any)).rejects.toThrow() // second buy of the same shipment/rate must not silently "succeed" again
 })
@@ -394,7 +394,7 @@ test("createReturnFulfillment buys a label with addresses reversed", async () =>
 
 test("cancelFulfillment submits a refund request for a bought shipment", async () => {
   const service = new EasyPostFulfillmentService({ logger: fakeLogger }, { apiKey: process.env.EASYPOST_API_KEY! })
-  const validated = await service.validateFulfillmentData({ carrierType: "UspsAccount", serviceCode: "Priority" }, {}, validContextFixture)
+  const validated = await service.validateFulfillmentData({ carrier: "USPS", service: "Priority" }, {}, validContextFixture)
   const created = await service.createFulfillment(validated, [], undefined, {} as any)
   const cancelled = await service.cancelFulfillment(created.data)
   expect(cancelled).toBeDefined() // exact assertion depends on what refundShipment actually returns -- confirm against Task 1
