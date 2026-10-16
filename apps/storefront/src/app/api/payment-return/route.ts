@@ -9,18 +9,14 @@ export async function GET(req: NextRequest) {
   const { origin, searchParams } = req.nextUrl
 
   const cartId = searchParams.get("cart_id")
-  const countryCode = searchParams.get("country_code")
   const paymentIntent = searchParams.get("payment_intent")
   const paymentIntentClientSecret = searchParams.get(
     "payment_intent_client_secret"
   )
   const redirectStatus = searchParams.get("redirect_status")
 
-  // Without a country code the middleware resolves the customer's region and
-  // prefixes it; either way every redirect below stays on this origin.
-  const prefix = countryCode ? `/${countryCode}` : ""
   const rejected = () =>
-    NextResponse.redirect(`${origin}${prefix}/cart?error=payment_failed`)
+    NextResponse.redirect(`${origin}/cart?error=payment_failed`)
 
   if (!cartId || !paymentIntent || !paymentIntentClientSecret) {
     return rejected()
@@ -69,7 +65,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    return NextResponse.redirect(`${origin}${prefix}/checkout?${params}`)
+    return NextResponse.redirect(`${origin}/checkout?${params}`)
   }
 
   try {
@@ -77,9 +73,9 @@ export async function GET(req: NextRequest) {
   } catch (error) {
     unstable_rethrow(error)
 
-    return NextResponse.redirect(`${origin}${prefix}/cart?error=order_failed`)
+    return NextResponse.redirect(`${origin}/cart?error=order_failed`)
   }
 
   // Only reached when the cart did not convert into an order.
-  return NextResponse.redirect(`${origin}${prefix}/cart?error=order_failed`)
+  return NextResponse.redirect(`${origin}/cart?error=order_failed`)
 }

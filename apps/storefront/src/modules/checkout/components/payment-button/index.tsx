@@ -5,7 +5,6 @@ import { placeOrder } from "@lib/data/cart"
 import { HttpTypes } from "@medusajs/types"
 import { Button } from "@modules/common/components/ui"
 import { useElements, useStripe } from "@stripe/react-stripe-js"
-import { useParams } from "next/navigation"
 import React, { useState } from "react"
 import ErrorMessage from "../error-message"
 
@@ -69,7 +68,6 @@ const StripePaymentButton = ({
 
   const stripe = useStripe()
   const elements = useElements()
-  const { countryCode } = useParams()
 
   const disabled = !stripe || !elements ? true : false
 
@@ -84,7 +82,7 @@ const StripePaymentButton = ({
       .confirmPayment({
         elements,
         confirmParams: {
-          return_url: `${window.location.origin}/api/payment-return?cart_id=${cart.id}&country_code=${countryCode}`,
+          return_url: `${window.location.origin}/api/payment-return?cart_id=${cart.id}`,
           payment_method_data: {
             billing_details: {
               name:

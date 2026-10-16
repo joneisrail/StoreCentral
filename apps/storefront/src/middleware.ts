@@ -64,15 +64,13 @@ async function getRegionMap(cacheId: string) {
 /**
  * Fetches regions from Medusa and sets the region cookie.
  * @param request
- * @param response
+ * @param regionMap
  */
 async function getCountryCode(
   request: NextRequest,
   regionMap: Map<string, HttpTypes.StoreRegion | number>
 ) {
   let countryCode
-
-  const urlCountryCode = request.nextUrl.pathname.split("/")[1]?.toLowerCase()
 
   // Cloudflare Workers provides country via request.cf.country
   const cloudflareCountryCode = (request as { cf?: { country?: string } }).cf?.country?.toLowerCase()
@@ -82,9 +80,7 @@ async function getCountryCode(
     .get("x-vercel-ip-country")
     ?.toLowerCase()
 
-  if (urlCountryCode && regionMap.has(urlCountryCode)) {
-    countryCode = urlCountryCode
-  } else if (cloudflareCountryCode && regionMap.has(cloudflareCountryCode)) {
+  if (cloudflareCountryCode && regionMap.has(cloudflareCountryCode)) {
     countryCode = cloudflareCountryCode
   } else if (vercelCountryCode && regionMap.has(vercelCountryCode)) {
     countryCode = vercelCountryCode
@@ -98,10 +94,14 @@ async function getCountryCode(
 }
 
 /**
- * Middleware to handle region selection and onboarding status.
+ * Resolves the shopper's region and rewrites the request to the matching
+ * `[countryCode]` route segment internally, without ever exposing a country
+ * prefix in the browser's URL.
  */
 export async function middleware(request: NextRequest) {
-  if (request.nextUrl.pathname.includes(".")) {
+  const { pathname } = request.nextUrl
+
+  if (pathname.includes(".")) {
     return NextResponse.next()
   }
 
@@ -109,31 +109,29 @@ export async function middleware(request: NextRequest) {
   const cacheId = cacheIdCookie?.value || crypto.randomUUID()
 
   const regionMap = await getRegionMap(cacheId)
-  const countryCode = await getCountryCode(request, regionMap)
 
-  // if the country code is available, use it, otherwise use the default region
-  const country = countryCode || DEFAULT_REGION
-  const firstPathSegment = request.nextUrl.pathname.split("/")[1]?.toLowerCase()
-  const urlHasCountry = firstPathSegment === country.toLowerCase()
-
-  if (urlHasCountry) {
-    if (!cacheIdCookie) {
-      const response = NextResponse.next()
-      response.cookies.set("_medusa_cache_id", cacheId, {
-        maxAge: 60 * 60 * 24,
-      })
-      return response
-    }
+  // A link carrying a legacy/bookmarked country-code segment (e.g. /us/...)
+  // already matches the [countryCode] route directly, so let Next.js handle
+  // it as-is rather than rewriting it again.
+  const firstSegment = pathname.split("/")[1]?.toLowerCase()
+  if (firstSegment && regionMap.has(firstSegment)) {
     return NextResponse.next()
   }
 
-  // if the url doesn't have the country, redirect to it
-  const redirectPath =
-    request.nextUrl.pathname === "/" ? "" : request.nextUrl.pathname
-  const queryString = request.nextUrl.search || ""
-  const redirectUrl = `${request.nextUrl.origin}/${country}${redirectPath}${queryString}`
+  const countryCode = (await getCountryCode(request, regionMap)) || DEFAULT_REGION
 
-  return NextResponse.redirect(redirectUrl, 307)
+  const url = request.nextUrl.clone()
+  url.pathname = `/${countryCode}${pathname}`
+
+  const response = NextResponse.rewrite(url)
+
+  if (!cacheIdCookie) {
+    response.cookies.set("_medusa_cache_id", cacheId, {
+      maxAge: 60 * 60 * 24,
+    })
+  }
+
+  return response
 }
 
 export const config = {
