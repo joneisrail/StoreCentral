@@ -120,6 +120,106 @@ medusaIntegrationTestRunner({
         expect(fulfillments).toHaveLength(1)
         expect(fulfillments[0].delivered_at).not.toBeNull()
       })
+
+      it("only updates the fulfillment matching the tracking code, leaving an unrelated fulfillment with a different tracking code untouched (Review Focus: lookup discriminates, doesn't just pick the only row)", async () => {
+        const container = getContainer()
+        const fulfillmentModule = container.resolve(Modules.FULFILLMENT)
+        const query = container.resolve(ContainerRegistrationKeys.QUERY)
+
+        const targetTrackingCode = "EZ_DISCRIMINATING_TARGET_0001"
+        const otherTrackingCode = "EZ_DISCRIMINATING_OTHER_0002"
+
+        const createFixtureFulfillment = async (trackingCode: string) => {
+          const created = await fulfillmentModule.createFulfillment({
+            location_id: "sloc_test_location",
+            provider_id: "manual_manual",
+            delivery_address: {
+              first_name: "Jane",
+              last_name: "Doe",
+              address_1: "123 Main St",
+              city: "Portland",
+              country_code: "us",
+              province: "or",
+              postal_code: "97201",
+            },
+            items: [
+              {
+                title: "Test item",
+                sku: "TEST-SKU",
+                quantity: 1,
+                barcode: "TEST-BARCODE",
+              },
+            ],
+          })
+
+          await fulfillmentModule.updateFulfillment(created.id, {
+            data: { easypost_tracking_code: trackingCode },
+          })
+
+          return created.id
+        }
+
+        // Two fulfillments exist at once -- the point of this test is to
+        // prove the `data.easypost_tracking_code` filter actually
+        // discriminates between them, rather than the lookup silently
+        // no-op'ing (an unsupported/ignored filter key) and the route
+        // happening to act on whichever row it got back anyway.
+        const targetId = await createFixtureFulfillment(targetTrackingCode)
+        const otherId = await createFixtureFulfillment(otherTrackingCode)
+
+        const rawBody = JSON.stringify({
+          description: "tracker.updated",
+          result: { tracking_code: targetTrackingCode, status: "delivered" },
+        })
+
+        const res = await postWebhook(rawBody, signRawBody(rawBody, WEBHOOK_SECRET))
+
+        expect(res.status).toBe(200)
+
+        const { data: fulfillments } = await query.graph({
+          entity: "fulfillment",
+          fields: ["id", "delivered_at"],
+          filters: { id: [targetId, otherId] },
+        })
+
+        const target = fulfillments.find((f) => f.id === targetId)
+        const other = fulfillments.find((f) => f.id === otherId)
+
+        expect(target?.delivered_at).not.toBeNull()
+        expect(other?.delivered_at).toBeNull()
+      })
+
+      it("returns 401, not an unhandled exception, when EASYPOST_API_KEY is empty (regression: EasyPostClient construction must not throw outside the signature fail-closed path)", async () => {
+        const originalApiKey = process.env.EASYPOST_API_KEY
+
+        // The route constructs an `EasyPostClient` to call its pure-crypto
+        // `verifyWebhookSignature` method. The underlying `@easypost/api` SDK
+        // throws synchronously (`MissingParameterError`) when constructed
+        // with a falsy key and no `useProxy` option. This test proves that
+        // an empty/missing API key still results in a clean 401, not an
+        // unhandled exception -- even though the signature below is
+        // correctly computed from the webhook secret (which is unrelated to
+        // the API key), construction failing means authenticity could not
+        // be verified, so the route must fail closed the same way it would
+        // for a bad signature.
+        process.env.EASYPOST_API_KEY = ""
+
+        try {
+          const rawBody = JSON.stringify({
+            description: "tracker.updated",
+            result: {
+              tracking_code: "EZ_EMPTY_API_KEY_TEST",
+              status: "in_transit",
+            },
+          })
+
+          const res = await postWebhook(rawBody, signRawBody(rawBody, WEBHOOK_SECRET))
+
+          expect(res.status).toBe(401)
+        } finally {
+          process.env.EASYPOST_API_KEY = originalApiKey
+        }
+      })
     })
   },
 })

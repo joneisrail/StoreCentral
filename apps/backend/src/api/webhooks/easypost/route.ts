@@ -62,12 +62,27 @@ export const POST = async (req: MedusaRequest, res: MedusaResponse) => {
     return
   }
 
-  const client = new EasyPostClient({ apiKey: apiKey ?? "" })
-  const isValidSignature = client.verifyWebhookSignature(
-    rawBody,
-    signatureHeader,
-    webhookSecret
-  )
+  // `EasyPostClient`'s constructor only exists to build the full EasyPost SDK
+  // client (needed elsewhere for buying/refunding labels); `verifyWebhookSignature`
+  // itself is pure crypto and never touches the SDK instance or the API key.
+  // Still, the underlying `@easypost/api` SDK throws synchronously
+  // (`MissingParameterError`) when constructed with a falsy key and no
+  // `useProxy` option -- so construction is wrapped here, inside this
+  // route's fail-closed signature path, rather than being allowed to throw
+  // uncaught. A construction failure is treated the same as an invalid
+  // signature (401): either way, the request's authenticity could not be
+  // verified.
+  let isValidSignature = false
+  try {
+    const client = new EasyPostClient({ apiKey: apiKey ?? "" })
+    isValidSignature = client.verifyWebhookSignature(
+      rawBody,
+      signatureHeader,
+      webhookSecret
+    )
+  } catch (error) {
+    isValidSignature = false
+  }
 
   if (!isValidSignature) {
     res.status(401).json({ message: "Invalid webhook signature" })
