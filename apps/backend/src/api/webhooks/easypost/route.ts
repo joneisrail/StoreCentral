@@ -33,7 +33,12 @@ const SIGNATURE_HEADER = "x-hmac-signature"
 // handled separately below; every other status (unknown, failure,
 // cancelled, return_to_sender, available_for_pickup, ...) is a deliberate
 // no-op -- this route only acts on the two statuses the brief asks for.
-const IN_TRANSIT_STATUSES = new Set(["pre_transit", "in_transit", "out_for_delivery"])
+//
+// "pre_transit" is deliberately NOT here: EasyPost emits it as soon as a
+// label is purchased, before the carrier has physically received the
+// package, so treating it as shipped would flip every fulfillment to
+// "shipped" the instant its label is bought.
+const IN_TRANSIT_STATUSES = new Set(["in_transit", "out_for_delivery"])
 
 type EasyPostTrackerWebhookBody = {
   description?: string

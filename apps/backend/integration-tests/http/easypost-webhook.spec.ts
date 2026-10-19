@@ -189,6 +189,114 @@ medusaIntegrationTestRunner({
         expect(other?.delivered_at).toBeNull()
       })
 
+      describe("in-transit statuses (createShipmentWorkflow)", () => {
+        // createShipmentWorkflow requires the fulfillment to have a real
+        // shipping option, so -- unlike the delivered tests above -- these
+        // fixtures attach one. Without it the route skips shipping for every
+        // status and a "pre_transit doesn't ship" assertion would pass
+        // vacuously; the in_transit control below proves it can ship.
+        const createShippableFulfillment = async (trackingCode: string) => {
+          const container = getContainer()
+          const fulfillmentModule = container.resolve(Modules.FULFILLMENT)
+
+          const [shippingProfile] =
+            await fulfillmentModule.createShippingProfiles([
+              { name: `Profile ${trackingCode}`, type: "default" },
+            ])
+          const fulfillmentSet = await fulfillmentModule.createFulfillmentSets(
+            {
+              name: `Set ${trackingCode}`,
+              type: "shipping",
+              service_zones: [{ name: `Zone ${trackingCode}` }],
+            }
+          )
+          const shippingOption = await fulfillmentModule.createShippingOptions(
+            {
+              name: `Option ${trackingCode}`,
+              service_zone_id: fulfillmentSet.service_zones[0].id,
+              shipping_profile_id: shippingProfile.id,
+              provider_id: "manual_manual",
+              price_type: "flat",
+              type: {
+                label: "Standard",
+                description: "Standard shipping",
+                code: "standard",
+              },
+              data: {},
+            }
+          )
+
+          const created = await fulfillmentModule.createFulfillment({
+            location_id: "sloc_test_location",
+            provider_id: "manual_manual",
+            shipping_option_id: shippingOption.id,
+            delivery_address: {
+              first_name: "Jane",
+              last_name: "Doe",
+              address_1: "123 Main St",
+              city: "Portland",
+              country_code: "us",
+              province: "or",
+              postal_code: "97201",
+            },
+            items: [
+              {
+                title: "Test item",
+                sku: "TEST-SKU",
+                quantity: 1,
+                barcode: "TEST-BARCODE",
+              },
+            ],
+          })
+
+          await fulfillmentModule.updateFulfillment(created.id, {
+            data: { easypost_tracking_code: trackingCode },
+          })
+
+          return created.id
+        }
+
+        const getShippedAt = async (id: string) => {
+          const query = getContainer().resolve(ContainerRegistrationKeys.QUERY)
+          const { data: fulfillments } = await query.graph({
+            entity: "fulfillment",
+            fields: ["id", "shipped_at"],
+            filters: { id },
+          })
+          return fulfillments[0]?.shipped_at
+        }
+
+        it("does NOT mark the fulfillment shipped on pre_transit (EasyPost emits it on label purchase, before the carrier has the package)", async () => {
+          const trackingCode = "EZ_PRE_TRANSIT_0001"
+          const id = await createShippableFulfillment(trackingCode)
+
+          const rawBody = JSON.stringify({
+            description: "tracker.updated",
+            result: { tracking_code: trackingCode, status: "pre_transit" },
+          })
+
+          const res = await postWebhook(rawBody, signRawBody(rawBody, WEBHOOK_SECRET))
+
+          expect(res.status).toBe(200)
+          expect(await getShippedAt(id)).toBeNull()
+        })
+
+        it("marks the fulfillment shipped on in_transit (control: the same fixture CAN be shipped)", async () => {
+          const trackingCode = "EZ_IN_TRANSIT_0001"
+          const id = await createShippableFulfillment(trackingCode)
+
+          const rawBody = JSON.stringify({
+            description: "tracker.updated",
+            result: { tracking_code: trackingCode, status: "in_transit" },
+          })
+
+          const res = await postWebhook(rawBody, signRawBody(rawBody, WEBHOOK_SECRET))
+
+          expect(res.status).toBe(200)
+          expect(await getShippedAt(id)).not.toBeNull()
+        })
+      })
+
       it("returns 401, not an unhandled exception, when EASYPOST_API_KEY is empty (regression: EasyPostClient construction must not throw outside the signature fail-closed path)", async () => {
         const originalApiKey = process.env.EASYPOST_API_KEY
 
