@@ -1170,7 +1170,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@dtc/backend@workspace:apps/backend"
   dependencies:
-    "@dtc/fulfillment-easypost": "file:C:/Users/jonei/claude work/StoreCentral/StoreCentral/.worktrees/feat-easypost-fulfillment-provider/packages/modules/providers/fulfillment-easypost"
+    "@dtc/fulfillment-easypost": "file:C:/Users/jonei/claude work/StoreCentral/StoreCentral/packages/modules/providers/fulfillment-easypost"
     "@medusajs/admin-sdk": 2.21.2
     "@medusajs/admin-shared": 2.21.2
     "@medusajs/caching": 2.21.2
@@ -1202,14 +1202,14 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@dtc/fulfillment-easypost@file:C:/Users/jonei/claude work/StoreCentral/StoreCentral/.worktrees/feat-easypost-fulfillment-provider/packages/modules/providers/fulfillment-easypost::locator=%40dtc%2Fbackend%40workspace%3Aapps%2Fbackend":
+"@dtc/fulfillment-easypost@file:C:/Users/jonei/claude work/StoreCentral/StoreCentral/packages/modules/providers/fulfillment-easypost::locator=%40dtc%2Fbackend%40workspace%3Aapps%2Fbackend":
   version: 0.1.0
-  resolution: "@dtc/fulfillment-easypost@file:/C%3A/Users/jonei/claude work/StoreCentral/StoreCentral/.worktrees/feat-easypost-fulfillment-provider/packages/modules/providers/fulfillment-easypost#/C%3A/Users/jonei/claude work/StoreCentral/StoreCentral/.worktrees/feat-easypost-fulfillment-provider/packages/modules/providers/fulfillment-easypost::hash=fc8dee&locator=%40dtc%2Fbackend%40workspace%3Aapps%2Fbackend"
+  resolution: "@dtc/fulfillment-easypost@file:/C%3A/Users/jonei/claude work/StoreCentral/StoreCentral/packages/modules/providers/fulfillment-easypost#/C%3A/Users/jonei/claude work/StoreCentral/StoreCentral/packages/modules/providers/fulfillment-easypost::hash=d6ea62&locator=%40dtc%2Fbackend%40workspace%3Aapps%2Fbackend"
   dependencies:
     "@easypost/api": ^8.9.0
   peerDependencies:
     "@medusajs/framework": 2.21.2
-  checksum: 522a6c43b356e7655b20ef0d6fa31ec18c407f689db3404e248899da116c08164e3c1f52421e5be04a616d433300a578c60b125f14f36e97fcabaf904281da57
+  checksum: 1fb2000d3f6b3fc7e988413c1849ad16def863516dc0f580d9136df906bf48fc4b11d7e1789dd67b378a593f3e69ae0fefc49207ddbd3b0510e64baca1a7c495
   languageName: node
   linkType: hard
 
@@ -3222,7 +3222,7 @@ __metadata:
 
 "@medusajs/framework@file:C:/Users/jonei/claude work/StoreCentral/StoreCentral/packages/core/framework::locator=test-project%40workspace%3A.":
   version: 2.21.2
-  resolution: "@medusajs/framework@file:/C%3A/Users/jonei/claude work/StoreCentral/StoreCentral/packages/core/framework#/C%3A/Users/jonei/claude work/StoreCentral/StoreCentral/packages/core/framework::hash=6a9aaf&locator=test-project%40workspace%3A."
+  resolution: "@medusajs/framework@file:/C%3A/Users/jonei/claude work/StoreCentral/StoreCentral/packages/core/framework#/C%3A/Users/jonei/claude work/StoreCentral/StoreCentral/packages/core/framework::hash=c68c45&locator=test-project%40workspace%3A."
   dependencies:
     "@aws-sdk/client-dynamodb": ^3.980.0
     "@jercle/yargonaut": ^1.1.5
@@ -3258,7 +3258,7 @@ __metadata:
       optional: true
   bin:
     medusa-mikro-orm: dist/mikro-orm-cli/bin.js
-  checksum: 8bc5aacf6518eca37a7b6aeed7fda96b01455cfedc2f7d6a920eb317dd302c3e1d0d040e43c67fda4867ad18e38bc1b5137b985063dc76cfac9f94855fbf1cef
+  checksum: 69a9508f1f1bd9491053aba45b1ab2e9e5c8f55a7269fa653c0a0a5b9b33bfe9fa65f8b3412e990df42b8d970c7c99c0cfe6a29a5d73440829a52c5b52e60cdb
   languageName: node
   linkType: hard
 
