@@ -50,7 +50,7 @@ export default async function setupUsOnly({ container }: ExecArgs) {
   })
   const store = stores[0]
 
-  const currencies = store.supported_currencies?.map((c) => c.currency_code) ?? []
+  const currencies = store.supported_currencies?.map((c) => c?.currency_code) ?? []
   const isUsdOnly = currencies.length === 1 && currencies[0] === 'usd'
 
   if (!isUsdOnly) {

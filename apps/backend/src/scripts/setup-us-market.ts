@@ -31,21 +31,27 @@ export default async function setupUsMarket({ container }: ExecArgs) {
     fields: ['id', 'name'],
   })
 
-  let region = existingRegions.find((r) => r.name === REGION_NAME)
+  let region: { id: string; name: string } | undefined = existingRegions.find(
+    (r) => r.name === REGION_NAME
+  )
   if (!region) {
     const { result } = await createRegionsWorkflow(container).run({
       input: {
         regions: [
           {
             name: REGION_NAME,
-            currency_code: 'usd',
-            countries: ['us'],
-            payment_providers: ['pp_system_default'],
+            currency_code: "usd",
+            countries: ["us"],
+            payment_providers: ["pp_system_default"],
           },
         ],
       },
     })
-    region = result[0]
+    const created = result[0]
+    if (!created) {
+      throw new Error("createRegionsWorkflow returned no region")
+    }
+    region = { id: created.id, name: created.name }
     logger.info(`Created region "${region.name}" (${region.id})`)
   } else {
     logger.info(`Region "${REGION_NAME}" already exists, skipping creation.`)
@@ -70,7 +76,9 @@ export default async function setupUsMarket({ container }: ExecArgs) {
     fields: ['id', 'name'],
   })
 
-  let serviceZone = existingZones.find((z) => z.name === SERVICE_ZONE_NAME)
+  let serviceZone: { id: string; name: string } | undefined = existingZones.find(
+    (z) => z.name === SERVICE_ZONE_NAME
+  )
   if (!serviceZone) {
     const { result } = await createServiceZonesWorkflow(container).run({
       input: {
@@ -78,12 +86,16 @@ export default async function setupUsMarket({ container }: ExecArgs) {
           {
             name: SERVICE_ZONE_NAME,
             fulfillment_set_id: fulfillmentSet.id,
-            geo_zones: [{ type: 'country', country_code: 'us' }],
+            geo_zones: [{ type: "country", country_code: "us" }],
           },
         ],
       },
     })
-    serviceZone = result[0]
+    const created = result[0]
+    if (!created) {
+      throw new Error("createServiceZonesWorkflow returned no service zone")
+    }
+    serviceZone = { id: created.id, name: created.name }
     logger.info(`Created service zone "${serviceZone.name}" (${serviceZone.id})`)
   } else {
     logger.info(`Service zone "${SERVICE_ZONE_NAME}" already exists, skipping creation.`)

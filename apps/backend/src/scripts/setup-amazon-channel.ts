@@ -29,7 +29,9 @@ export default async function setupAmazonChannel({ container }: ExecArgs) {
     fields: ['id', 'name'],
   })
 
-  let channel = existingChannels.find((c) => c.name === CHANNEL_NAME)
+  let channel: { id: string } | undefined = existingChannels.find(
+    (c) => c.name === CHANNEL_NAME
+  )
   if (channel) {
     logger.info(`Sales channel "${CHANNEL_NAME}" already exists: ${channel.id}`)
   } else {
@@ -40,7 +42,11 @@ export default async function setupAmazonChannel({ container }: ExecArgs) {
         ],
       },
     })
-    channel = result[0]
+    const created = result[0]
+    if (!created) {
+      throw new Error("createSalesChannelsWorkflow returned no sales channel")
+    }
+    channel = { id: created.id }
     logger.info(`Created sales channel "${CHANNEL_NAME}": ${channel.id}`)
   }
 
@@ -51,7 +57,7 @@ export default async function setupAmazonChannel({ container }: ExecArgs) {
     fields: ['id', 'name', 'sales_channels.id'],
   })
   const stockLocation = stockLocations[0]
-  if (stockLocation && !stockLocation.sales_channels?.some((sc: { id: string }) => sc.id === channel.id)) {
+  if (stockLocation && !stockLocation.sales_channels?.some((sc) => sc?.id === channel.id)) {
     await linkSalesChannelsToStockLocationWorkflow(container).run({
       input: { id: stockLocation.id, add: [channel.id] },
     })
@@ -67,7 +73,7 @@ export default async function setupAmazonChannel({ container }: ExecArgs) {
     fields: ['id', 'sales_channels.id'],
   })
   const unlinkedProductIds = products
-    .filter((p) => !p.sales_channels?.some((sc: { id: string }) => sc.id === channel.id))
+    .filter((p) => !p.sales_channels?.some((sc) => sc?.id === channel.id))
     .map((p) => p.id)
 
   if (unlinkedProductIds.length) {
