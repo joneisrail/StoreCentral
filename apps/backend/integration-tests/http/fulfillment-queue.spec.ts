@@ -202,7 +202,7 @@ medusaIntegrationTestRunner({
         return order
       }
 
-      it("returns only not_fulfilled and partially_fulfilled orders, oldest first, with channel names", async () => {
+      it("returns orders with a real unfulfilled item, excludes orders with none, oldest first, with channel names", async () => {
         const notFulfilled = await createOrderInStatus("not_fulfilled", {
           salesChannelId: storefrontChannelId,
           createdAt: new Date(
@@ -227,20 +227,119 @@ medusaIntegrationTestRunner({
         await createOrderInStatus("delivered", {
           salesChannelId: storefrontChannelId,
         })
-        await createOrderInStatus("canceled", {
+        // Canceling a FULFILLMENT (not the order) really does roll the
+        // item's fulfilled_quantity back down (confirmed by reading the
+        // real CANCEL_ITEM_FULFILLMENT change-action handler in
+        // packages/modules/order/src/utils/actions/cancel-item-fulfillment.ts,
+        // which subtracts the canceled quantity) -- so this order
+        // genuinely needs fulfilling again and must now appear, unlike
+        // under the first (Critical-finding) implementation that
+        // excluded anything core labeled "canceled".
+        const fulfillmentCanceled = await createOrderInStatus("canceled", {
           salesChannelId: storefrontChannelId,
         })
 
         const res = await api.get("/admin/fulfillment-queue", adminHeaders)
 
         const ids = res.data.orders.map((o: any) => o.id)
-        expect(ids).toEqual([notFulfilled.id, partiallyFulfilled.id])
-        expect(res.data.orders[0].fulfillment_status).toBe("not_fulfilled")
+        expect(ids).toEqual([
+          notFulfilled.id,
+          partiallyFulfilled.id,
+          fulfillmentCanceled.id,
+        ])
         expect(res.data.orders[0].sales_channel.name).toBe("Storefront")
-        expect(res.data.orders[1].fulfillment_status).toBe(
-          "partially_fulfilled"
-        )
         expect(res.data.orders[1].sales_channel.name).toBe("Amazon")
+      })
+
+      it("excludes an order that was itself canceled with zero fulfillments (Critical finding #1: getLastFulfillmentStatus never looks at order.status)", async () => {
+        const canceledOrder = await createOrderInStatus("not_fulfilled", {
+          salesChannelId: storefrontChannelId,
+        })
+        await api.post(
+          `/admin/orders/${canceledOrder.id}/cancel`,
+          {},
+          adminHeaders
+        )
+
+        const stillUnfulfilled = await createOrderInStatus("not_fulfilled", {
+          salesChannelId: storefrontChannelId,
+        })
+
+        const res = await api.get(
+          "/admin/fulfillment-queue?limit=100",
+          adminHeaders
+        )
+
+        const ids = res.data.orders.map((o: any) => o.id)
+        expect(ids).toContain(stillUnfulfilled.id)
+        expect(ids).not.toContain(canceledOrder.id)
+      })
+
+      it("includes a partially_shipped order with one real unit still unfulfilled (Critical finding #2: a fulfillment_status allow-list excludes partially_shipped/partially_delivered even though real items still need fulfilling)", async () => {
+        const container = getContainer()
+        const { result: order } = await createOrderWorkflow(container).run({
+          input: {
+            region_id: regionId,
+            sales_channel_id: storefrontChannelId,
+            email: "buyer@example.com",
+            currency_code: "usd",
+            items: [
+              {
+                title: "Split Item",
+                quantity: 2,
+                unit_price: 10,
+                requires_shipping: true,
+              },
+            ],
+          },
+        })
+
+        const detail = await api.get(
+          `/admin/orders/${order.id}?fields=id,*items`,
+          adminHeaders
+        )
+        const lineItemId = detail.data.order.items[0].id
+
+        // Fulfill and ship only 1 of the 2 ordered units -- the other
+        // unit is never fulfilled at all.
+        const fulfillment = await api.post(
+          `/admin/orders/${order.id}/fulfillments?fields=id,*fulfillments`,
+          {
+            items: [{ id: lineItemId, quantity: 1 }],
+            location_id: locationId,
+            shipping_option_id: shippingOptionId,
+          },
+          adminHeaders
+        )
+        const fulfillmentId = fulfillment.data.order.fulfillments[0].id
+        await api.post(
+          `/admin/orders/${order.id}/fulfillments/${fulfillmentId}/shipments`,
+          { items: [{ id: lineItemId, quantity: 1 }] },
+          adminHeaders
+        )
+
+        // Confirm the real item state this test depends on: 1 of 2
+        // units fulfilled, a genuine unfulfilled unit remains. (Not
+        // asserting the order's exact fulfillment_status label here --
+        // the single-order GET route uses a different workflow,
+        // getOrderDetailWorkflow, than the list route this plan's own
+        // route.ts calls, getOrdersListWorkflow, and the two were
+        // observed to disagree for this exact scenario during review
+        // -- the list workflow is the one this feature actually
+        // depends on, exercised directly below via the real route.)
+        const itemCheck = await api.get(
+          `/admin/orders/${order.id}?fields=id,*items`,
+          adminHeaders
+        )
+        expect(itemCheck.data.order.items[0].detail.fulfilled_quantity).toBe(1)
+        expect(itemCheck.data.order.items[0].quantity).toBe(2)
+
+        const res = await api.get(
+          "/admin/fulfillment-queue?limit=100",
+          adminHeaders
+        )
+        const ids = res.data.orders.map((o: any) => o.id)
+        expect(ids).toContain(order.id)
       })
 
       it("excludes a draft order even if unfulfilled", async () => {
@@ -300,6 +399,11 @@ medusaIntegrationTestRunner({
       })
 
       it("paginates the filtered count, not the fetched window size", async () => {
+        // medusaIntegrationTestRunner restores a clean DB snapshot
+        // before each test, so these are the only orders in the
+        // window -- an exact count is safe to assert, and mixing in
+        // fulfilled (excluded) orders proves count reflects the
+        // filtered set, not every order in the 90-day window.
         const base = Date.now() - 3 * 60 * 60 * 1000
         for (let i = 0; i < 3; i++) {
           const createdAt = new Date(base + i * 1000).toISOString()
@@ -308,6 +412,12 @@ medusaIntegrationTestRunner({
             createdAt,
           })
         }
+        await createOrderInStatus("fulfilled", {
+          salesChannelId: storefrontChannelId,
+        })
+        await createOrderInStatus("shipped", {
+          salesChannelId: storefrontChannelId,
+        })
 
         const res = await api.get(
           "/admin/fulfillment-queue?offset=0&limit=2",
@@ -315,7 +425,7 @@ medusaIntegrationTestRunner({
         )
 
         expect(res.data.orders).toHaveLength(2)
-        expect(res.data.count).toBeGreaterThanOrEqual(3)
+        expect(res.data.count).toBe(3)
       })
     })
   },
