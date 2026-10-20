@@ -185,6 +185,10 @@ lives entirely in the backend route.
   `sales_channel` relation can resolve to `null` — the UI must show a
   "—" / "Unknown channel" badge rather than crashing on a missing
   `.name`.
-- Large `item_count` orders: the route requests only `items.id` (for a
-  count), not full item details, to keep the bounded-window fetch cheap
-  regardless of how many line items an order has.
+- Large `item_count` orders: `getOrdersListWorkflow` unconditionally
+  fetches full `items.*` for every order regardless of what fields the
+  caller requests (confirmed in its source — it hardcodes `items.*` into
+  the query itself, since `getLastFulfillmentStatus` needs each item's
+  quantity/fulfilled-quantity to compute status). The route cannot avoid
+  this cost and doesn't try to; `item_count` is simply `items.length` on
+  data already fetched for the status computation, not an extra request.
