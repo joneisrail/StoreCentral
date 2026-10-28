@@ -5,6 +5,10 @@
       "dependsOn": ["^build"],
       "outputs": ["dist/**", ".next/**"]
     },
+    "build:plugin": {
+      "dependsOn": ["^build", "@medusajs/medusa#build"],
+      "outputs": ["!node_modules/**", "!src/**", ".medusa/**"]
+    },
     "dev": {
       "cache": false,
       "persistent": true
@@ -18,8 +22,15 @@
     "test": {
       "outputs": []
     },
+    "test:integration": {
+      "outputs": []
+    },
+    "test:integration:chunk": {
+      "outputs": []
+    },
     "seed": {
       "outputs": []
     }
-  }
+  },
+  "globalDependencies": ["turbo.json"]
 }
