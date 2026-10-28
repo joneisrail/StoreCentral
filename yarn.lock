@@ -1204,12 +1204,12 @@ __metadata:
 
 "@dtc/fulfillment-easypost@file:C:/Users/jonei/claude work/StoreCentral/StoreCentral/packages/modules/providers/fulfillment-easypost::locator=%40dtc%2Fbackend%40workspace%3Aapps%2Fbackend":
   version: 0.1.0
-  resolution: "@dtc/fulfillment-easypost@file:/C%3A/Users/jonei/claude work/StoreCentral/StoreCentral/packages/modules/providers/fulfillment-easypost#/C%3A/Users/jonei/claude work/StoreCentral/StoreCentral/packages/modules/providers/fulfillment-easypost::hash=d6ea62&locator=%40dtc%2Fbackend%40workspace%3Aapps%2Fbackend"
+  resolution: "@dtc/fulfillment-easypost@file:/C%3A/Users/jonei/claude work/StoreCentral/StoreCentral/packages/modules/providers/fulfillment-easypost#/C%3A/Users/jonei/claude work/StoreCentral/StoreCentral/packages/modules/providers/fulfillment-easypost::hash=3e429a&locator=%40dtc%2Fbackend%40workspace%3Aapps%2Fbackend"
   dependencies:
     "@easypost/api": ^8.9.0
   peerDependencies:
     "@medusajs/framework": 2.21.2
-  checksum: 1fb2000d3f6b3fc7e988413c1849ad16def863516dc0f580d9136df906bf48fc4b11d7e1789dd67b378a593f3e69ae0fefc49207ddbd3b0510e64baca1a7c495
+  checksum: 62c70304bd9040aba49499c97d902763cfde8b2c3b65fb79169c1f6e2ffa98aab86581a532c26db4bb963ac06c4567af6ab5c40215ea7a58721ae118d3d9f0ee
   languageName: node
   linkType: hard
 
@@ -2763,7 +2763,7 @@ __metadata:
 
 "@medusajs/admin-bundler@file:C:/Users/jonei/claude work/StoreCentral/StoreCentral/packages/admin/admin-bundler::locator=test-project%40workspace%3A.":
   version: 2.21.2
-  resolution: "@medusajs/admin-bundler@file:/C%3A/Users/jonei/claude work/StoreCentral/StoreCentral/packages/admin/admin-bundler#/C%3A/Users/jonei/claude work/StoreCentral/StoreCentral/packages/admin/admin-bundler::hash=9f72bf&locator=test-project%40workspace%3A."
+  resolution: "@medusajs/admin-bundler@file:/C%3A/Users/jonei/claude work/StoreCentral/StoreCentral/packages/admin/admin-bundler#/C%3A/Users/jonei/claude work/StoreCentral/StoreCentral/packages/admin/admin-bundler::hash=012df2&locator=test-project%40workspace%3A."
   dependencies:
     "@medusajs/admin-shared": 2.21.2
     "@medusajs/admin-vite-plugin": 2.21.2
@@ -2778,7 +2778,7 @@ __metadata:
     postcss: ^8.5.10
     tailwindcss: ^3.4.3
     vite: ^7.3.6
-  checksum: 718c3505951e3ad9b01321d2bdb0ae8256e6d6505c89153b0c8a59beb290e2456309a555204532c4aa48a5434b5c05e2042063fb106b0d65c34fe6b78fb589e3
+  checksum: 40b57b62d3267b23f5043577793f2163f586b00562c71215a68e8b930e9b104c8e78ac57e71492890b3f4d831d61d96ec83df6d84e1fb4ef634e19207112f7a0
   languageName: node
   linkType: hard
 
@@ -3004,14 +3004,14 @@ __metadata:
 
 "@medusajs/core-flows@file:C:/Users/jonei/claude work/StoreCentral/StoreCentral/packages/core/core-flows::locator=test-project%40workspace%3A.":
   version: 2.21.2
-  resolution: "@medusajs/core-flows@file:/C%3A/Users/jonei/claude work/StoreCentral/StoreCentral/packages/core/core-flows#/C%3A/Users/jonei/claude work/StoreCentral/StoreCentral/packages/core/core-flows::hash=5369c0&locator=test-project%40workspace%3A."
+  resolution: "@medusajs/core-flows@file:/C%3A/Users/jonei/claude work/StoreCentral/StoreCentral/packages/core/core-flows#/C%3A/Users/jonei/claude work/StoreCentral/StoreCentral/packages/core/core-flows::hash=61f46f&locator=test-project%40workspace%3A."
   dependencies:
     csv-parse: ^7.0.2
     deeks: ^3.2.1
     json-2-csv: ^5.5.11
   peerDependencies:
     "@medusajs/framework": 2.21.2
-  checksum: eb6ca1762ef5ebefde33b9c8d2c248c88e8d6218466e10b7cd22de59b3d72ba90a83c078acecf77447957db80b962e18848e78dfeaebafed8005d9267bc97de0
+  checksum: 0a37928006d062b00de509d7fe9caee0170dcdd9e49649e224624acb3ce71d8857eeec98d32fe1d722a1e64a133823439ee611f7bd9e17fe0121b16e89f53120
   languageName: node
   linkType: hard
 
@@ -3035,7 +3035,7 @@ __metadata:
 
 "@medusajs/dashboard@file:C:/Users/jonei/claude work/StoreCentral/StoreCentral/packages/admin/dashboard::locator=test-project%40workspace%3A.":
   version: 2.21.2
-  resolution: "@medusajs/dashboard@file:/C%3A/Users/jonei/claude work/StoreCentral/StoreCentral/packages/admin/dashboard#/C%3A/Users/jonei/claude work/StoreCentral/StoreCentral/packages/admin/dashboard::hash=d265b2&locator=test-project%40workspace%3A."
+  resolution: "@medusajs/dashboard@file:/C%3A/Users/jonei/claude work/StoreCentral/StoreCentral/packages/admin/dashboard#/C%3A/Users/jonei/claude work/StoreCentral/StoreCentral/packages/admin/dashboard::hash=9b9efa&locator=test-project%40workspace%3A."
   dependencies:
     "@ariakit/react": ^0.4.15
     "@babel/runtime": ^7.26.10
@@ -3077,7 +3077,7 @@ __metadata:
     react-jwt: ^1.2.0
     react-router-dom: 7.18.2
     zod: 4.2.0
-  checksum: e08a4ecd4c623d7dee4f1725540006921e64a74ad071eeedd37037926e193cc5916a070583be2bd665b3d83991996790e878efe16d43d26db194229d6a680bc6
+  checksum: e42844c6d29c807212d1b92141903ed3474d9bda2d46ee93fb147447db26f8817cbb7ca059b64f51cc9352f28af0b5eb399d0e172d9796bf65b3559792ea2880
   languageName: node
   linkType: hard
 
@@ -3104,7 +3104,7 @@ __metadata:
 
 "@medusajs/draft-order@file:C:/Users/jonei/claude work/StoreCentral/StoreCentral/packages/plugins/draft-order::locator=test-project%40workspace%3A.":
   version: 2.21.2
-  resolution: "@medusajs/draft-order@file:/C%3A/Users/jonei/claude work/StoreCentral/StoreCentral/packages/plugins/draft-order#/C%3A/Users/jonei/claude work/StoreCentral/StoreCentral/packages/plugins/draft-order::hash=d29a04&locator=test-project%40workspace%3A."
+  resolution: "@medusajs/draft-order@file:/C%3A/Users/jonei/claude work/StoreCentral/StoreCentral/packages/plugins/draft-order#/C%3A/Users/jonei/claude work/StoreCentral/StoreCentral/packages/plugins/draft-order::hash=e65ab9&locator=test-project%40workspace%3A."
   dependencies:
     "@ariakit/react": ^0.4.15
     "@babel/runtime": ^7.26.10
@@ -3149,7 +3149,7 @@ __metadata:
       optional: true
     react-router-dom:
       optional: true
-  checksum: 4061d7d290e09e1b0535df1dde1bf19f13895d9157fa984badcee9b596bb51e38b5349672b5e6dce667eb1f7b5cf52d2d597748426d8f4c549c4a2198171e004
+  checksum: 08b3bb86f69592934ebf838b6a5c45019e75010a423ec5c221a53037d40aa1152ce87928509cf2bf856c8eed5451d20a3ad82597b2a1d5247e78996f266ebf2b
   languageName: node
   linkType: hard
 
@@ -3316,11 +3316,11 @@ __metadata:
 
 "@medusajs/js-sdk@file:C:/Users/jonei/claude work/StoreCentral/StoreCentral/packages/core/js-sdk::locator=test-project%40workspace%3A.":
   version: 2.21.2
-  resolution: "@medusajs/js-sdk@file:/C%3A/Users/jonei/claude work/StoreCentral/StoreCentral/packages/core/js-sdk#/C%3A/Users/jonei/claude work/StoreCentral/StoreCentral/packages/core/js-sdk::hash=782d9d&locator=test-project%40workspace%3A."
+  resolution: "@medusajs/js-sdk@file:/C%3A/Users/jonei/claude work/StoreCentral/StoreCentral/packages/core/js-sdk#/C%3A/Users/jonei/claude work/StoreCentral/StoreCentral/packages/core/js-sdk::hash=1fb650&locator=test-project%40workspace%3A."
   dependencies:
     fetch-event-stream: ^0.1.5
     qs: ^6.15.2
-  checksum: 2e03cacdc28832b776fcdbf2c102e3108cf92823cf4371ee7397e504ed1423468ede5741e665a7c90382e885944463e93ecaa4c31cff0d674583e87837d9a3cb
+  checksum: b55a4a8aa8b7d46d1653c2284c9e41ddedbee58cf784ba615db99d27a70f799e4de61b3e742152849d0c7b6074099287b02dfcdeac678229102dc987fc1b0fc9
   languageName: node
   linkType: hard
 
@@ -3364,7 +3364,7 @@ __metadata:
 
 "@medusajs/medusa@file:C:/Users/jonei/claude work/StoreCentral/StoreCentral/packages/medusa::locator=test-project%40workspace%3A.":
   version: 2.21.2
-  resolution: "@medusajs/medusa@file:/C%3A/Users/jonei/claude work/StoreCentral/StoreCentral/packages/medusa#/C%3A/Users/jonei/claude work/StoreCentral/StoreCentral/packages/medusa::hash=b1bdae&locator=test-project%40workspace%3A."
+  resolution: "@medusajs/medusa@file:/C%3A/Users/jonei/claude work/StoreCentral/StoreCentral/packages/medusa#/C%3A/Users/jonei/claude work/StoreCentral/StoreCentral/packages/medusa::hash=ed4852&locator=test-project%40workspace%3A."
   dependencies:
     "@inquirer/checkbox": ^2.3.11
     "@inquirer/confirm": ^2.0.17
@@ -3401,6 +3401,7 @@ __metadata:
     "@medusajs/locking": 2.21.2
     "@medusajs/locking-postgres": 2.21.2
     "@medusajs/locking-redis": 2.21.2
+    "@medusajs/note": 2.21.2
     "@medusajs/notification": 2.21.2
     "@medusajs/notification-local": 2.21.2
     "@medusajs/notification-sendgrid": 2.21.2
@@ -3452,18 +3453,27 @@ __metadata:
       optional: true
     yalc:
       optional: true
-  checksum: e2af4ec046c830871d862d27304dc214f35a070d0a9412e1f283dda6ae68d632195157b17502933d230aa9c2af74a4f7f934cb7bb75c60fba49f2e8d97b5b138
+  checksum: 9e4259500f4f7badddd9b56b0f9d8fa30261fe65774cbe87b1c4580f2c0413b48d85b6345db8e7dda972186e4f3a9be6022eda1b29032941b9521d533d40d093
   languageName: node
   linkType: hard
 
 "@medusajs/modules-sdk@file:C:/Users/jonei/claude work/StoreCentral/StoreCentral/packages/core/modules-sdk::locator=test-project%40workspace%3A.":
   version: 2.21.2
-  resolution: "@medusajs/modules-sdk@file:/C%3A/Users/jonei/claude work/StoreCentral/StoreCentral/packages/core/modules-sdk#/C%3A/Users/jonei/claude work/StoreCentral/StoreCentral/packages/core/modules-sdk::hash=4ec8cc&locator=test-project%40workspace%3A."
+  resolution: "@medusajs/modules-sdk@file:/C%3A/Users/jonei/claude work/StoreCentral/StoreCentral/packages/core/modules-sdk#/C%3A/Users/jonei/claude work/StoreCentral/StoreCentral/packages/core/modules-sdk::hash=583564&locator=test-project%40workspace%3A."
   dependencies:
     "@medusajs/deps": 2.21.2
     "@medusajs/query": 2.21.2
     "@medusajs/utils": 2.21.2
-  checksum: 1063d1314a4e565cac2c43dbdeea0bafc2092f2b47a7c93ba106a0bf0139366fca9454dd03cb6dff70884a97e0163ca27c24a41f9f8e172373d04c6d6ddbc108
+  checksum: 770e266da75df8f2ff90cccdff9f6e891e1f70c376f24da2e634d0b1e64a8e7fa0530c2a8886e6cc36a7ed898609b4f306e2cbf590381fc4dd411edd6a82a14a
+  languageName: node
+  linkType: hard
+
+"@medusajs/note@file:C:/Users/jonei/claude work/StoreCentral/StoreCentral/packages/modules/note::locator=test-project%40workspace%3A.":
+  version: 2.21.2
+  resolution: "@medusajs/note@file:/C%3A/Users/jonei/claude work/StoreCentral/StoreCentral/packages/modules/note#/C%3A/Users/jonei/claude work/StoreCentral/StoreCentral/packages/modules/note::hash=57fa5b&locator=test-project%40workspace%3A."
+  peerDependencies:
+    "@medusajs/framework": 2.21.2
+  checksum: 97977523f7ca9ba11fb718472b71621b3629d124504caf6b1ce9e2cbd2472548390c2fed0b34cefd1f421b5a59d9f88fc79f490b6db495c25603e0ab0b07b3b7
   languageName: node
   linkType: hard
 
@@ -3509,10 +3519,10 @@ __metadata:
 
 "@medusajs/order@file:C:/Users/jonei/claude work/StoreCentral/StoreCentral/packages/modules/order::locator=test-project%40workspace%3A.":
   version: 2.21.2
-  resolution: "@medusajs/order@file:/C%3A/Users/jonei/claude work/StoreCentral/StoreCentral/packages/modules/order#/C%3A/Users/jonei/claude work/StoreCentral/StoreCentral/packages/modules/order::hash=3d24bf&locator=test-project%40workspace%3A."
+  resolution: "@medusajs/order@file:/C%3A/Users/jonei/claude work/StoreCentral/StoreCentral/packages/modules/order#/C%3A/Users/jonei/claude work/StoreCentral/StoreCentral/packages/modules/order::hash=a1a6c6&locator=test-project%40workspace%3A."
   peerDependencies:
     "@medusajs/framework": 2.21.2
-  checksum: 5b2433e19c147c374c5949f9560a305acbd1481576853a17e5be68a05e81105910a654222a8923b150e1f9c68150497dde76f703e5e841b86072b58b9ec025c5
+  checksum: cb1b10c0193238a2dd2a0bb4ce38e9b0576daaf98bcf51dd9126a0794e41262dec123f6ba1a9ac3a89932ab9cc282d9f9dccc5737671950cd5c0bba57b19eb2e
   languageName: node
   linkType: hard
 
@@ -3706,7 +3716,7 @@ __metadata:
 
 "@medusajs/types@file:C:/Users/jonei/claude work/StoreCentral/StoreCentral/packages/core/types::locator=test-project%40workspace%3A.":
   version: 2.21.2
-  resolution: "@medusajs/types@file:/C%3A/Users/jonei/claude work/StoreCentral/StoreCentral/packages/core/types#/C%3A/Users/jonei/claude work/StoreCentral/StoreCentral/packages/core/types::hash=1fc385&locator=test-project%40workspace%3A."
+  resolution: "@medusajs/types@file:/C%3A/Users/jonei/claude work/StoreCentral/StoreCentral/packages/core/types#/C%3A/Users/jonei/claude work/StoreCentral/StoreCentral/packages/core/types::hash=d5be86&locator=test-project%40workspace%3A."
   dependencies:
     bignumber.js: ^9.1.2
   peerDependencies:
@@ -3717,7 +3727,7 @@ __metadata:
       optional: true
     vite:
       optional: true
-  checksum: e0bd1cdb7f83911a2cbdfbbf555a3f6665355bef2cf25ed80d039c105c3b1119b619dc5a0c3a5e63812ca40fc42eab727a19651e4f720730bc0457dd49e82a4a
+  checksum: 1a07c479c8e16d67879a778dd8080586a568c33e5449f0d5812d60e7787897ab4c1ca5b8f0e8c9683f0caa7a923bd88073b477dee7bfd21eb320ade9d9836c0e
   languageName: node
   linkType: hard
 
@@ -3776,7 +3786,7 @@ __metadata:
 
 "@medusajs/utils@file:C:/Users/jonei/claude work/StoreCentral/StoreCentral/packages/core/utils::locator=test-project%40workspace%3A.":
   version: 2.21.2
-  resolution: "@medusajs/utils@file:/C%3A/Users/jonei/claude work/StoreCentral/StoreCentral/packages/core/utils#/C%3A/Users/jonei/claude work/StoreCentral/StoreCentral/packages/core/utils::hash=5fd052&locator=test-project%40workspace%3A."
+  resolution: "@medusajs/utils@file:/C%3A/Users/jonei/claude work/StoreCentral/StoreCentral/packages/core/utils#/C%3A/Users/jonei/claude work/StoreCentral/StoreCentral/packages/core/utils::hash=88fa38&locator=test-project%40workspace%3A."
   dependencies:
     "@graphql-codegen/core": ^4.0.2
     "@graphql-codegen/typescript": ^4.0.9
@@ -3794,7 +3804,7 @@ __metadata:
     ulid: ^2.3.0
   peerDependencies:
     express: ^4.21.0
-  checksum: 63571c9e0a8bb49d1df5cbd22556945133217620fc3b549682f4e3e502eea35c425d71750dbff8c61bf5d5a0beddaff01a832d8277ad7d63d3337ed8c0925043
+  checksum: ceb26bda72dfe938aaa44d4e30e27c1dbf55b8ff5059e1389a2e28787ecf2df4329437ff4c3d705b181302321fccbc5e9aa5d5b4be1d994cb80debbb7a31a395
   languageName: node
   linkType: hard
 

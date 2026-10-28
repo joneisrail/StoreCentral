@@ -55,6 +55,7 @@
     "@medusajs/utils": "file:C:/Users/jonei/claude work/StoreCentral/StoreCentral/packages/core/utils",
     "@medusajs/workflows-sdk": "file:C:/Users/jonei/claude work/StoreCentral/StoreCentral/packages/core/workflows-sdk",
     "@medusajs/deps": "file:C:/Users/jonei/claude work/StoreCentral/StoreCentral/packages/deps",
+    "@medusajs/note": "file:C:/Users/jonei/claude work/StoreCentral/StoreCentral/packages/modules/note",
     "@medusajs/icons": "file:C:/Users/jonei/claude work/StoreCentral/StoreCentral/packages/design-system/icons",
     "@medusajs/toolbox": "file:C:/Users/jonei/claude work/StoreCentral/StoreCentral/packages/design-system/toolbox",
     "@medusajs/ui": "file:C:/Users/jonei/claude work/StoreCentral/StoreCentral/packages/design-system/ui",
