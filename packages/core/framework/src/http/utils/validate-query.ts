@@ -1,0 +1,147 @@
+import { z } from "@medusajs/deps/zod"
+import { BaseEntity, QueryConfig, RequestQueryFields } from "@medusajs/types"
+import {
+  isDefined,
+  MedusaError,
+  removeUndefinedProperties,
+} from "@medusajs/utils"
+import { NextFunction } from "express"
+
+import { zodValidator } from "../../zod/zod-helpers"
+import { MedusaRequest, MedusaResponse } from "../types"
+import { prepareListQuery, prepareRetrieveQuery } from "./get-query-config"
+import { validateRelationsLimit } from "./relations-limit"
+
+/**
+ * Normalize an input query, especially from array like query params to an array type
+ * e.g: /admin/orders/?fields[]=id,status,cart_id becomes { fields: ["id", "status", "cart_id"] }
+ *
+ * We only support up to 2 levels of depth for query params in order to have a somewhat readable query param, and limit possible performance issues
+ */
+const normalizeQuery = (req: MedusaRequest) => {
+  return Object.entries(req.query).reduce((acc, [key, val]) => {
+    let normalizedValue = val
+    if (Array.isArray(val) && val.length === 1 && typeof val[0] === "string") {
+      normalizedValue = val[0].split(",")
+    }
+
+    if (key.includes(".")) {
+      const [parent, child, ...others] = key.split(".")
+      if (others.length > 0) {
+        throw new MedusaError(
+          MedusaError.Types.INVALID_ARGUMENT,
+          `Key accessor more than 2 levels deep: ${key}`
+        )
+      }
+
+      if (!acc[parent]) {
+        acc[parent] = {}
+      }
+      acc[parent] = {
+        ...acc[parent],
+        [child]: normalizedValue,
+      }
+    } else {
+      acc[key] = normalizedValue
+    }
+
+    return acc
+  }, {})
+}
+
+/**
+ * Omit the non filterable config from the validated object
+ * @param obj
+ */
+const getFilterableFields = <T extends RequestQueryFields>(obj: T): T => {
+  const { limit, offset, fields, order, ...result } = obj
+  return removeUndefinedProperties(result) as T
+}
+
+const consumedAllowedFields = new WeakMap<MedusaRequest, string[]>()
+
+export function validateAndTransformQuery<TEntity extends BaseEntity>(
+  zodSchema: z.ZodObject<any, any> | z.ZodType<any, any, any>,
+  queryConfig: QueryConfig<TEntity>
+): (
+  req: MedusaRequest,
+  res: MedusaResponse,
+  next: NextFunction
+) => Promise<void> {
+  return async function validateQuery(
+    req: MedusaRequest,
+    _: MedusaResponse,
+    next: NextFunction
+  ) {
+    try {
+      const restricted = req.restrictedFields?.list()
+      const allowed = [...(queryConfig.allowed ?? [])]
+
+      // `req.allowed` is reset below so it never reaches the route handler, so the
+      // consumed value is kept off-request for a second run on the same request.
+      const customAllowed = req.allowed.length
+        ? req.allowed
+        : consumedAllowedFields.get(req)
+
+      if (customAllowed?.length) {
+        allowed.push(...customAllowed)
+        consumedAllowedFields.set(req, customAllowed)
+      }
+
+      req.allowed = []
+
+      const disallowed = req.disallowed ?? queryConfig.disallowed ?? []
+
+      delete req.disallowed
+
+      const query = normalizeQuery(req) as Record<string, any>
+
+      const validated = await zodValidator(zodSchema, query)
+
+      const cnf = queryConfig.isList
+        ? await prepareListQuery(
+            validated,
+            {
+              ...queryConfig,
+              allowed,
+              disallowed,
+              restricted,
+              isList: true,
+            },
+            req
+          )
+        : await prepareRetrieveQuery(
+            validated,
+            {
+              ...queryConfig,
+              allowed,
+              disallowed,
+              restricted,
+            },
+            req
+          )
+
+      // `req.storeRelationsLimit` is only set for routes under the `/store` prefix, so
+      // admin and custom routes are never affected by the limit, even if a query config
+      // sets `storeRelationsLimit`.
+      if (isDefined(req.storeRelationsLimit)) {
+        validateRelationsLimit(
+          cnf.remoteQueryConfig.fields,
+          queryConfig.storeRelationsLimit ?? req.storeRelationsLimit
+        )
+      }
+
+      const { with_deleted, ...validatedQueryFilters } = validated
+      req.validatedQuery = validatedQueryFilters
+      req.filterableFields = getFilterableFields(req.validatedQuery)
+      req.queryConfig = cnf.remoteQueryConfig as any
+      req.remoteQueryConfig = req.queryConfig
+      req.listConfig = (cnf as any).listConfig
+      req.retrieveConfig = (cnf as any).retrieveConfig
+
+      next()
+    } catch (e) {
+      next(e)
+    }
+  }
+}

@@ -1,0 +1,249 @@
+import { HttpTypes } from "@medusajs/types"
+import { Badge, Checkbox } from "@medusajs/ui"
+import {
+  ColumnDef,
+  ColumnDefBase,
+  createColumnHelper,
+} from "@tanstack/react-table"
+import { useMemo } from "react"
+import { useTranslation } from "react-i18next"
+import { PlaceholderCell } from "../../../components/table/table-cells/common/placeholder-cell"
+import {
+  DateCell,
+  DateHeader,
+} from "../../../components/table/table-cells/common/date-cell"
+import { countries } from "../../../lib/data/countries"
+import { CountryCell } from "../../../components/table/table-cells/order/country-cell"
+import {
+  CustomerCell,
+  CustomerHeader,
+} from "../../../components/table/table-cells/order/customer-cell"
+import {
+  DisplayIdCell,
+  DisplayIdHeader,
+} from "../../../components/table/table-cells/order/display-id-cell"
+import {
+  FulfillmentStatusCell,
+  FulfillmentStatusHeader,
+} from "../../../components/table/table-cells/order/fulfillment-status-cell"
+import {
+  OrderNotesIndicatorCell,
+  OrderNotesIndicatorHeader,
+} from "../../../components/table/table-cells/order/order-notes-indicator-cell"
+import {
+  PaymentStatusCell,
+  PaymentStatusHeader,
+} from "../../../components/table/table-cells/order/payment-status-cell"
+import {
+  SalesChannelCell,
+  SalesChannelHeader,
+} from "../../../components/table/table-cells/order/sales-channel-cell"
+import {
+  TotalCell,
+  TotalHeader,
+} from "../../../components/table/table-cells/order/total-cell"
+
+// We have to use any here, as the type of Order is so complex that it lags the TS server
+const columnHelper = createColumnHelper<HttpTypes.AdminOrder>()
+
+type UseOrderTableColumnsProps = {
+  exclude?: string[]
+  /**
+   * Whether to render a leading checkbox column for row selection. Only
+   * list pages that wire up `enableRowSelection`/`rowSelection` on
+   * `useDataTable` (e.g. the order list, for its bulk-tag command bar)
+   * should pass this - other consumers of this hook don't support
+   * selection and would otherwise get a non-functional checkbox column.
+   */
+  enableRowSelection?: boolean
+}
+
+export const useOrderTableColumns = (props: UseOrderTableColumnsProps) => {
+  const { exclude = [], enableRowSelection = false } = props ?? {}
+  const { t } = useTranslation()
+
+  const columns = useMemo(
+    () => [
+      ...(enableRowSelection
+        ? [
+            columnHelper.display({
+              id: "select",
+              header: ({ table }) => (
+                <Checkbox
+                  checked={
+                    table.getIsSomePageRowsSelected()
+                      ? "indeterminate"
+                      : table.getIsAllPageRowsSelected()
+                  }
+                  onCheckedChange={(value) =>
+                    table.toggleAllPageRowsSelected(!!value)
+                  }
+                />
+              ),
+              cell: ({ row }) => (
+                <Checkbox
+                  checked={row.getIsSelected()}
+                  onCheckedChange={(value) => row.toggleSelected(!!value)}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                  }}
+                />
+              ),
+            }),
+          ]
+        : []),
+      columnHelper.accessor("display_id", {
+        header: () => <DisplayIdHeader />,
+        cell: ({ getValue }) => {
+          const id = getValue()
+
+          return <DisplayIdCell displayId={id!} />
+        },
+      }),
+      columnHelper.accessor("created_at", {
+        header: () => <DateHeader />,
+        cell: ({ getValue }) => {
+          const date = new Date(getValue())
+
+          return <DateCell date={date} />
+        },
+      }),
+      columnHelper.accessor("customer", {
+        header: () => <CustomerHeader />,
+        cell: ({ getValue }) => {
+          const customer = getValue()
+
+          return <CustomerCell customer={customer} />
+        },
+      }),
+      columnHelper.accessor("sales_channel", {
+        header: () => <SalesChannelHeader />,
+        cell: ({ getValue }) => {
+          const channel = getValue()
+
+          return <SalesChannelCell channel={channel} />
+        },
+      }),
+      columnHelper.accessor("payment_status", {
+        header: () => <PaymentStatusHeader />,
+        cell: ({ getValue }) => {
+          const status = getValue()
+
+          return <PaymentStatusCell status={status} />
+        },
+      }),
+      columnHelper.accessor("fulfillment_status", {
+        header: () => <FulfillmentStatusHeader />,
+        cell: ({ getValue }) => {
+          const status = getValue()
+
+          return <FulfillmentStatusCell status={status} />
+        },
+      }),
+      columnHelper.accessor("total", {
+        header: () => <TotalHeader />,
+        cell: ({ getValue, row }) => {
+          const isFullyRefunded = row.original.payment_status === "refunded"
+          const total = !isFullyRefunded
+            ? getValue()
+            : row.original.payment_collections?.reduce(
+                (acc, payCol) => acc + (payCol.refunded_amount ?? 0),
+                0
+              ) ?? 0
+          const currencyCode = row.original.currency_code
+
+          return (
+            <TotalCell
+              currencyCode={currencyCode}
+              total={total}
+              className={isFullyRefunded ? "text-ui-fg-muted line-through" : ""}
+            />
+          )
+        },
+      }),
+      columnHelper.display({
+        id: "country",
+        cell: ({ row }) => {
+          const countryCode = row.original.shipping_address?.country_code
+          const country = countries.find((c) => c.iso_2 === countryCode)
+
+          return <CountryCell country={country} />
+        },
+      }),
+      columnHelper.display({
+        id: "notes",
+        header: () => <OrderNotesIndicatorHeader />,
+        cell: ({ row, table }) => {
+          const { orderIdsOnPage } = (table.options.meta ?? {}) as {
+            orderIdsOnPage?: string[]
+          }
+
+          return (
+            <OrderNotesIndicatorCell
+              orderId={row.original.id}
+              orderIdsOnPage={orderIdsOnPage ?? []}
+            />
+          )
+        },
+      }),
+      columnHelper.display({
+        id: "tags",
+        header: () => (
+          <div className="flex h-full w-full items-center">
+            <span className="truncate">{t("fields.tags")}</span>
+          </div>
+        ),
+        cell: ({ row }) => {
+          const tags = row.original.tags
+
+          if (!tags?.length) {
+            return <PlaceholderCell />
+          }
+
+          return (
+            <div className="flex h-full w-full flex-wrap items-center gap-1 overflow-hidden py-2">
+              {tags.map((tag) => (
+                <Badge
+                  key={tag.id}
+                  size="2xsmall"
+                  className="max-w-full overflow-hidden pl-1.5 pr-1.5"
+                >
+                  <span className="truncate">{tag.value}</span>
+                </Badge>
+              ))}
+            </div>
+          )
+        },
+      }),
+    ],
+    [enableRowSelection, t]
+  )
+
+  const isAccessorColumnDef = (
+    c: any
+  ): c is ColumnDef<HttpTypes.AdminOrder> & { accessorKey: string } => {
+    return c.accessorKey !== undefined
+  }
+
+  const isDisplayColumnDef = (
+    c: any
+  ): c is ColumnDef<HttpTypes.AdminOrder> & { id: string } => {
+    return c.id !== undefined
+  }
+
+  const shouldExclude = <TDef extends ColumnDefBase<HttpTypes.AdminOrder, any>>(
+    c: TDef
+  ) => {
+    if (isAccessorColumnDef(c)) {
+      return exclude.includes(c.accessorKey)
+    } else if (isDisplayColumnDef(c)) {
+      return exclude.includes(c.id)
+    }
+
+    return false
+  }
+
+  return columns.filter(
+    (c) => !shouldExclude(c)
+  ) as ColumnDef<HttpTypes.AdminOrder>[]
+}

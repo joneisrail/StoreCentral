@@ -1,0 +1,47 @@
+{
+  "name": "@medusajs/core-flows",
+  "version": "2.21.2",
+  "description": "Set of workflow definitions for Medusa",
+  "main": "dist/index.js",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/medusajs/medusa.git",
+    "directory": "packages/core-flows"
+  },
+  "bugs": {
+    "url": "https://github.com/medusajs/medusa/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=22.22.0"
+  },
+  "files": [
+    "dist",
+    "!dist/**/__tests__",
+    "!dist/**/__mocks__",
+    "!dist/**/__fixtures__"
+  ],
+  "author": "Medusa",
+  "license": "SEE LICENSE IN LICENSE",
+  "devDependencies": {
+    "@medusajs/framework": "2.21.2"
+  },
+  "dependencies": {
+    "csv-parse": "^7.0.2",
+    "deeks": "^3.2.1",
+    "json-2-csv": "^5.5.11"
+  },
+  "peerDependencies": {
+    "@medusajs/framework": "2.21.2"
+  },
+  "scripts": {
+    "build": "yarn run -T rimraf dist && yarn run -T tsc --build",
+    "watch": "yarn run -T tsc --build --watch",
+    "test": "../../../node_modules/.bin/jest --bail --forceExit --passWithNoTests"
+  }
+}
