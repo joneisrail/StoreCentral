@@ -20,6 +20,12 @@ function signRawBody(rawBody: string, secret: string): string {
 medusaIntegrationTestRunner({
   env: {
     EASYPOST_WEBHOOK_SECRET: WEBHOOK_SECRET,
+    // The webhook route builds an EasyPostClient (which requires a non-empty
+    // API key) before it checks the signature - without this, every request
+    // 401s regardless of signature validity, independent of the ambient
+    // environment's own EASYPOST_API_KEY (which this suite shouldn't depend
+    // on, since it never calls the real EasyPost API).
+    EASYPOST_API_KEY: "EZTKtest_00000000000000000000000000000000",
   },
   testSuite: ({ api, getContainer }) => {
     describe("POST /webhooks/easypost", () => {
