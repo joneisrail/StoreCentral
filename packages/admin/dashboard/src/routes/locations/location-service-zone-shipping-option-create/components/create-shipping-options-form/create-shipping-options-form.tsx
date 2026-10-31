@@ -120,7 +120,7 @@ export function CreateShippingOptionsForm({
           region_id: region_id,
           amount: castNumber(rule.amount),
           rules: buildShippingOptionPriceRules(rule),
-        })) || [] as AdminCreateShippingOptionPriceWithRegion[]
+        })) || ([] as AdminCreateShippingOptionPriceWithRegion[])
 
       return prices?.filter(Boolean)
     })
@@ -133,7 +133,7 @@ export function CreateShippingOptionsForm({
           currency_code,
           amount: castNumber(rule.amount),
           rules: buildShippingOptionPriceRules(rule),
-        })) || [] as AdminCreateShippingOptionPriceWithCurrency[]
+        })) || ([] as AdminCreateShippingOptionPriceWithCurrency[])
 
       return prices?.filter(Boolean)
     })
@@ -280,7 +280,7 @@ export function CreateShippingOptionsForm({
           onValueChange={(tab) => onTabChange(tab as Tab)}
         >
           <RouteFocusModal.Header>
-            <ProgressTabs.List className="border-ui-border-base -my-2 ml-2 min-w-0 flex-1 border-l">
+            <ProgressTabs.List className="-my-2 ml-2 min-w-0 flex-1 border-l border-ui-border-base">
               <ProgressTabs.Trigger
                 value={Tab.DETAILS}
                 status={detailsStatus}

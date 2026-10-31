@@ -93,9 +93,7 @@ export function CreateOrderTransferForm({
     try {
       if (data.type === "guest") {
         await transferToGuest({ email: data.email! })
-        toast.success(
-          t("orders.transfer.guestSuccess", { email: data.email })
-        )
+        toast.success(t("orders.transfer.guestSuccess", { email: data.email }))
       } else {
         await requestTransfer({ customer_id: data.customer_id! })
         toast.success(

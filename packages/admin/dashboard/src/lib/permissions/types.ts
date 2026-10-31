@@ -130,4 +130,3 @@ export interface PermissionsRequirementsContextValue {
    */
   unregisterRequiredPermissions: (id: string) => void
 }
-

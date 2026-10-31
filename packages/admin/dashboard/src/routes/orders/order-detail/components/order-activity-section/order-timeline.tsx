@@ -112,8 +112,7 @@ type Activity = {
   timestamp: string | Date | null
   children?: ReactNode
   itemsToSend?:
-    | AdminClaim["additional_items"]
-    | AdminExchange["additional_items"]
+    AdminClaim["additional_items"] | AdminExchange["additional_items"]
   itemsToReturn?: AdminReturn["items"]
   itemsMap?: Map<string, AdminOrderLineItem>
 }
@@ -234,7 +233,7 @@ const useActivityItems = (order: ExtendedOrder): Activity[] => {
           title: t("orders.activity.events.payment.refunded"),
           timestamp: refund.created_at,
           children: (
-            <div className="text-ui-fg-subtle flex flex-col gap-y-2">
+            <div className="flex flex-col gap-y-2 text-ui-fg-subtle">
               <Text size="small">
                 {getStylizedAmount(
                   refund.amount as number,
@@ -257,7 +256,7 @@ const useActivityItems = (order: ExtendedOrder): Activity[] => {
         title: t("orders.activity.events.fulfillment.created"),
         timestamp: fulfillment.created_at,
         children: (
-          <div className="text-ui-fg-subtle flex flex-col gap-y-2">
+          <div className="flex flex-col gap-y-2 text-ui-fg-subtle">
             <FulfillmentCreatedBody fulfillment={fulfillment} />
             {fulfillment.created_by && (
               <div className="flex items-center gap-x-2 text-sm">
@@ -281,7 +280,7 @@ const useActivityItems = (order: ExtendedOrder): Activity[] => {
           title: t("orders.activity.events.fulfillment.shipped"),
           timestamp: fulfillment.shipped_at,
           children: (
-            <div className="text-ui-fg-subtle flex flex-col gap-y-2">
+            <div className="flex flex-col gap-y-2 text-ui-fg-subtle">
               <FulfillmentCreatedBody fulfillment={fulfillment} />
               {fulfillment.marked_shipped_by && (
                 <div className="flex items-center gap-x-2 text-sm">
@@ -319,7 +318,7 @@ const useActivityItems = (order: ExtendedOrder): Activity[] => {
         itemsToReturn: ret?.items,
         itemsMap,
         children: (
-          <div className="text-ui-fg-subtle flex flex-col gap-y-2">
+          <div className="flex flex-col gap-y-2 text-ui-fg-subtle">
             <ReturnBody
               orderReturn={ret}
               isCreated={!ret.canceled_at}
@@ -375,7 +374,7 @@ const useActivityItems = (order: ExtendedOrder): Activity[] => {
         itemsToReturn: claimReturn?.items,
         itemsMap,
         children: (
-          <div className="text-ui-fg-subtle flex flex-col gap-y-2">
+          <div className="flex flex-col gap-y-2 text-ui-fg-subtle">
             <ClaimBody claim={claim} claimReturn={claimReturn} />
             {claim.created_by && !claim.canceled_at && (
               <div className="flex items-center gap-x-2 text-sm">
@@ -404,7 +403,7 @@ const useActivityItems = (order: ExtendedOrder): Activity[] => {
         itemsToReturn: exchangeReturn?.items,
         itemsMap,
         children: (
-          <div className="text-ui-fg-subtle flex flex-col gap-y-2">
+          <div className="flex flex-col gap-y-2 text-ui-fg-subtle">
             <ExchangeBody exchange={exchange} exchangeReturn={exchangeReturn} />
             {exchange.created_by && !exchange.canceled_at && (
               <div className="flex items-center gap-x-2 text-sm">
@@ -432,12 +431,12 @@ const useActivityItems = (order: ExtendedOrder): Activity[] => {
           edit.status === "requested"
             ? edit.requested_at
             : edit.status === "confirmed"
-            ? edit.confirmed_at
-            : edit.status === "declined"
-            ? edit.declined_at
-            : edit.status === "canceled"
-            ? edit.canceled_at
-            : edit.created_at,
+              ? edit.confirmed_at
+              : edit.status === "declined"
+                ? edit.declined_at
+                : edit.status === "canceled"
+                  ? edit.canceled_at
+                  : edit.created_at,
         children: isConfirmed ? <OrderEditBody edit={edit} /> : null,
       })
     }
@@ -503,7 +502,7 @@ const useActivityItems = (order: ExtendedOrder): Activity[] => {
           ),
           timestamp: update.created_at,
           children: (
-            <div className="text-ui-fg-subtle mt-2 flex gap-x-2 text-sm">
+            <div className="mt-2 flex gap-x-2 text-sm text-ui-fg-subtle">
               {t("fields.by")} <By id={update.created_by || "-"} />
             </div>
           ),
@@ -535,7 +534,7 @@ const useActivityItems = (order: ExtendedOrder): Activity[] => {
           ),
           timestamp: update.created_at,
           children: (
-            <div className="text-ui-fg-subtle mt-2 flex gap-x-2 text-sm">
+            <div className="mt-2 flex gap-x-2 text-sm text-ui-fg-subtle">
               {t("fields.by")} <By id={update.created_by || "-"} />
             </div>
           ),
@@ -561,7 +560,7 @@ const useActivityItems = (order: ExtendedOrder): Activity[] => {
           ),
           timestamp: update.created_at,
           children: (
-            <div className="text-ui-fg-subtle mt-2 flex gap-x-2 text-sm">
+            <div className="mt-2 flex gap-x-2 text-sm text-ui-fg-subtle">
               {t("fields.by")} <By id={update.created_by || "-"} />
             </div>
           ),
@@ -613,8 +612,7 @@ type OrderActivityItemProps = PropsWithChildren<{
   timestamp: string | Date | null
   isFirst?: boolean
   itemsToSend?:
-    | AdminClaim["additional_items"]
-    | AdminExchange["additional_items"]
+    AdminClaim["additional_items"] | AdminExchange["additional_items"]
   itemsToReturn?: AdminReturn["items"]
   itemsMap?: Map<string, AdminOrderLineItem>
 }>
@@ -634,11 +632,11 @@ const OrderActivityItem = ({
     <div className="grid grid-cols-[20px_1fr] items-start gap-2">
       <div className="flex size-full flex-col items-center gap-y-0.5">
         <div className="flex size-5 items-center justify-center">
-          <div className="bg-ui-bg-base shadow-borders-base flex size-2.5 items-center justify-center rounded-full">
-            <div className="bg-ui-tag-neutral-icon size-1.5 rounded-full" />
+          <div className="flex size-2.5 items-center justify-center rounded-full bg-ui-bg-base shadow-borders-base">
+            <div className="size-1.5 rounded-full bg-ui-tag-neutral-icon" />
           </div>
         </div>
-        {!isFirst && <div className="bg-ui-border-base w-px flex-1" />}
+        {!isFirst && <div className="w-px flex-1 bg-ui-border-base" />}
       </div>
       <div
         className={clx({
@@ -668,7 +666,7 @@ const OrderActivityItem = ({
               <Text
                 size="small"
                 leading="compact"
-                className="text-ui-fg-subtle text-right"
+                className="text-right text-ui-fg-subtle"
               >
                 {getRelativeDate(timestamp)}
               </Text>
@@ -699,7 +697,7 @@ const OrderActivityCollapsible = ({
       {!open && (
         <div className="grid grid-cols-[20px_1fr] items-start gap-2">
           <div className="flex size-full flex-col items-center">
-            <div className="border-ui-border-strong w-px flex-1 bg-[linear-gradient(var(--border-strong)_33%,rgba(255,255,255,0)_0%)] bg-[length:1px_3px] bg-right bg-repeat-y" />
+            <div className="w-px flex-1 border-ui-border-strong bg-[linear-gradient(var(--border-strong)_33%,rgba(255,255,255,0)_0%)] bg-[length:1px_3px] bg-right bg-repeat-y" />
           </div>
           <div className="pb-4">
             <RadixCollapsible.Trigger className="text-left">
@@ -811,7 +809,7 @@ const ReturnBody = ({
           <div className="mt-[2px] flex items-center leading-none">⋅</div>
           <Button
             onClick={onCancel}
-            className="text-ui-fg-subtle h-auto px-0 leading-none hover:bg-transparent"
+            className="h-auto px-0 leading-none text-ui-fg-subtle hover:bg-transparent"
             variant="transparent"
             size="small"
           >
@@ -885,7 +883,7 @@ const ClaimBody = ({
       {!isCanceled && (
         <Button
           onClick={onCancel}
-          className="text-ui-fg-subtle h-auto px-0 leading-none hover:bg-transparent"
+          className="h-auto px-0 leading-none text-ui-fg-subtle hover:bg-transparent"
           variant="transparent"
           size="small"
         >
@@ -961,7 +959,7 @@ const ExchangeBody = ({
       {!isCanceled && (
         <Button
           onClick={onCancel}
-          className="text-ui-fg-subtle h-auto px-0 leading-none hover:bg-transparent"
+          className="h-auto px-0 leading-none text-ui-fg-subtle hover:bg-transparent"
           variant="transparent"
           size="small"
         >
@@ -982,10 +980,10 @@ const OrderEditBody = ({ edit }: { edit: AdminOrderChange }) => {
   const userId = isConfirmed
     ? edit.confirmed_by
     : isDeclined
-    ? edit.declined_by
-    : isCanceled
-    ? edit.canceled_by
-    : edit.requested_by
+      ? edit.declined_by
+      : isCanceled
+        ? edit.canceled_by
+        : edit.requested_by
 
   const [itemsAdded, itemsRemoved] = useMemo(
     () => countItemsChange(edit.actions),
@@ -1049,7 +1047,7 @@ const OrderEditBody = ({ edit }: { edit: AdminOrderChange }) => {
     }
 
     return (
-      <div className="text-ui-fg-subtle flex flex-col divide-y divide-dashed">
+      <div className="flex flex-col divide-y divide-dashed text-ui-fg-subtle">
         {lineItems.map((orderItem) => {
           const itemChangeItem = itemChange.detail.find(
             (item) => item.lineItemId === orderItem.item_id
@@ -1089,7 +1087,7 @@ const OrderEditBody = ({ edit }: { edit: AdminOrderChange }) => {
   }
 
   return (
-    <div className="text-ui-fg-subtle flex flex-col items-start gap-y-2">
+    <div className="flex flex-col items-start gap-y-2 text-ui-fg-subtle">
       {itemsAdded.totalCount > 0 && (
         <ChangeDetailsTooltip
           title={`${t("labels.added")}: ${itemsAdded.totalCount}`}
@@ -1111,7 +1109,7 @@ const OrderEditBody = ({ edit }: { edit: AdminOrderChange }) => {
         />
       )}
       {edit.internal_note && (
-        <div className="bg-ui-bg-component shadow-borders-base mt-2 w-fit rounded-r-2xl rounded-bl-md rounded-tl-xl px-3 py-1.5">
+        <div className="mt-2 w-fit rounded-r-2xl rounded-bl-md rounded-tl-xl bg-ui-bg-component px-3 py-1.5 shadow-borders-base">
           <Text size="xsmall" className="text-ui-fg-subtle">
             {edit.internal_note}
           </Text>
@@ -1180,7 +1178,7 @@ const TransferOrderRequestBody = ({
       {!isCompleted && (
         <Button
           onClick={handleDelete}
-          className="text-ui-fg-subtle h-auto px-0 leading-none hover:bg-transparent"
+          className="h-auto px-0 leading-none text-ui-fg-subtle hover:bg-transparent"
           variant="transparent"
           size="small"
         >

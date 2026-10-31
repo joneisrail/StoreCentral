@@ -2,7 +2,10 @@ import { CORE_LAYOUT_IDS } from "@medusajs/admin-shared"
 import { useLoaderData, useParams } from "react-router-dom"
 
 import { SingleColumnPageSkeleton } from "../../../components/common/skeleton"
-import { LayoutComposer, detailPageDefaultEntries } from "../../../components/layout-composer"
+import {
+  LayoutComposer,
+  detailPageDefaultEntries,
+} from "../../../components/layout-composer"
 import { useShippingOptionType } from "../../../hooks/api"
 import { ShippingOptionTypeGeneralSection } from "./components/shipping-option-type-general-section"
 import { shippingOptionTypeLoader } from "./loader"
@@ -39,7 +42,9 @@ export const ShippingOptionTypeDetail = () => {
                 shippingOptionType={shipping_option_type}
               />
             </LayoutComposer.Entry>
-            {detailPageDefaultEntries(shipping_option_type, { permissions: false })}
+            {detailPageDefaultEntries(shipping_option_type, {
+              permissions: false,
+            })}
           </>
         ),
       }}

@@ -51,8 +51,7 @@ interface PermissionGuardWithPermissions extends BasePermissionGuardProps {
   operation?: never
 }
 
-interface PermissionGuardWithResourceOperation
-  extends BasePermissionGuardProps {
+interface PermissionGuardWithResourceOp extends BasePermissionGuardProps {
   /**
    * Resource to check permission for.
    */
@@ -69,7 +68,7 @@ interface PermissionGuardWithResourceOperation
 export type PermissionGuardProps =
   | PermissionGuardWithPermission
   | PermissionGuardWithPermissions
-  | PermissionGuardWithResourceOperation
+  | PermissionGuardWithResourceOp
 
 /**
  * Component that conditionally renders children based on user permissions.

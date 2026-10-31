@@ -73,9 +73,9 @@ export const EditProductOptionOrganize = ({
         renderItem={(item) => (
           <SortableList.Item
             id={item.id}
-            className="border-ui-border-base border-b last:border-b-0"
+            className="border-b border-ui-border-base last:border-b-0"
           >
-            <div className="flex flex-1 min-w-0 items-center gap-x-3 py-3">
+            <div className="flex min-w-0 flex-1 items-center gap-x-3 py-3">
               <SortableList.DragHandle />
               <Text size="small" className="min-w-0 break-words">
                 {item.value}

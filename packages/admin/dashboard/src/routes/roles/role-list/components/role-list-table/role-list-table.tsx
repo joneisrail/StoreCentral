@@ -7,7 +7,7 @@ import {
   usePrompt,
 } from "@medusajs/ui"
 import { keepPreviousData } from "@tanstack/react-query"
-import { useCallback, useMemo } from "react"
+import { ReactNode, useCallback, useMemo } from "react"
 import { useTranslation } from "react-i18next"
 import { useNavigate } from "react-router-dom"
 
@@ -205,7 +205,7 @@ const useColumns = ({
 
     const groups: {
       label: string
-      icon: React.ReactNode
+      icon: ReactNode
       onClick: (ctx: { row: { original: HttpTypes.AdminRbacRole } }) => void
     }[][] = []
 

@@ -7,7 +7,7 @@ import type {
 import { buildPermission } from "../../lib/permissions"
 import { useRegisterPermissions } from "./use-register-permissions"
 
-interface BasePermissionsRequirementProps extends PropsWithChildren {
+interface BaseRequirementProps extends PropsWithChildren {
   /**
    * Optional source label for debugging or display.
    */
@@ -18,8 +18,7 @@ interface BasePermissionsRequirementProps extends PropsWithChildren {
   enabled?: boolean
 }
 
-interface PermissionsRequirementWithPermission
-  extends BasePermissionsRequirementProps {
+interface RequirementWithPermission extends BaseRequirementProps {
   permission: Permission
   permissions?: never
   resource?: never
@@ -27,8 +26,7 @@ interface PermissionsRequirementWithPermission
   requireAll?: never
 }
 
-interface PermissionsRequirementWithPermissions
-  extends BasePermissionsRequirementProps {
+interface RequirementWithPermissions extends BaseRequirementProps {
   permissions: Permission[]
   requireAll?: boolean
   permission?: never
@@ -36,8 +34,7 @@ interface PermissionsRequirementWithPermissions
   operation?: never
 }
 
-interface PermissionsRequirementWithResourceOperation
-  extends BasePermissionsRequirementProps {
+interface RequirementWithResourceOp extends BaseRequirementProps {
   resource: PermissionResource
   operation: PermissionOperation
   permission?: never
@@ -46,9 +43,9 @@ interface PermissionsRequirementWithResourceOperation
 }
 
 export type PermissionsRequirementProps =
-  | PermissionsRequirementWithPermission
-  | PermissionsRequirementWithPermissions
-  | PermissionsRequirementWithResourceOperation
+  | RequirementWithPermission
+  | RequirementWithPermissions
+  | RequirementWithResourceOp
 
 /**
  * Component that registers required permissions for the current subtree.

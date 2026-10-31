@@ -7,7 +7,10 @@ import LocationsSalesChannelsSection from "./components/location-sales-channels-
 import { locationLoader } from "./loader"
 
 import { TwoColumnPageSkeleton } from "../../../components/common/skeleton"
-import { LayoutComposer, detailPageDefaultEntries } from "../../../components/layout-composer"
+import {
+  LayoutComposer,
+  detailPageDefaultEntries,
+} from "../../../components/layout-composer"
 import LocationsFulfillmentProvidersSection from "./components/location-fulfillment-providers-section/location-fulfillment-providers-section"
 import { LOCATION_DETAILS_FIELD } from "./constants"
 

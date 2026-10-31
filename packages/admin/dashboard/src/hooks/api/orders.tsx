@@ -530,9 +530,10 @@ export const useUpdateOrderChange = (
   >
 ) => {
   return useMutation({
-    mutationFn: (
-      payload: { carry_over_promotions?: boolean; internal_note?: string | null }
-    ) => sdk.admin.order.updateOrderChange(orderChangeId, payload),
+    mutationFn: (payload: {
+      carry_over_promotions?: boolean
+      internal_note?: string | null
+    }) => sdk.admin.order.updateOrderChange(orderChangeId, payload),
     onSuccess: (data, variables, context) => {
       const orderId = data.order_change.order_id
 

@@ -2,7 +2,10 @@ import { CORE_LAYOUT_IDS } from "@medusajs/admin-shared"
 import { useLoaderData, useParams } from "react-router-dom"
 
 import { TwoColumnPageSkeleton } from "../../../components/common/skeleton"
-import { LayoutComposer, detailPageDefaultEntries } from "../../../components/layout-composer"
+import {
+  LayoutComposer,
+  detailPageDefaultEntries,
+} from "../../../components/layout-composer"
 import { useInventoryItem } from "../../../hooks/api/inventory"
 import { InventoryItemAttributeSection } from "./components/inventory-item-attributes/attributes-section"
 import { InventoryItemGeneralSection } from "./components/inventory-item-general-section"
@@ -67,7 +70,9 @@ export const InventoryDetail = () => {
               />
             </LayoutComposer.Entry>
             <LayoutComposer.Entry id="InventoryItemReservationsSection">
-              <InventoryItemReservationsSection inventoryItem={inventory_item} />
+              <InventoryItemReservationsSection
+                inventoryItem={inventory_item}
+              />
             </LayoutComposer.Entry>
             {detailPageDefaultEntries(inventory_item)}
           </>

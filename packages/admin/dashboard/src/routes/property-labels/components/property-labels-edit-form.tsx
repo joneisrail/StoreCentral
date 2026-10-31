@@ -24,7 +24,9 @@ interface PropertyLabelsEditFormProps {
 }
 
 const isLeafNode = (obj: any): boolean => {
-  if (typeof obj !== "object" || obj === null) return false
+  if (typeof obj !== "object" || obj === null) {
+    return false
+  }
   const keys = Object.keys(obj)
   return (
     keys.length > 0 &&

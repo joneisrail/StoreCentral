@@ -6,7 +6,10 @@ import { StoreGeneralSection } from "./components/store-general-section"
 import { storeLoader } from "./loader"
 
 import { SingleColumnPageSkeleton } from "../../../components/common/skeleton"
-import { LayoutComposer, detailPageDefaultEntries } from "../../../components/layout-composer"
+import {
+  LayoutComposer,
+  detailPageDefaultEntries,
+} from "../../../components/layout-composer"
 import { useFeatureFlag } from "../../../providers/feature-flag-provider"
 import { StoreCurrencySection } from "./components/store-currency-section"
 import { StoreLocaleSection } from "./components/store-locale-section"

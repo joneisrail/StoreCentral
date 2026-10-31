@@ -6,8 +6,7 @@ import { productOptionValuesQueryKeys } from "../../../hooks/api/product-options
 
 const productOptionValueDetailQuery = (optionId: string, valueId: string) => ({
   queryKey: productOptionValuesQueryKeys.detail(valueId),
-  queryFn: async () =>
-    sdk.admin.productOption.retrieveValue(optionId, valueId),
+  queryFn: async () => sdk.admin.productOption.retrieveValue(optionId, valueId),
 })
 
 export const productOptionValueLoader = async ({

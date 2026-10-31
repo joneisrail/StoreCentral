@@ -7,7 +7,10 @@ import { RegionGeneralSection } from "./components/region-general-section"
 import { regionLoader } from "./loader"
 
 import { SingleColumnPageSkeleton } from "../../../components/common/skeleton"
-import { LayoutComposer, detailPageDefaultEntries } from "../../../components/layout-composer"
+import {
+  LayoutComposer,
+  detailPageDefaultEntries,
+} from "../../../components/layout-composer"
 import { usePricePreferences } from "../../../hooks/api/price-preferences"
 import { REGION_DETAIL_FIELDS } from "./constants"
 

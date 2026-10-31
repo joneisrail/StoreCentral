@@ -3,8 +3,9 @@ import { CondtionalPriceRuleSchema } from "../schema"
 
 type ParseResult = ReturnType<typeof CondtionalPriceRuleSchema.safeParse>
 
-const getIssuePaths = (result: ParseResult) =>
-  result.success ? [] : result.error.issues.map((i) => i.path.join("."))
+const getIssuePaths = (result: ParseResult) => {
+  return result.success ? [] : result.error.issues.map((i) => i.path.join("."))
+}
 
 describe("CondtionalPriceRuleSchema - conditional shipping option prices", () => {
   it("allows the same amount for non-overlapping conditions", () => {

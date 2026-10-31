@@ -5,7 +5,10 @@ import { useTaxRegion } from "../../../hooks/api/tax-regions"
 import { TaxRegionProvinceDetailSection } from "./components/tax-region-province-detail-section"
 
 import { SingleColumnPageSkeleton } from "../../../components/common/skeleton"
-import { LayoutComposer, detailPageDefaultEntries } from "../../../components/layout-composer"
+import {
+  LayoutComposer,
+  detailPageDefaultEntries,
+} from "../../../components/layout-composer"
 import { TaxRegionProvinceOverrideSection } from "./components/tax-region-province-override-section"
 import { taxRegionLoader } from "./loader"
 
@@ -45,7 +48,10 @@ export const TaxRegionDetail = () => {
             <LayoutComposer.Entry id="TaxRegionProvinceOverrideSection">
               <TaxRegionProvinceOverrideSection taxRegion={taxRegion} />
             </LayoutComposer.Entry>
-            {detailPageDefaultEntries(taxRegion, { metadata: false, permissions: false })}
+            {detailPageDefaultEntries(taxRegion, {
+              metadata: false,
+              permissions: false,
+            })}
           </>
         ),
       }}

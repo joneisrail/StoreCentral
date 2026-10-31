@@ -2,7 +2,10 @@ import { CORE_LAYOUT_IDS } from "@medusajs/admin-shared"
 import { useLoaderData, useParams } from "react-router-dom"
 
 import { SingleColumnPageSkeleton } from "../../../components/common/skeleton"
-import { LayoutComposer, detailPageDefaultEntries } from "../../../components/layout-composer"
+import {
+  LayoutComposer,
+  detailPageDefaultEntries,
+} from "../../../components/layout-composer"
 import { useRbacPolicy } from "../../../hooks/api/rbac-policies"
 import { useRequireRbacFeature } from "../../../hooks/use-require-rbac-feature"
 import { usePermissions } from "../../../providers/permissions-provider"

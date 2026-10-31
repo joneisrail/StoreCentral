@@ -123,9 +123,9 @@ export const ChipInput = forwardRef<HTMLInputElement, ChipInputProps>(
     return (
       <div
         className={clx(
-          "shadow-borders-base flex min-h-8 flex-wrap items-center gap-1 rounded-md px-2 py-1.5",
+          "flex min-h-8 flex-wrap items-center gap-1 rounded-md px-2 py-1.5 shadow-borders-base",
           "transition-fg focus-within:shadow-borders-interactive-with-active",
-          "has-[input:disabled]:bg-ui-bg-disabled has-[input:disabled]:text-ui-fg-disabled has-[input:disabled]:cursor-not-allowed",
+          "has-[input:disabled]:cursor-not-allowed has-[input:disabled]:bg-ui-bg-disabled has-[input:disabled]:text-ui-fg-disabled",
           {
             "bg-ui-bg-field-component hover:bg-ui-bg-field-component-hover":
               variant === "contrast",
@@ -141,23 +141,26 @@ export const ChipInput = forwardRef<HTMLInputElement, ChipInputProps>(
             <AnimatePresence key={`${v}-${index}`}>
               <Badge
                 size="2xsmall"
-                className={clx("gap-x-0.5 pl-1.5 pr-1.5 max-w-full min-w-0 overflow-hidden", {
-                  "transition-fg pr-1": showRemove,
-                  "shadow-borders-focus": index === duplicateIndex,
-                })}
+                className={clx(
+                  "min-w-0 max-w-full gap-x-0.5 overflow-hidden pl-1.5 pr-1.5",
+                  {
+                    "pr-1 transition-fg": showRemove,
+                    "shadow-borders-focus": index === duplicateIndex,
+                  }
+                )}
                 asChild
               >
                 <motion.div
                   animate={index === duplicateIndex ? shake : undefined}
                 >
-                  <span className="truncate min-w-0">{v}</span>
+                  <span className="min-w-0 truncate">{v}</span>
                   {showRemove && (
                     <button
                       tabIndex={-1}
                       type="button"
                       onClick={() => handleRemoveChip(v)}
                       className={clx(
-                        "text-ui-fg-subtle transition-fg outline-none shrink-0"
+                        "shrink-0 text-ui-fg-subtle outline-none transition-fg"
                       )}
                     >
                       <XMarkMini />
@@ -170,8 +173,8 @@ export const ChipInput = forwardRef<HTMLInputElement, ChipInputProps>(
         })}
         <input
           className={clx(
-            "caret-ui-fg-base text-ui-fg-base txt-compact-small flex-1 appearance-none bg-transparent",
-            "disabled:text-ui-fg-disabled disabled:cursor-not-allowed",
+            "txt-compact-small flex-1 appearance-none bg-transparent text-ui-fg-base caret-ui-fg-base",
+            "disabled:cursor-not-allowed disabled:text-ui-fg-disabled",
             "focus:outline-none",
             "placeholder:text-ui-fg-muted"
           )}

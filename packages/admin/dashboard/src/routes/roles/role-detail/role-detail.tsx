@@ -9,7 +9,10 @@ import { RoleUsersSection } from "./components/role-users-section"
 import { roleLoader } from "./loader"
 
 import { SingleColumnPageSkeleton } from "../../../components/common/skeleton"
-import { LayoutComposer, detailPageDefaultEntries } from "../../../components/layout-composer"
+import {
+  LayoutComposer,
+  detailPageDefaultEntries,
+} from "../../../components/layout-composer"
 import { ROLE_DETAIL_FIELDS } from "./constants"
 
 export const RoleDetail = () => {

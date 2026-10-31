@@ -15,9 +15,24 @@ const buildCountry = (
 })
 
 const countries: StaticCountry[] = [
-  buildCountry({ iso_2: "dk", iso_3: "dnk", name: "DENMARK", display_name: "Denmark" }),
-  buildCountry({ iso_2: "us", iso_3: "usa", name: "UNITED STATES", display_name: "United States" }),
-  buildCountry({ iso_2: "ca", iso_3: "can", name: "CANADA", display_name: "Canada" }),
+  buildCountry({
+    iso_2: "dk",
+    iso_3: "dnk",
+    name: "DENMARK",
+    display_name: "Denmark",
+  }),
+  buildCountry({
+    iso_2: "us",
+    iso_3: "usa",
+    name: "UNITED STATES",
+    display_name: "United States",
+  }),
+  buildCountry({
+    iso_2: "ca",
+    iso_3: "can",
+    name: "CANADA",
+    display_name: "Canada",
+  }),
 ]
 
 describe("useCountries", () => {

@@ -527,8 +527,7 @@ describe("ReadyToShipTable bulk Fulfill command", () => {
     await waitFor(() => {
       expect(mockPrompt).toHaveBeenCalledWith({
         title: "general.areYouSure",
-        description:
-          'orders.readyToShip.fulfillSelectedConfirmDescription:{"count":2}',
+        description: `orders.readyToShip.fulfillSelectedConfirmDescription:{"count":2}`,
         confirmText: "actions.continue",
         cancelText: "actions.cancel",
       })

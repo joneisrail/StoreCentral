@@ -50,9 +50,7 @@ export const EditPolicyForm = ({ policy }: EditPolicyFormProps) => {
       },
       {
         onSuccess: ({ policy: updated }) => {
-          toast.success(
-            t("policies.edit.successToast", { key: updated.key })
-          )
+          toast.success(t("policies.edit.successToast", { key: updated.key }))
           handleSuccess()
         },
         onError: (error) => {
@@ -126,9 +124,7 @@ export const EditPolicyForm = ({ policy }: EditPolicyFormProps) => {
             name="description"
             render={({ field }) => (
               <Form.Item>
-                <Form.Label optional>
-                  {t("fields.description")}
-                </Form.Label>
+                <Form.Label optional>{t("fields.description")}</Form.Label>
                 <Form.Control>
                   <Textarea {...field} rows={4} />
                 </Form.Control>

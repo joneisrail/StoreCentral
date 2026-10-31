@@ -7,7 +7,10 @@ import { TaxRegionDetailSection } from "./components/tax-region-detail-section"
 import { TaxRegionProvinceSection } from "./components/tax-region-province-section"
 
 import { SingleColumnPageSkeleton } from "../../../components/common/skeleton"
-import { LayoutComposer, detailPageDefaultEntries } from "../../../components/layout-composer"
+import {
+  LayoutComposer,
+  detailPageDefaultEntries,
+} from "../../../components/layout-composer"
 import { TaxRegionOverrideSection } from "./components/tax-region-override-section"
 import { TaxRegionSublevelAlert } from "./components/tax-region-sublevel-alert"
 import { TaxRegionProviderSection } from "./tax-region-provider-section"
@@ -66,7 +69,10 @@ export const TaxRegionDetail = () => {
             <LayoutComposer.Entry id="TaxRegionProviderSection">
               <TaxRegionProviderSection taxRegion={taxRegion} />
             </LayoutComposer.Entry>
-            {detailPageDefaultEntries(taxRegion, { metadata: false, permissions: false })}
+            {detailPageDefaultEntries(taxRegion, {
+              metadata: false,
+              permissions: false,
+            })}
           </>
         ),
       }}

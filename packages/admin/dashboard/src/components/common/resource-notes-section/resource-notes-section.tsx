@@ -41,10 +41,7 @@ export const ResourceNotesSection = ({
 }: ResourceNotesSectionProps) => {
   const { t } = useTranslation()
 
-  const {
-    notes = [],
-    isError,
-  } = useNotes({
+  const { notes = [], isError } = useNotes({
     resource_type: resourceType,
     resource_id: resourceId,
     limit: NOTE_LIMIT,
@@ -145,7 +142,7 @@ const ResourceNoteForm = ({
   return (
     <Form {...form}>
       <KeyboundForm onSubmit={handleSubmit}>
-        <div className="bg-ui-bg-field shadow-borders-base flex flex-col gap-y-2 rounded-md px-2 py-1.5">
+        <div className="flex flex-col gap-y-2 rounded-md bg-ui-bg-field px-2 py-1.5 shadow-borders-base">
           <Form.Field
             control={form.control}
             name="value"
@@ -158,7 +155,7 @@ const ResourceNoteForm = ({
                       {...field}
                       ref={textareaRef}
                       onInput={handleResize}
-                      className="txt-small text-ui-fg-base placeholder:text-ui-fg-muted resize-none overflow-hidden bg-transparent outline-none"
+                      className="txt-small resize-none overflow-hidden bg-transparent text-ui-fg-base outline-none placeholder:text-ui-fg-muted"
                       placeholder={t("notes.placeholder")}
                       rows={1}
                     />
@@ -217,7 +214,7 @@ const ResourceNoteItem = ({ note }: ResourceNoteItemProps) => {
 
   return (
     <div className="flex flex-col gap-y-2">
-      <div className="bg-ui-bg-component shadow-borders-base group grid grid-cols-[1fr_20px] items-start gap-x-2 text-pretty rounded-r-2xl rounded-bl-md rounded-tl-xl px-3 py-1.5">
+      <div className="group grid grid-cols-[1fr_20px] items-start gap-x-2 text-pretty rounded-r-2xl rounded-bl-md rounded-tl-xl bg-ui-bg-component px-3 py-1.5 shadow-borders-base">
         <div className="flex h-full min-h-7 items-center">
           <Text size="xsmall" className="text-ui-fg-subtle">
             {note.value}
@@ -226,7 +223,7 @@ const ResourceNoteItem = ({ note }: ResourceNoteItemProps) => {
         <IconButton
           size="small"
           variant="transparent"
-          className="transition-fg invisible opacity-0 group-hover:visible group-hover:opacity-100"
+          className="invisible opacity-0 transition-fg group-hover:visible group-hover:opacity-100"
           type="button"
           onClick={handleDelete}
         >

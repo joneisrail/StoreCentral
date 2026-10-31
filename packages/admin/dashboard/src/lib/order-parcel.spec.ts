@@ -25,7 +25,7 @@ const makeItem = (
           ...variant,
         }
       : null,
-  } as unknown as TestItem)
+  }) as unknown as TestItem
 
 describe("computeOrderParcel", () => {
   it("sums weight across unfulfilled items, multiplied by remaining quantity", () => {

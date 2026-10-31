@@ -49,11 +49,11 @@ export const getMostRecentShippedFulfillment = (
     return null
   }
 
-  return shipped.reduce((mostRecent, candidate) =>
-    new Date(candidate.shipped_at!) > new Date(mostRecent.shipped_at!)
+  return shipped.reduce((mostRecent, candidate) => {
+    return new Date(candidate.shipped_at!) > new Date(mostRecent.shipped_at!)
       ? candidate
       : mostRecent
-  )
+  })
 }
 
 /**

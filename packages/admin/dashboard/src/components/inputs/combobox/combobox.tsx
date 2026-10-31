@@ -45,8 +45,10 @@ export type Value = string[] | string
 const TABLUAR_NUM_WIDTH = 8
 const TAG_BASE_WIDTH = 28
 
-export interface ComboboxProps<T extends Value = Value>
-  extends Omit<ComponentPropsWithoutRef<"input">, "onChange" | "value"> {
+export interface ComboboxProps<T extends Value = Value> extends Omit<
+  ComponentPropsWithoutRef<"input">,
+  "onChange" | "value"
+> {
   value?: T
   onChange?: (value?: T) => void
   searchValue?: string
@@ -273,10 +275,10 @@ const ComboboxImpl = <T extends Value = string>(
           className={clx(
             "relative flex cursor-pointer flex-wrap items-center gap-1.5",
             "min-h-8 w-full rounded-md",
-            "bg-ui-bg-field transition-fg shadow-borders-base",
+            "bg-ui-bg-field shadow-borders-base transition-fg",
             "has-[input:focus]:shadow-borders-interactive-with-active",
             "has-[:invalid]:shadow-borders-error has-[[aria-invalid=true]]:shadow-borders-error",
-            "has-[:disabled]:bg-ui-bg-disabled has-[:disabled]:text-ui-fg-disabled has-[:disabled]:cursor-not-allowed",
+            "has-[:disabled]:cursor-not-allowed has-[:disabled]:bg-ui-bg-disabled has-[:disabled]:text-ui-fg-disabled",
             "p-1",
             className
           )}
@@ -284,15 +286,17 @@ const ComboboxImpl = <T extends Value = string>(
           {Array.isArray(selectedValues) &&
             selectedValues.map((value) => {
               const option = options.find((o) => o.value === value)
-              if (!option) return null
+              if (!option) {
+                return null
+              }
 
               return (
                 <Badge
                   key={value}
                   size="2xsmall"
-                  className="transition-fg gap-x-0.5 pl-1.5 pr-1 max-w-full min-w-0 overflow-hidden"
+                  className="min-w-0 max-w-full gap-x-0.5 overflow-hidden pl-1.5 pr-1 transition-fg"
                 >
-                  <span className="truncate min-w-0">{option.label}</span>
+                  <span className="min-w-0 truncate">{option.label}</span>
                   <button
                     tabIndex={-1}
                     type="button"
@@ -300,7 +304,7 @@ const ComboboxImpl = <T extends Value = string>(
                       e.preventDefault()
                       handleRemoveValue(value)
                     }}
-                    className="text-ui-fg-subtle transition-fg outline-none shrink-0"
+                    className="shrink-0 text-ui-fg-subtle outline-none transition-fg"
                   >
                     <XMarkMini />
                   </button>
@@ -313,7 +317,7 @@ const ComboboxImpl = <T extends Value = string>(
               ref={comboboxRef}
               onFocus={() => setOpen(true)}
               className={clx(
-                "txt-compact-small text-ui-fg-base !placeholder:text-ui-fg-muted transition-fg size-full cursor-pointer bg-transparent pe-8 ps-1 outline-none focus:cursor-text"
+                "!placeholder:text-ui-fg-muted txt-compact-small size-full cursor-pointer bg-transparent pe-8 ps-1 text-ui-fg-base outline-none transition-fg focus:cursor-text"
               )}
               placeholder={
                 Array.isArray(selectedValues) && selectedValues.length > 0
@@ -329,7 +333,7 @@ const ComboboxImpl = <T extends Value = string>(
                 <button
                   {...props}
                   type="button"
-                  className="text-ui-fg-muted transition-fg hover:bg-ui-bg-field-hover absolute end-0 top-0 flex h-8 w-8 items-center justify-center rounded-r outline-none"
+                  className="absolute end-0 top-0 flex h-8 w-8 items-center justify-center rounded-r text-ui-fg-muted outline-none transition-fg hover:bg-ui-bg-field-hover"
                 >
                   <TrianglesMini />
                 </button>
@@ -342,10 +346,10 @@ const ComboboxImpl = <T extends Value = string>(
           className={clx(
             "relative flex cursor-pointer items-center gap-x-2 overflow-hidden",
             "h-8 w-full rounded-md",
-            "bg-ui-bg-field transition-fg shadow-borders-base",
+            "bg-ui-bg-field shadow-borders-base transition-fg",
             "has-[input:focus]:shadow-borders-interactive-with-active",
             "has-[:invalid]:shadow-borders-error has-[[aria-invalid=true]]:shadow-borders-error",
-            "has-[:disabled]:bg-ui-bg-disabled has-[:disabled]:text-ui-fg-disabled has-[:disabled]:cursor-not-allowed",
+            "has-[:disabled]:cursor-not-allowed has-[:disabled]:bg-ui-bg-disabled has-[:disabled]:text-ui-fg-disabled",
             className
           )}
           style={
@@ -363,7 +367,7 @@ const ComboboxImpl = <T extends Value = string>(
                   isArrayValue ? ([] as unknown as T) : undefined
                 )
               }}
-              className="bg-ui-bg-base hover:bg-ui-bg-base-hover txt-compact-small-plus text-ui-fg-subtle focus-within:border-ui-fg-interactive transition-fg absolute start-0.5 top-0.5 z-[1] flex h-[28px] items-center rounded-[4px] border py-[3px] pe-1 ps-1.5 outline-none"
+              className="txt-compact-small-plus absolute start-0.5 top-0.5 z-[1] flex h-[28px] items-center rounded-[4px] border bg-ui-bg-base py-[3px] pe-1 ps-1.5 text-ui-fg-subtle outline-none transition-fg focus-within:border-ui-fg-interactive hover:bg-ui-bg-base-hover"
             >
               <span className="tabular-nums">{selectedValues.length}</span>
               <XMarkMini className="text-ui-fg-muted" />
@@ -405,7 +409,7 @@ const ComboboxImpl = <T extends Value = string>(
               ref={comboboxRef}
               onFocus={() => setOpen(true)}
               className={clx(
-                "txt-compact-small text-ui-fg-base !placeholder:text-ui-fg-muted transition-fg size-full cursor-pointer bg-transparent pe-8 ps-2 outline-none focus:cursor-text",
+                "!placeholder:text-ui-fg-muted txt-compact-small size-full cursor-pointer bg-transparent pe-8 ps-2 text-ui-fg-base outline-none transition-fg focus:cursor-text",
                 {
                   "opacity-0": hideInput,
                   "ps-2": !showTag,
@@ -423,7 +427,7 @@ const ComboboxImpl = <T extends Value = string>(
                 e.preventDefault()
                 handleValueChange(undefined)
               }}
-              className="bg-ui-bg-base hover:bg-ui-bg-base-hover txt-compact-small-plus text-ui-fg-subtle focus-within:border-ui-fg-interactive transition-fg absolute end-[28px] top-0.5 z-[1] flex h-[28px] items-center rounded-[4px] border px-1.5 py-[2px] outline-none"
+              className="txt-compact-small-plus absolute end-[28px] top-0.5 z-[1] flex h-[28px] items-center rounded-[4px] border bg-ui-bg-base px-1.5 py-[2px] text-ui-fg-subtle outline-none transition-fg focus-within:border-ui-fg-interactive hover:bg-ui-bg-base-hover"
             >
               <XMarkMini className="text-ui-fg-muted" />
             </button>
@@ -434,7 +438,7 @@ const ComboboxImpl = <T extends Value = string>(
                 <button
                   {...props}
                   type="button"
-                  className="text-ui-fg-muted transition-fg hover:bg-ui-bg-field-hover absolute end-0 flex size-8 items-center justify-center rounded-r outline-none"
+                  className="absolute end-0 flex size-8 items-center justify-center rounded-r text-ui-fg-muted outline-none transition-fg hover:bg-ui-bg-field-hover"
                 >
                   <TrianglesMini />
                 </button>
@@ -449,11 +453,11 @@ const ComboboxImpl = <T extends Value = string>(
         ref={listboxRef}
         role="listbox"
         className={clx(
-          "shadow-elevation-flyout bg-ui-bg-base z-50 rounded-[8px] p-1",
+          "z-50 rounded-[8px] bg-ui-bg-base p-1 shadow-elevation-flyout",
           "max-h-[200px] overflow-y-auto",
           "data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95",
           "data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95",
-          "data-[side=bottom]:slide-in-from-top-2 data-[side=start]:slide-in-from-end-2 data-[side=end]:slide-in-from-start-2 data-[side=top]:slide-in-from-bottom-2"
+          "data-[side=start]:slide-in-from-end-2 data-[side=end]:slide-in-from-start-2 data-[side=bottom]:slide-in-from-top-2 data-[side=top]:slide-in-from-bottom-2"
         )}
         style={{
           pointerEvents: open ? "auto" : "none",
@@ -467,7 +471,7 @@ const ComboboxImpl = <T extends Value = string>(
             setValueOnClick={false}
             disabled={disabled}
             className={clx(
-              "transition-fg bg-ui-bg-base data-[active-item=true]:bg-ui-bg-base-hover group flex cursor-pointer items-center gap-x-2 rounded-[4px] px-2 py-1",
+              "group flex cursor-pointer items-center gap-x-2 rounded-[4px] bg-ui-bg-base px-2 py-1 transition-fg data-[active-item=true]:bg-ui-bg-base-hover",
               {
                 "text-ui-fg-disabled": disabled,
                 "bg-ui-bg-component": disabled,
@@ -484,8 +488,8 @@ const ComboboxImpl = <T extends Value = string>(
         ))}
         {!!fetchNextPage && <div ref={lastOptionRef} className="w-px" />}
         {isFetchingNextPage && (
-          <div className="transition-fg bg-ui-bg-base flex items-center rounded-[4px] px-2 py-1.5">
-            <div className="bg-ui-bg-component size-full h-5 w-full animate-pulse rounded-[4px]" />
+          <div className="flex items-center rounded-[4px] bg-ui-bg-base px-2 py-1.5 transition-fg">
+            <div className="size-full h-5 w-full animate-pulse rounded-[4px] bg-ui-bg-component" />
           </div>
         )}
         {!results.length &&
@@ -506,16 +510,16 @@ const ComboboxImpl = <T extends Value = string>(
           (shouldAlwaysShowCreateOption && normalizedSearchValue.length > 0)) &&
           onCreateOption && (
             <Fragment>
-              <PrimitiveSeparator className="bg-ui-border-base -mx-1" />
+              <PrimitiveSeparator className="-mx-1 bg-ui-border-base" />
               <PrimitiveComboboxItem
                 value={searchValue}
                 focusOnHover
                 setValueOnClick={false}
                 disabled={hasLabelMatch}
                 className={clx(
-                  "transition-fg bg-ui-bg-base data-[active-item=true]:bg-ui-bg-base-hover group mt-1 flex cursor-pointer items-center gap-x-2 rounded-[4px] px-2 py-1.5",
+                  "group mt-1 flex cursor-pointer items-center gap-x-2 rounded-[4px] bg-ui-bg-base px-2 py-1.5 transition-fg data-[active-item=true]:bg-ui-bg-base-hover",
                   {
-                    "text-ui-fg-disabled bg-ui-bg-component cursor-not-allowed":
+                    "cursor-not-allowed bg-ui-bg-component text-ui-fg-disabled":
                       hasLabelMatch,
                   }
                 )}

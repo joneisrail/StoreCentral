@@ -130,7 +130,9 @@ function extendSnapshot(
   return { ...snapshot, entities: extendedEntities }
 }
 
-function snapshotToFormValues(snapshot: LocaleSnapshot): TranslationsFormSchema {
+function snapshotToFormValues(
+  snapshot: LocaleSnapshot
+): TranslationsFormSchema {
   return { entities: snapshot.entities }
 }
 
@@ -192,7 +194,10 @@ function computeChanges(
   return { hasChanges, payload }
 }
 
-const columnHelper = createDataGridHelper<TranslationRow, TranslationsFormSchema>()
+const columnHelper = createDataGridHelper<
+  TranslationRow,
+  TranslationsFormSchema
+>()
 
 const FIELD_COLUMN_WIDTH = 350
 
@@ -246,7 +251,7 @@ function useTranslationsGridColumns({
             <DataGrid.ReadonlyCell context={context} color="normal">
               <div className="flex h-full w-full items-center gap-x-2 overflow-hidden">
                 <Text
-                  className="text-ui-fg-subtle truncate"
+                  className="truncate text-ui-fg-subtle"
                   weight="plus"
                   size="small"
                 >
@@ -683,7 +688,7 @@ export const TranslationsEditForm = ({
                   onValueChange={handleLocaleChange}
                   size="small"
                 >
-                  <Select.Trigger className="bg-ui-bg-base w-[200px]">
+                  <Select.Trigger className="w-[200px] bg-ui-bg-base">
                     <Select.Value>{selectedLocaleDisplay}</Select.Value>
                   </Select.Trigger>
                   <Select.Content>

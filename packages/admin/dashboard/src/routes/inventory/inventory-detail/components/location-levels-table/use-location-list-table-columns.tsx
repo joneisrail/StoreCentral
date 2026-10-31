@@ -57,7 +57,9 @@ export const useLocationListTableColumns = (unitOfMeasure?: string | null) => {
         queryKey: inventoryItemLevelsQueryKeys.detail(level.inventory_item_id),
       })
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : t("errorBoundary.defaultTitle"))
+      toast.error(
+        e instanceof Error ? e.message : t("errorBoundary.defaultTitle")
+      )
     }
   }
 

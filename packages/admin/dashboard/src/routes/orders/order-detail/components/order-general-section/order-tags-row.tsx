@@ -115,13 +115,13 @@ export const OrderTagsRow = ({ order }: OrderTagsRowProps) => {
         <Badge
           key={tag.id}
           size="2xsmall"
-          className="transition-fg flex max-w-full items-center gap-x-0.5 overflow-hidden pl-1.5 pr-1"
+          className="flex max-w-full items-center gap-x-0.5 overflow-hidden pl-1.5 pr-1 transition-fg"
         >
           <span className="truncate">{tag.value}</span>
           <button
             type="button"
             onClick={() => handleRemoveTag(tag.id)}
-            className="text-ui-fg-subtle transition-fg shrink-0 outline-none"
+            className="shrink-0 text-ui-fg-subtle outline-none transition-fg"
           >
             <XMarkMini />
           </button>

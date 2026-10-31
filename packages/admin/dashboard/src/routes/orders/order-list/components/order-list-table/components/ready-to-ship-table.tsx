@@ -118,8 +118,9 @@ export const ShipFromCell = ({
   )
 }
 
-const formatPackageField = (value: number | null, notSetLabel: string) =>
-  value === null ? notSetLabel : String(value)
+const formatPackageField = (value: number | null, notSetLabel: string) => {
+  return value === null ? notSetLabel : String(value)
+}
 
 /**
  * Renders the parcel computed from the order's unfulfilled items. Each
@@ -141,7 +142,7 @@ export const PackageCell = ({
         {t("orders.readyToShip.weight")}:{" "}
         {formatPackageField(parcel.weight, notSetLabel)}
       </span>
-      <span className="text-ui-fg-subtle truncate">
+      <span className="truncate text-ui-fg-subtle">
         {formatPackageField(parcel.length, notSetLabel)} x{" "}
         {formatPackageField(parcel.width, notSetLabel)} x{" "}
         {formatPackageField(parcel.height, notSetLabel)}
@@ -173,7 +174,7 @@ export const ShippingRateCell = ({
   return (
     <div className="flex h-full w-full items-center gap-x-1.5 overflow-hidden">
       <span className="truncate">{shippingMethod.name}</span>
-      <span className="text-ui-fg-subtle truncate">
+      <span className="truncate text-ui-fg-subtle">
         {getStylizedAmount(shippingMethod.amount, currencyCode)}
       </span>
     </div>

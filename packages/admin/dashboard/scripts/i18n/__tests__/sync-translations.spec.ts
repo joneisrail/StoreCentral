@@ -223,8 +223,8 @@ describe("mergeLevel", () => {
     )
 
     expect(errors).toEqual([
-      'Unknown key "general.unknown"',
-      'Unknown key "general.items_few"',
+      `Unknown key "general.unknown"`,
+      `Unknown key "general.items_few"`,
     ])
     expect(result).toEqual({ general: { save: "Speichern" } })
   })
@@ -235,7 +235,7 @@ describe("mergeLevel", () => {
       { general: { save: "Sichern" } }
     )
 
-    expect(errors).toEqual(['"general.save" is already translated'])
+    expect(errors).toEqual([`"general.save" is already translated`])
     expect(result.general.save).toBe("Speichern")
   })
 
@@ -251,8 +251,8 @@ describe("mergeLevel", () => {
     )
 
     expect(errors).toEqual([
-      'Placeholder mismatch at "a": expected [{{name}}], got [{{nom}}]',
-      'Placeholder mismatch at "b": expected [</0>,<0>], got []',
+      `Placeholder mismatch at "a": expected [{{name}}], got [{{nom}}]`,
+      `Placeholder mismatch at "b": expected [</0>,<0>], got []`,
     ])
     expect(result).toEqual({})
   })
@@ -267,9 +267,9 @@ describe("mergeLevel", () => {
     )
 
     expect(errors).toEqual([
-      'Expected a non-empty string at "general.save"',
-      'Expected a non-empty string at "general.cancel"',
-      'Expected an object at "orders"',
+      `Expected a non-empty string at "general.save"`,
+      `Expected a non-empty string at "general.cancel"`,
+      `Expected an object at "orders"`,
     ])
     expect(result).toEqual({})
   })
