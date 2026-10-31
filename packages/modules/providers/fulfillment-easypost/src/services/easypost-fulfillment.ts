@@ -66,6 +66,19 @@ export type EasyPostFulfillmentServiceOptions = {
 const DEFAULT_UNQUOTABLE_FALLBACK_PRICE = 999_999
 
 /**
+ * One EasyPost rate quoted by `quoteAllRates`, already matched to this
+ * provider's own `CARRIER_SERVICE_MAP` display name.
+ */
+type QuotedRate = {
+  carrier: string
+  service: string
+  name: string
+  rateId: string
+  amount: string
+  currency: string
+}
+
+/**
  * A generic domestic US from/to address pair used only to discover which
  * carrier+service combinations are quotable on this account (see
  * `getFulfillmentOptions` below) -- it is never used to actually ship
@@ -712,31 +725,14 @@ export class EasyPostFulfillmentService extends AbstractFulfillmentProviderServi
     parcel: EasyPostParcelInput,
     fromAddress: EasyPostAddressInput,
     toAddress: EasyPostAddressInput
-  ): Promise<{
-    shipmentId: string
-    rates: {
-      carrier: string
-      service: string
-      name: string
-      rateId: string
-      amount: string
-      currency: string
-    }[]
-  }> {
+  ): Promise<{ shipmentId: string; rates: QuotedRate[] }> {
     const shipment = await this.client_.createShipment({
       toAddress,
       fromAddress,
       parcel,
     })
 
-    const rates: {
-      carrier: string
-      service: string
-      name: string
-      rateId: string
-      amount: string
-      currency: string
-    }[] = []
+    const rates: QuotedRate[] = []
 
     for (const rate of shipment.rates) {
       const services = CARRIER_SERVICE_MAP[rate.carrier]
