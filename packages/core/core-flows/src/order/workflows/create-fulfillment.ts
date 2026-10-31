@@ -146,7 +146,7 @@ function prepareRegisterOrderFulfillmentData({
   }
 }
 
-function prepareFulfillmentData({
+export function prepareFulfillmentData({
   order,
   input,
   shippingOption,
@@ -155,7 +155,8 @@ function prepareFulfillmentData({
   itemsList,
 }: {
   order: OrderDTO
-  input: OrderWorkflow.CreateOrderFulfillmentWorkflowInput & AdditionalData
+  input: OrderWorkflow.CreateOrderFulfillmentWorkflowInput &
+    AdditionalData & { provider_data_override?: Record<string, unknown> }
   shippingOption: {
     id: string
     provider_id: string
@@ -267,7 +268,7 @@ function prepareFulfillmentData({
       provider_id: shippingOption.provider_id,
       shipping_option_id: shippingOption.id,
       order: order,
-      data: shippingMethod.data,
+      data: input.provider_data_override ?? shippingMethod.data,
       items: fulfillmentItems,
       requires_shipping: someItemsRequireShipping,
       labels: input.labels ?? [],
@@ -375,7 +376,8 @@ function prepareInventoryUpdate({
  * The details of the fulfillment to create, along with custom data that's passed to the workflow's hooks.
  */
 export type CreateOrderFulfillmentWorkflowInput =
-  OrderWorkflow.CreateOrderFulfillmentWorkflowInput & AdditionalData
+  OrderWorkflow.CreateOrderFulfillmentWorkflowInput &
+    AdditionalData & { provider_data_override?: Record<string, unknown> }
 
 export const createOrderFulfillmentWorkflowId = "create-order-fulfillment"
 /**
