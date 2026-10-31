@@ -1467,4 +1467,145 @@ describe("EasyPostFulfillmentService", () => {
       expect(result.refundStatus).toBe("submitted")
     })
   })
+
+  describe("quoteAllRates", () => {
+    const parcel = { weight: 16, length: 10, width: 8, height: 4 }
+    const fromAddress = {
+      street1: "118 2nd street",
+      city: "San Francisco",
+      state: "CA",
+      zip: "94105",
+      country: "US",
+    }
+    const toAddress = {
+      street1: "417 montgomery st",
+      city: "San Francisco",
+      state: "CA",
+      zip: "94104",
+      country: "US",
+    }
+
+    test("filters shipment rates through CARRIER_SERVICE_MAP and sorts cheapest first", async () => {
+      const shipment = {
+        id: "shp_quote",
+        rates: [
+          {
+            id: "rate_usps",
+            carrier: "USPS",
+            service: "GroundAdvantage",
+            rate: "9.00",
+            currency: "USD",
+          },
+          {
+            id: "rate_fedex",
+            carrier: "FedExDefault",
+            service: "FEDEX_GROUND",
+            rate: "7.50",
+            currency: "USD",
+          },
+          // Unmapped carrier -- must be dropped, not thrown on.
+          {
+            id: "rate_ups",
+            carrier: "UPS",
+            service: "Ground",
+            rate: "5.00",
+            currency: "USD",
+          },
+        ],
+      }
+      const createShipment = jest.fn(async () => shipment)
+      const fakeClient = { createShipment } as unknown as EasyPostClient
+      const service = new EasyPostFulfillmentService(
+        { logger: fakeLogger },
+        { apiKey: "unused", defaultParcel, client: fakeClient }
+      )
+
+      const result = await service.quoteAllRates(
+        parcel as any,
+        fromAddress as any,
+        toAddress as any
+      )
+
+      expect(createShipment).toHaveBeenCalledWith({
+        toAddress,
+        fromAddress,
+        parcel,
+      })
+      expect(result.rates.map((r) => `${r.carrier}:${r.service}`)).toEqual([
+        "FedExDefault:FEDEX_GROUND",
+        "USPS:GroundAdvantage",
+      ])
+      expect(result.rates[0]).toEqual({
+        carrier: "FedExDefault",
+        service: "FEDEX_GROUND",
+        name: "FedEx Ground",
+        rateId: "rate_fedex",
+        amount: "7.50",
+        currency: "USD",
+      })
+      expect(result.shipmentId).toBe(shipment.id)
+    })
+
+    test("returns an empty rates list, not an error, when no rate matches a known carrier+service", async () => {
+      const fakeClient = {
+        createShipment: async () => ({ id: "shp_fake", rates: [] }),
+      } as unknown as EasyPostClient
+      const service = new EasyPostFulfillmentService(
+        { logger: fakeLogger },
+        { apiKey: "unused", defaultParcel, client: fakeClient }
+      )
+
+      const result = await service.quoteAllRates(
+        parcel as any,
+        fromAddress as any,
+        toAddress as any
+      )
+
+      expect(result).toEqual({ shipmentId: "shp_fake", rates: [] })
+    })
+  })
+
+  describe("buyRate", () => {
+    test("delegates to the client's buyShipment", async () => {
+      const boughtShipment = {
+        id: "shp_1",
+        rates: [],
+        trackingCode: "9400111899223197428490",
+      }
+      const buyShipment = jest.fn(async () => boughtShipment)
+      const fakeClient = { buyShipment } as unknown as EasyPostClient
+      const service = new EasyPostFulfillmentService(
+        { logger: fakeLogger },
+        { apiKey: "unused", defaultParcel, client: fakeClient }
+      )
+
+      const result = await service.buyRate("shp_1", "rate_1")
+
+      expect(buyShipment).toHaveBeenCalledWith("shp_1", "rate_1")
+      expect(result).toBe(boughtShipment)
+    })
+  })
+
+  describe("createLabelBatch", () => {
+    test("creates a batch from the given shipment ids and generates a label in the requested format", async () => {
+      const createBatch = jest.fn(async () => ({ id: "batch_1" }))
+      const generateBatchLabel = jest.fn(async () => ({
+        labelUrl: "https://easypost.test/batch.pdf",
+      }))
+      const fakeClient = {
+        createBatch,
+        generateBatchLabel,
+      } as unknown as EasyPostClient
+      const service = new EasyPostFulfillmentService(
+        { logger: fakeLogger },
+        { apiKey: "unused", defaultParcel, client: fakeClient }
+      )
+
+      const result = await service.createLabelBatch(["shp_1", "shp_2"], "pdf")
+
+      expect(createBatch).toHaveBeenCalledWith(["shp_1", "shp_2"])
+      expect(generateBatchLabel).toHaveBeenCalledWith("batch_1", "pdf")
+      expect(result.labelUrl).toBe("https://easypost.test/batch.pdf")
+    })
+  })
 })

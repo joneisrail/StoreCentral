@@ -701,6 +701,98 @@ export class EasyPostFulfillmentService extends AbstractFulfillmentProviderServi
   }
 
   /**
+   * Quotes every rate EasyPost returns for the given parcel/addresses that
+   * this provider maps to a known carrier+service (via `CARRIER_SERVICE_MAP`,
+   * same filtering `getFulfillmentOptions` applies), sorted cheapest first.
+   * Used by the admin "Ready to Ship" bulk-fulfillment tool to let a
+   * merchant rate-shop a shipment live rather than relying on the storefront
+   * checkout's already-persisted rate.
+   */
+  async quoteAllRates(
+    parcel: EasyPostParcelInput,
+    fromAddress: EasyPostAddressInput,
+    toAddress: EasyPostAddressInput
+  ): Promise<{
+    shipmentId: string
+    rates: {
+      carrier: string
+      service: string
+      name: string
+      rateId: string
+      amount: string
+      currency: string
+    }[]
+  }> {
+    const shipment = await this.client_.createShipment({
+      toAddress,
+      fromAddress,
+      parcel,
+    })
+
+    const rates: {
+      carrier: string
+      service: string
+      name: string
+      rateId: string
+      amount: string
+      currency: string
+    }[] = []
+
+    for (const rate of shipment.rates) {
+      const services = CARRIER_SERVICE_MAP[rate.carrier]
+      if (!services) {
+        this.logger_.warn(
+          `EasyPost fulfillment provider: carrier "${rate.carrier}" is not mapped to any known service -- skipping rate for it.`
+        )
+        continue
+      }
+
+      const service = services.find((entry) => entry.code === rate.service)
+      if (!service) {
+        this.logger_.warn(
+          `EasyPost fulfillment provider: service "${rate.service}" for carrier "${rate.carrier}" is not mapped -- skipping rate for it.`
+        )
+        continue
+      }
+
+      rates.push({
+        carrier: rate.carrier,
+        service: rate.service,
+        name: service.name,
+        rateId: rate.id,
+        amount: rate.rate,
+        currency: rate.currency,
+      })
+    }
+
+    rates.sort((a, b) => Number(a.amount) - Number(b.amount))
+
+    return { shipmentId: shipment.id, rates }
+  }
+
+  /**
+   * Buys a specific quoted rate (from `quoteAllRates`) for a shipment. A
+   * thin delegation to the client -- the caller (the bulk-fulfillment admin
+   * route, Task 4) is responsible for persisting the result.
+   */
+  async buyRate(shipmentId: string, rateId: string): Promise<EasyPostShipment> {
+    return this.client_.buyShipment(shipmentId, rateId)
+  }
+
+  /**
+   * Groups already-bought shipments into one EasyPost batch and generates a
+   * single consolidated manifest label for them, in the requested format.
+   */
+  async createLabelBatch(
+    shipmentIds: string[],
+    format: "pdf" | "zpl" | "epl2"
+  ): Promise<{ labelUrl?: string }> {
+    const batch = await this.client_.createBatch(shipmentIds)
+
+    return this.client_.generateBatchLabel(batch.id, format)
+  }
+
+  /**
    * Submits a refund request for a previously-bought shipment. EasyPost's
    * own documented behavior is that a submitted refund doesn't necessarily
    * resolve to "refunded" immediately (it can take up to 30 days depending
@@ -1001,7 +1093,7 @@ function missingAddressFields(
  * than silently sending an incomplete address and getting back an opaque
  * EasyPost-side error.
  */
-function toEasyPostAddress(
+export function toEasyPostAddress(
   address: AddressLike | null | undefined,
   label: string
 ): EasyPostAddressInput {

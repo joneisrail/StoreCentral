@@ -15,3 +15,8 @@ export type {
   EasyPostClientOptions,
   EasyPostShipment,
 } from "./core/easypost-client"
+
+// Re-exported so the admin bulk-fulfillment route (Task 6) can convert a
+// Medusa address into EasyPost's address shape without re-implementing this
+// package's own validated conversion.
+export { toEasyPostAddress } from "./services/easypost-fulfillment"
