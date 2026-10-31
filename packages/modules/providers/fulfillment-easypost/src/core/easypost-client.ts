@@ -69,6 +69,15 @@ import crypto from "crypto"
  *   has `refund_status` set to one of `"submitted"`, `"refunded"`, or
  *   `"rejected"`.
  *
+ * - Batches (read from the SDK's `src/services/batch_service.js` and
+ *   `types/Batch`, not yet exercised against the live API):
+ *   `client.Batch.create({ shipments: [{ id }] })` hits `POST /batches`,
+ *   wrapping params as `{ batch: params }` internally, and returns a `Batch`
+ *   with `id`. `client.Batch.generateLabel(batchId, fileFormat)` hits
+ *   `POST /batches/:id/label` with `{ file_format }` (format defaults to
+ *   `"pdf"`) and returns a `Batch` whose `label_url` is the consolidated
+ *   label, or null/undefined until EasyPost has rendered it.
+ *
  * - Buying a shipment TWICE: confirmed empirically against the real
  *   EasyPost test-mode API (while building Task 5's `createFulfillment`)
  *   -- a second `client.Shipment.buy(...)` call against an
@@ -131,6 +140,11 @@ export type EasyPostParcelInput = {
   length?: number
   width?: number
   height?: number
+  /**
+   * Name of an EasyPost predefined package (e.g. "SmallFlatRateBox"). When
+   * set, EasyPost uses the package's dimensions instead of length/width/height.
+   */
+  predefinedPackage?: string
 }
 
 export type CreateShipmentInput = {
@@ -216,6 +230,10 @@ export type EasyPostStoredAddress = {
   email?: string | null
 }
 
+type BatchLabelFormat = Parameters<
+  InstanceType<typeof EasyPostApi>["Batch"]["generateLabel"]
+>[1]
+
 export type EasyPostClientOptions = {
   apiKey: string
 }
@@ -297,6 +315,39 @@ export class EasyPostClient {
   }
 
   /**
+   * Groups already-bought shipments into one EasyPost `Batch`
+   * (`POST /batches`). The batch id is then used to generate a single
+   * consolidated manifest label with `generateBatchLabel`.
+   */
+  async createBatch(shipmentIds: string[]): Promise<{ id: string }> {
+    const batch = await this.client.Batch.create({
+      shipments: shipmentIds.map((id) => ({ id })),
+    })
+
+    return { id: batch.id }
+  }
+
+  /**
+   * Generates the consolidated label for a batch (`POST /batches/:id/label`)
+   * in the requested format. `labelUrl` is undefined until EasyPost has
+   * finished rendering it.
+   */
+  async generateBatchLabel(
+    batchId: string,
+    format: "pdf" | "zpl" | "epl2"
+  ): Promise<{ labelUrl?: string }> {
+    // The SDK types this parameter as uppercase `LabelFormat`, but its own
+    // default (`'pdf'`) and the EasyPost batch-label docs use lowercase, so
+    // the lowercase format is passed through as-is.
+    const batch = await this.client.Batch.generateLabel(
+      batchId,
+      format as unknown as BatchLabelFormat
+    )
+
+    return { labelUrl: batch.label_url ?? undefined }
+  }
+
+  /**
    * Verifies an EasyPost webhook's `X-Hmac-Signature` header value against
    * the raw request body and the webhook secret, using EasyPost's
    * documented HMAC-SHA256 scheme (see the comment block at the top of
@@ -353,6 +404,7 @@ function toEasyPostParcel(parcel: EasyPostParcelInput) {
     length: parcel.length,
     width: parcel.width,
     height: parcel.height,
+    predefined_package: parcel.predefinedPackage,
   }
 }
 

@@ -34,7 +34,66 @@ const shipmentFixture = {
   parcel: { weight: 16, length: 10, width: 8, height: 4 },
 }
 
+// Builds a client whose underlying SDK resources are replaced with the given
+// fakes, so request shapes can be asserted without touching the network.
+function clientWithStubbedSdk(sdk: Record<string, unknown>) {
+  const client = new EasyPostClient({ apiKey: "ek_test_unused_for_this_test" })
+  Object.assign(client, { client: sdk })
+  return client
+}
+
 describe("EasyPostClient", () => {
+  test("passes predefinedPackage through to EasyPost as predefined_package", async () => {
+    const fakeShipmentCreate = jest
+      .fn()
+      .mockResolvedValue({ id: "shp_1", rates: [] })
+    const client = clientWithStubbedSdk({
+      Shipment: { create: fakeShipmentCreate },
+    })
+
+    await client.createShipment({
+      toAddress: shipmentFixture.toAddress,
+      fromAddress: shipmentFixture.fromAddress,
+      parcel: { weight: 16, predefinedPackage: "SmallFlatRateBox" },
+    })
+
+    expect(fakeShipmentCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        parcel: expect.objectContaining({
+          predefined_package: "SmallFlatRateBox",
+        }),
+      })
+    )
+  })
+
+  test("createBatch wraps shipment ids as { shipments: [{ id }] } and returns the batch id", async () => {
+    const fakeBatchCreate = jest.fn().mockResolvedValue({ id: "batch_1" })
+    const client = clientWithStubbedSdk({
+      Batch: { create: fakeBatchCreate },
+    })
+
+    const result = await client.createBatch(["shp_1", "shp_2"])
+
+    expect(fakeBatchCreate).toHaveBeenCalledWith({
+      shipments: [{ id: "shp_1" }, { id: "shp_2" }],
+    })
+    expect(result).toEqual({ id: "batch_1" })
+  })
+
+  test("generateBatchLabel returns the consolidated label url", async () => {
+    const fakeGenerateLabel = jest
+      .fn()
+      .mockResolvedValue({ label_url: "https://easypost.test/batch.pdf" })
+    const client = clientWithStubbedSdk({
+      Batch: { generateLabel: fakeGenerateLabel },
+    })
+
+    const result = await client.generateBatchLabel("batch_1", "pdf")
+
+    expect(fakeGenerateLabel).toHaveBeenCalledWith("batch_1", "pdf")
+    expect(result).toEqual({ labelUrl: "https://easypost.test/batch.pdf" })
+  })
+
   realApiTest(
     "listCarrierAccounts rejects a test-mode API key, as EasyPost's API requires production for this endpoint",
     async () => {
