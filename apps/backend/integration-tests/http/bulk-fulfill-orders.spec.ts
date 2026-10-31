@@ -1,5 +1,6 @@
 import { medusaIntegrationTestRunner } from "@medusajs/test-utils"
 import { ProductStatus } from "@medusajs/framework/utils"
+import { asFunction } from "@medusajs/framework/awilix"
 import {
   adminHeaders,
   createAdminUser,
@@ -17,6 +18,34 @@ medusaIntegrationTestRunner({
       container = getContainer()
       await createAdminUser(dbConnection, adminHeaders, container)
     })
+
+    // The step this route delegates to (bulkFulfillOrdersStep) resolves the
+    // EasyPost provider service from the container as `container.resolve(
+    // "fp_easypost")`. Registering a stub under that exact key here -- the
+    // same pattern this app's own
+    // packages/core/core-flows/src/order/steps/__tests__/bulk-fulfill-orders.unit.spec.ts
+    // uses -- intercepts every buyRate/createLabelBatch call so these HTTP
+    // tests never reach the real EasyPost API.
+    const mockEasyPost = (overrides?: {
+      buyRate?: (shipmentId: string, rateId: string) => Promise<any>
+      createLabelBatch?: (shipmentIds: string[], format: string) => Promise<any>
+    }) => {
+      const buyRate =
+        overrides?.buyRate ??
+        (async (shipmentId: string) => ({
+          id: `bought_${shipmentId}`,
+          trackingCode: `trk_${shipmentId}`,
+          labelUrl: `https://easypost.test/label/${shipmentId}.pdf`,
+        }))
+      const createLabelBatch =
+        overrides?.createLabelBatch ??
+        (async () => ({ labelUrl: "https://easypost.test/batch.pdf" }))
+
+      container.register(
+        "fp_easypost",
+        asFunction(() => ({ buyRate, createLabelBatch }))
+      )
+    }
 
     // `createOrderSeeder`'s default product/inventory-item creation uses
     // hardcoded skus ("test-variant" for both the inventory item and the
@@ -83,7 +112,72 @@ medusaIntegrationTestRunner({
     }
 
     describe("POST /admin/orders/fulfillments/batch", () => {
+      it("fulfills each order with its chosen rate and returns a consolidated label url", async () => {
+        mockEasyPost()
+
+        const seeder = await createFulfillableOrder()
+        const order = seeder.order
+
+        const response = await api.post(
+          "/admin/orders/fulfillments/batch",
+          {
+            fulfillments: [
+              {
+                order_id: order.id,
+                location_id: seeder.stockLocation.id,
+                shipment_id: "shp_1",
+                rate_id: "rate_1",
+              },
+            ],
+          },
+          adminHeaders
+        )
+
+        expect(response.status).toBe(200)
+        expect(response.data.succeeded).toEqual([order.id])
+        expect(response.data.failed).toEqual([])
+        expect(response.data.label_pdf_url).toBeDefined()
+      })
+
+      it("rejects a request with the old order_ids shape", async () => {
+        const response = await api
+          .post(
+            "/admin/orders/fulfillments/batch",
+            { order_ids: ["order_123"] },
+            adminHeaders
+          )
+          .catch((e) => e.response)
+
+        expect(response.status).toBe(400)
+      })
+
+      it("rejects an empty fulfillments array", async () => {
+        const response = await api
+          .post(
+            "/admin/orders/fulfillments/batch",
+            { fulfillments: [] },
+            adminHeaders
+          )
+          .catch((e) => e.response)
+
+        expect(response.status).toBe(400)
+      })
+
+      it("rejects a fulfillment entry missing shipment_id/rate_id", async () => {
+        const response = await api
+          .post(
+            "/admin/orders/fulfillments/batch",
+            { fulfillments: [{ order_id: "order_123" }] },
+            adminHeaders
+          )
+          .catch((e) => e.response)
+
+        expect(response.status).toBe(400)
+      })
+
       it("fulfills each order independently, one order's failure doesn't block the others", async () => {
+        mockEasyPost()
+
         const seederA = await createFulfillableOrder()
         const orderA = seederA.order
 
@@ -92,9 +186,9 @@ medusaIntegrationTestRunner({
 
         // Remove orderB's stock reservation so createOrderFulfillmentWorkflow
         // throws a real validation error for it ("No stock reservation
-        // found...") - this check happens before the workflow ever reaches
-        // a fulfillment provider, so it's unaffected by which providers
-        // (manual, EasyPost) this app has registered.
+        // found...") after the (mocked) EasyPost rate has already been
+        // "bought" - this exercises the orphaned-purchase path where
+        // easypost_shipment_id is reported on the failure entry.
         const orderBItemId = orderB.items[0].id
         const orderBReservations = (
           await api.get(
@@ -111,7 +205,22 @@ medusaIntegrationTestRunner({
 
         const response = await api.post(
           "/admin/orders/fulfillments/batch",
-          { order_ids: [orderA.id, orderB.id] },
+          {
+            fulfillments: [
+              {
+                order_id: orderA.id,
+                location_id: seederA.stockLocation.id,
+                shipment_id: "shp_a",
+                rate_id: "rate_a",
+              },
+              {
+                order_id: orderB.id,
+                location_id: seederB.stockLocation.id,
+                shipment_id: "shp_b",
+                rate_id: "rate_b",
+              },
+            ],
+          },
           adminHeaders
         )
 
@@ -120,6 +229,13 @@ medusaIntegrationTestRunner({
         expect(response.data.failed).toHaveLength(1)
         expect(response.data.failed[0].order_id).toEqual(orderB.id)
         expect(response.data.failed[0].error).toMatch(/stock reservation/i)
+        // The EasyPost rate was already bought for orderB before the
+        // fulfillment creation failed, so the orphaned purchase's shipment
+        // id must round-trip all the way out through the HTTP response.
+        expect(response.data.failed[0].easypost_shipment_id).toEqual(
+          "bought_shp_b"
+        )
+        expect(response.data.label_pdf_url).toBeDefined()
 
         const afterA = (
           await api.get(
@@ -139,12 +255,13 @@ medusaIntegrationTestRunner({
       })
 
       it("only fulfills an order's own remaining unfulfilled items when it's already partially fulfilled, in a batch with a fresh order", async () => {
+        mockEasyPost()
+
         // Build an order with two distinct line items so one can be
         // fulfilled ahead of time (simulating a previously-shipped item)
         // while the other is left unfulfilled for the batch call to pick
-        // up - the Review Focus scenario: a mix of orders where one is
-        // already partially_fulfilled, and the batch must only touch its
-        // own remaining items.
+        // up - a mix of orders where one is already partially_fulfilled,
+        // and the batch must only touch its own remaining items.
         const stockLocation = (
           await api.post(
             `/admin/stock-locations`,
@@ -292,7 +409,22 @@ medusaIntegrationTestRunner({
 
         const response = await api.post(
           "/admin/orders/fulfillments/batch",
-          { order_ids: [orderC.id, orderD.id] },
+          {
+            fulfillments: [
+              {
+                order_id: orderC.id,
+                location_id: stockLocation.id,
+                shipment_id: "shp_c",
+                rate_id: "rate_c",
+              },
+              {
+                order_id: orderD.id,
+                location_id: seederD.stockLocation.id,
+                shipment_id: "shp_d",
+                rate_id: "rate_d",
+              },
+            ],
+          },
           adminHeaders
         )
 
@@ -330,18 +462,6 @@ medusaIntegrationTestRunner({
         expect(batchFulfillment).toBeDefined()
         expect(batchFulfillment.items).toHaveLength(1)
         expect(batchFulfillment.items[0].line_item_id).toEqual(item2.id)
-      })
-
-      it("rejects an empty order_ids array", async () => {
-        const response = await api
-          .post(
-            "/admin/orders/fulfillments/batch",
-            { order_ids: [] },
-            adminHeaders
-          )
-          .catch((e) => e.response)
-
-        expect(response.status).toEqual(400)
       })
     })
   },

@@ -9,13 +9,18 @@ export const POST = async (
   req: AuthenticatedMedusaRequest<AdminBulkFulfillOrdersType>,
   res: MedusaResponse<{
     succeeded: string[]
-    failed: { order_id: string; error: string }[]
+    failed: {
+      order_id: string
+      error: string
+      easypost_shipment_id?: string
+    }[]
+    label_pdf_url?: string
   }>
 ) => {
-  const { order_ids } = req.validatedBody
+  const { fulfillments } = req.validatedBody
 
   const { result } = await bulkFulfillOrdersWorkflow(req.scope).run({
-    input: { order_ids },
+    input: { fulfillments },
   })
 
   res.status(200).json(result)

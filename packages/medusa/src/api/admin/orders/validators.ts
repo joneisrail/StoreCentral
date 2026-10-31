@@ -197,7 +197,16 @@ export const AdminCreateOrderCreditLines = z.object({
 export type AdminBulkFulfillOrdersType = z.infer<typeof AdminBulkFulfillOrders>
 export const AdminBulkFulfillOrders = z
   .object({
-    order_ids: z.array(z.string()).min(1),
+    fulfillments: z
+      .array(
+        z.object({
+          order_id: z.string(),
+          location_id: z.string().optional(),
+          shipment_id: z.string(),
+          rate_id: z.string(),
+        })
+      )
+      .min(1),
   })
   .strict()
 
