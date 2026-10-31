@@ -64,7 +64,7 @@ const buildContainer = ({
   )
 
   container.register(
-    "fp_easypost",
+    "fp_easypost_easypost",
     asFunction(() => ({
       buyRate: async (shipmentId: string, rateId: string) => {
         calls.buyRate.push([shipmentId, rateId])

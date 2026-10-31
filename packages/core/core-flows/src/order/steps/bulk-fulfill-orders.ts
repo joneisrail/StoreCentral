@@ -4,7 +4,13 @@ import { StepResponse, createStep } from "@medusajs/framework/workflows-sdk"
 import { createOrderFulfillmentWorkflow } from "../workflows/create-fulfillment"
 
 // This step talks to the EasyPost fulfillment provider's service directly
-// (resolved below as `fp_easypost`) rather than going through a
+// (resolved below as `fp_easypost_easypost` - the fulfillment module's
+// provider loader registers each provider under
+// `fp_${providerClass.identifier}_${optionName}`, and both the
+// `EasyPostFulfillmentService.identifier` static field and the configured
+// provider's `id` in medusa-config.ts are `"easypost"`, see
+// packages/modules/fulfillment/src/services/fulfillment-provider.ts's
+// `getRegistrationIdentifier`) rather than going through a
 // provider-agnostic abstraction. That's a deliberate, narrow scope: the
 // admin "Ready to Ship" bulk-fulfillment tool this step backs only ever
 // quotes and buys rates through EasyPost, matching the same pragmatic,
@@ -129,7 +135,7 @@ export const bulkFulfillOrdersStep = createStep(
   async (input: BulkFulfillOrdersStepInput, { container }) => {
     const query = container.resolve(ContainerRegistrationKeys.QUERY)
     const easypost = container.resolve(
-      "fp_easypost"
+      "fp_easypost_easypost"
     ) as EasyPostFulfillmentProviderService
 
     const succeeded: string[] = []
