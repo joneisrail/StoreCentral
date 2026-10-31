@@ -25,7 +25,10 @@ export const bulkFulfillOrdersWorkflowId = "bulk-fulfill-orders"
  * const { result } = await bulkFulfillOrdersWorkflow(container)
  * .run({
  *   input: {
- *     order_ids: ["order_123", "order_456"]
+ *     fulfillments: [
+ *       { order_id: "order_123", shipment_id: "shp_123", rate_id: "rate_123" },
+ *       { order_id: "order_456", shipment_id: "shp_456", rate_id: "rate_456" },
+ *     ]
  *   }
  * })
  *
