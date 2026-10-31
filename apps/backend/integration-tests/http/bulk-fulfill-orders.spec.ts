@@ -21,8 +21,10 @@ medusaIntegrationTestRunner({
 
     // The step this route delegates to (bulkFulfillOrdersStep) resolves the
     // EasyPost provider service from the container as `container.resolve(
-    // "fp_easypost")`. Registering a stub under that exact key here -- the
-    // same pattern this app's own
+    // "fp_easypost_easypost")` -- the fulfillment module's provider loader
+    // combines the provider class's static `identifier` ("easypost") with
+    // the configured option `id` ("easypost") to build that key. Registering
+    // a stub under that exact key here -- the same pattern this app's own
     // packages/core/core-flows/src/order/steps/__tests__/bulk-fulfill-orders.unit.spec.ts
     // uses -- intercepts every buyRate/createLabelBatch call so these HTTP
     // tests never reach the real EasyPost API.
@@ -42,7 +44,7 @@ medusaIntegrationTestRunner({
         (async () => ({ labelUrl: "https://easypost.test/batch.pdf" }))
 
       container.register(
-        "fp_easypost",
+        "fp_easypost_easypost",
         asFunction(() => ({ buyRate, createLabelBatch }))
       )
     }
