@@ -3,7 +3,15 @@ loadEnv("test", process.cwd());
 
 module.exports = {
   transform: {
-    "^.+\\.[jt]sx?$": [
+    "^.+\\.[jt]s$": [
+      "@swc/jest",
+      {
+        jsc: {
+          parser: { syntax: "typescript", decorators: true },
+        },
+      },
+    ],
+    "^.+\\.[jt]sx$": [
       "@swc/jest",
       {
         jsc: {
