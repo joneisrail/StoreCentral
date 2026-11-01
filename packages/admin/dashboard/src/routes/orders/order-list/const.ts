@@ -28,10 +28,14 @@ export const DEFAULT_FIELDS = `${DEFAULT_PROPERTIES.join(
  * default order list fields: the unfulfilled items' variant dimensions
  * (for the Package column, via `computeOrderParcel`), the order's
  * shipping method together with the nested chain down to the shipping
- * option's location (for the Ship From and Shipping Rate columns), and
- * that same location's `id` (for the single-row Fulfill confirm popover's
+ * option's location (for the Ship From and Shipping Rate columns), that
+ * same location's `id` (for the single-row Fulfill confirm popover's
  * `location_id` on the fulfillment payload - the `name` alone, already
- * fetched for display, isn't usable as an API id).
+ * fetched for display, isn't usable as an API id), and the sales
+ * channel's `metadata` (for the Ship By column's `handling_hours` SLA -
+ * `*sales_channel` in `DEFAULT_RELATIONS` expands the relation's
+ * default/first-level fields, which doesn't reliably include a `metadata`
+ * json column, so it's requested explicitly here).
  */
 export const READY_TO_SHIP_RELATIONS = [
   ...DEFAULT_RELATIONS,
@@ -45,6 +49,7 @@ export const READY_TO_SHIP_RELATIONS = [
   "*shipping_methods",
   "+shipping_methods.shipping_option.service_zone.fulfillment_set.location.name",
   "+shipping_methods.shipping_option.service_zone.fulfillment_set.location.id",
+  "+sales_channel.metadata",
 ]
 
 export const READY_TO_SHIP_FIELDS = `${DEFAULT_PROPERTIES.join(

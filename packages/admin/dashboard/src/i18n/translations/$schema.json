@@ -4859,6 +4859,9 @@
             "orderDate": {
               "type": "string"
             },
+            "shipBy": {
+              "type": "string"
+            },
             "fulfill": {
               "type": "string"
             },
@@ -4903,6 +4906,7 @@
             "notSet",
             "shippingRate",
             "orderDate",
+            "shipBy",
             "fulfill",
             "fulfillSelected",
             "fulfillSelectedConfirmDescription",

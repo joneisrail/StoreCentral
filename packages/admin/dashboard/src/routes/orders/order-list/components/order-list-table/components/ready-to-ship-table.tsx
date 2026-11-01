@@ -38,6 +38,7 @@ import { BulkFulfillResultSummary } from "./bulk-fulfill-result-summary"
 import { FulfillConfirmPopover } from "./fulfill-confirm-popover"
 import { ItemCell } from "./item-cell"
 import { PackagePopover, PackageSelection } from "./package-popover"
+import { ShipByCell } from "./ship-by-cell"
 import { ShipFromSelect } from "./ship-from-select"
 import { ShippingRateSelect } from "./shipping-rate-select"
 
@@ -93,6 +94,24 @@ export const getShipFromLocationId = (
 ): string | null =>
   shippingMethod?.shipping_option?.service_zone?.fulfillment_set?.location
     ?.id ?? null
+
+/**
+ * Resolves the `handling_hours` SLA the Ship By column computes its
+ * deadline from, written to `sales_channel.metadata` by the Settings >
+ * Fulfillment page (Task 7). Requires `+sales_channel.metadata` on
+ * `READY_TO_SHIP_RELATIONS` - `*sales_channel` alone doesn't reliably
+ * expand a `metadata` json column. Returns `null` (rather than throwing or
+ * coercing) for a sales channel with no `handling_hours` configured, or no
+ * `metadata` at all - `ShipByCell` renders its defined "No SLA set" state
+ * for that case rather than fabricating a deadline.
+ */
+export const getHandlingHours = (
+  salesChannel?: { metadata?: Record<string, unknown> | null } | null
+): number | null => {
+  const value = salesChannel?.metadata?.handling_hours
+
+  return typeof value === "number" ? value : null
+}
 
 /**
  * Whether the order has a shipping method at all - the single precondition
@@ -365,6 +384,20 @@ const useReadyToShipTableColumns = (
           </div>
         ),
         cell: ({ getValue }) => <DateCell date={getValue()} />,
+      }),
+      columnHelper.display({
+        id: "ship_by",
+        header: () => (
+          <div className="flex h-full w-full items-center">
+            <span className="truncate">{t("orders.readyToShip.shipBy")}</span>
+          </div>
+        ),
+        cell: ({ row }) => (
+          <ShipByCell
+            createdAt={row.original.created_at}
+            handlingHours={getHandlingHours(row.original.sales_channel)}
+          />
+        ),
       }),
       columnHelper.accessor("total", {
         header: () => <TotalHeader />,

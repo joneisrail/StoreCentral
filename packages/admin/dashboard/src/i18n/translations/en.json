@@ -1245,6 +1245,7 @@
       "notSet": "Not set",
       "shippingRate": "Shipping Rate",
       "orderDate": "Order Date",
+      "shipBy": "Ship By",
       "fulfill": "Fulfill",
       "fulfillSelected": "Fulfill selected",
       "fulfillSelectedConfirmDescription": "Fulfill {{count}} order(s)? This purchases real shipping labels and cannot be undone.",
