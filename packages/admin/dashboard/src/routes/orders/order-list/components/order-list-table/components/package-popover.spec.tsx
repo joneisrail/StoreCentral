@@ -144,6 +144,81 @@ describe("PackagePopover", () => {
     expect(screen.getByLabelText("fields.height")).toBeTruthy()
   })
 
+  it("blocks confirming a preset when the order's computed parcel has no weight at all, and never calls onChange", () => {
+    const onChange = vi.fn()
+    render(
+      <PackagePopover
+        initialParcel={{ weight: null, length: null, width: null, height: null }}
+        onChange={onChange}
+      />
+    )
+
+    fireEvent.click(screen.getByRole("button"))
+    fireEvent.click(
+      screen.getByText("USPS Small Flat Rate Box (8.6875in x 5.4375in x 1.75in)")
+    )
+    fireEvent.click(screen.getByRole("button", { name: "actions.confirm" }))
+
+    expect(
+      screen.getByText("orders.readyToShip.packageWeightRequired")
+    ).toBeTruthy()
+    expect(onChange).not.toHaveBeenCalled()
+    // Still open, trigger unchanged - a blocked preset confirm must not
+    // silently close as if it had succeeded.
+    expect(screen.getByRole("button", { name: "actions.confirm" })).toBeTruthy()
+  })
+
+  it("blocks confirming a preset when the order's computed weight is exactly 0, and never calls onChange", () => {
+    const onChange = vi.fn()
+    render(
+      <PackagePopover
+        initialParcel={{ weight: 0, length: null, width: null, height: null }}
+        onChange={onChange}
+      />
+    )
+
+    fireEvent.click(screen.getByRole("button"))
+    fireEvent.click(
+      screen.getByText("FedEx Small Box (12.25in x 10.9in x 1.5in)")
+    )
+    fireEvent.click(screen.getByRole("button", { name: "actions.confirm" }))
+
+    expect(
+      screen.getByText("orders.readyToShip.packageWeightRequired")
+    ).toBeTruthy()
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it("clears a stale weight-required error from a failed Custom confirm once a different, confirmable selection is made", () => {
+    const onChange = vi.fn()
+    render(<PackagePopover initialParcel={parcel} onChange={onChange} />)
+
+    fireEvent.click(screen.getByRole("button"))
+    // Custom is the default - force a failed confirm first.
+    fireEvent.change(screen.getByLabelText("fields.weight"), {
+      target: { value: "0" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "actions.confirm" }))
+    expect(
+      screen.getByText("orders.readyToShip.packageWeightRequired")
+    ).toBeTruthy()
+
+    // Switching to a preset (the order's own computed weight, 10, is valid)
+    // must drop the stale error rather than leaving it stuck on screen.
+    fireEvent.click(
+      screen.getByText("USPS Small Flat Rate Box (8.6875in x 5.4375in x 1.75in)")
+    )
+    expect(
+      screen.queryByText("orders.readyToShip.packageWeightRequired")
+    ).toBeNull()
+
+    fireEvent.click(screen.getByRole("button", { name: "actions.confirm" }))
+    expect(onChange).toHaveBeenCalledWith({
+      predefinedPackage: "SmallFlatRateBox",
+      weight: 10,
+    })
+  })
+
   it("shows 'Custom - L x W x H, weight' using the initial parcel when nothing has been confirmed yet, with 'Not set' for any missing field", () => {
     render(
       <PackagePopover

@@ -35,8 +35,13 @@ const CARRIERS: EasyPostPackagePreset["carrier"][] = ["USPS", "FedEx"]
 
 const toInputValue = (value: number | null) => (value === null ? "" : String(value))
 
-const parseOptionalNumber = (value: string): number | undefined =>
-  value.trim() === "" ? undefined : Number(value)
+const parseOptionalNumber = (value: string): number | undefined => {
+  if (value.trim() === "") {
+    return undefined
+  }
+  const parsed = Number(value)
+  return Number.isNaN(parsed) ? undefined : parsed
+}
 
 /**
  * Popover for the Ready to Ship table's Package column. Lets the admin pick
@@ -123,13 +128,19 @@ export const PackagePopover = ({
     // The preset fixes the box's own dimensions - only the shipment's
     // weight (from the order's items, same value `PackageCell` shows) still
     // applies, so it's taken from `initialParcel` rather than a visible
-    // input. `weight` is required by `PackageSelection`, so an order with no
-    // computed weight at all (every item missing a variant weight) falls
-    // back to 0 - the same gap `PackageCell` already surfaces to the admin
-    // as "Not set" elsewhere in the row, not a new failure mode introduced
-    // here.
-    const weightValue = initialParcel.weight ?? 0
+    // input. Validated the same way as Custom's weight input (required,
+    // > 0): an order with no computed weight at all (every item missing a
+    // variant weight) would otherwise silently confirm an unratable
+    // `weight: 0` parcel with no in-UI warning. There's no input here to
+    // attach the error to directly, so it reuses the same Hint - the fix is
+    // for the admin to switch to Custom and enter a weight by hand.
+    const weightValue = initialParcel.weight
+    if (weightValue === null || !(weightValue > 0)) {
+      setWeightError(true)
+      return
+    }
 
+    setWeightError(false)
     setConfirmedPreset(preset.code)
     setConfirmedParcel({ weight: weightValue, length: null, width: null, height: null })
     onChange({ predefinedPackage: preset.code, weight: weightValue })
@@ -146,6 +157,15 @@ export const PackagePopover = ({
     if (preset) {
       handleConfirmPreset(preset)
     }
+  }
+
+  // Clears a stale weight error from a previous failed confirm whenever the
+  // radio selection itself changes - otherwise switching from a failed
+  // Custom attempt (or a failed preset attempt) to a different, perfectly
+  // confirmable option would still show the old "Weight is required" Hint.
+  const handleSelectedPresetChange = (value: string) => {
+    setSelectedPreset(value)
+    setWeightError(false)
   }
 
   const confirmedPresetEntry = EASYPOST_PACKAGE_PRESETS.find(
@@ -198,7 +218,7 @@ export const PackagePopover = ({
 
           <RadioGroup
             value={selectedPreset}
-            onValueChange={setSelectedPreset}
+            onValueChange={handleSelectedPresetChange}
             className="flex flex-col gap-y-3"
           >
             {CARRIERS.map((carrier) => (
