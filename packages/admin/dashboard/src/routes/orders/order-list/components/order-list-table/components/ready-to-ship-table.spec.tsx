@@ -11,6 +11,8 @@ import { TooltipProvider } from "@medusajs/ui"
 import { MemoryRouter, Route, Routes } from "react-router-dom"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
+import type { OrderCarrierRatesResponse } from "../../../../../../hooks/api/orders"
+
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
     t: (key: string, options?: Record<string, unknown>) => {
@@ -26,7 +28,6 @@ vi.mock("react-i18next", () => ({
 const {
   mockUseOrders,
   mockBulkFulfillOrders,
-  mockUseCreateOrderFulfillment,
   mockBulkFulfillResultSummary,
   mockToastError,
   mockPrompt,
@@ -36,7 +37,6 @@ const {
 } = vi.hoisted(() => ({
   mockUseOrders: vi.fn(),
   mockBulkFulfillOrders: vi.fn(),
-  mockUseCreateOrderFulfillment: vi.fn(),
   mockBulkFulfillResultSummary: vi.fn(),
   mockToastError: vi.fn(),
   mockPrompt: vi.fn(),
@@ -67,31 +67,34 @@ vi.mock("@medusajs/ui", async (importOriginal) => {
 })
 
 // `ready-to-ship-table.tsx` imports `useOrders`/`useBulkFulfillOrders`
-// (and, transitively via `FulfillConfirmPopover`, `useCreateOrderFulfillment`),
-// which pull in `lib/client` - that module reads build-time defines
-// (`__AUTH_TYPE__` etc.) injected by the Vite config and isn't available
-// under a plain component test. Mocked out purely to keep module
-// evaluation side-effect free; `mockUseOrders`'s return value is
-// configured per test via `mockReturnValue` so the plain-cell tests below
-// (which never render `ReadyToShipTable` itself) and the bulk-command
-// tests (which do) can use different fixtures in the same file.
+// (and, transitively via `FulfillConfirmPopover`, the same
+// `useBulkFulfillOrders` - Task 13 moved the single-row Fulfill action onto
+// it too, away from `useCreateOrderFulfillment`), which pull in
+// `lib/client` - that module reads build-time defines (`__AUTH_TYPE__`
+// etc.) injected by the Vite config and isn't available under a plain
+// component test. Mocked out purely to keep module evaluation side-effect
+// free; `mockUseOrders`'s return value is configured per test via
+// `mockReturnValue` so the plain-cell tests below (which never render
+// `ReadyToShipTable` itself) and the bulk-command tests (which do) can use
+// different fixtures in the same file.
 //
 // `useOrderCarrierRates` (Task 11) is mocked for the same reason - the
 // `shipping_rate` column's cell now renders `ShippingRateSelect`, which
 // reads it directly, in every test below that renders the full
 // `ReadyToShipTable`. Its default (set once below, same `mockClear()`
-// reasoning as `mockUseStore`/`mockUseStockLocations`) resolves no rates,
-// so this task's own auto-select/manual-pick behavior - already covered in
+// reasoning as `mockUseStore`/`mockUseStockLocations`) resolves no rates
+// for an order no test has opted into one for via `setOrderRate` - so this
+// task's own auto-select/manual-pick behavior - already covered in
 // isolation by `shipping-rate-select.spec.tsx` - doesn't fire unexpectedly
-// in these bulk-command/Ship-From-focused tests.
+// in these bulk-command/Ship-From-focused tests. Task 13's own `rowRates`
+// gate (both the bulk checkbox and `FulfillConfirmPopover` now additionally
+// require a quoted rate to be selectable/fulfillable) means most of this
+// file's bulk-command/Fulfill tests now call `setOrderRate` deliberately,
+// to exercise the row(s) they need selectable.
 vi.mock("../../../../../../hooks/api/orders", () => ({
   useOrders: (...args: any[]) => mockUseOrders(...args),
   useBulkFulfillOrders: () => ({
     mutateAsync: mockBulkFulfillOrders,
-    isPending: false,
-  }),
-  useCreateOrderFulfillment: () => ({
-    mutateAsync: mockUseCreateOrderFulfillment,
     isPending: false,
   }),
   useOrderCarrierRates: (...args: any[]) => mockUseOrderCarrierRates(...args),
@@ -130,6 +133,7 @@ vi.mock("./bulk-fulfill-result-summary", () => ({
 }))
 
 import {
+  buildBulkFulfillments,
   DisabledFulfillCell,
   PackageCell,
   ReadyToShipTable,
@@ -137,11 +141,43 @@ import {
   ShippingRateCell,
 } from "./ready-to-ship-table"
 
+// Per-order quote fixtures for `mockUseOrderCarrierRates` below, keyed by
+// order id - empty (no quote, still "loading") by default, which keeps
+// `ShippingRateSelect`'s own auto-select effect from firing for a row whose
+// test doesn't opt in. A test that needs a row to actually be
+// selectable/fulfillable (Task 13's own `rowRates` gate) sets an entry here
+// *before* rendering - `setOrderRate` stores the `data` object by
+// reference, once, so repeated calls to `useOrderCarrierRates` for the same
+// order id (e.g. on an unrelated re-render) return the exact same object -
+// the reference equality `ShippingRateSelect`'s auto-select effect itself
+// relies on to fire only once per genuinely new quote.
+let ratesByOrder: Record<string, OrderCarrierRatesResponse> = {}
+
+const setOrderRate = (
+  orderId: string,
+  shipmentId: string,
+  rateId: string,
+  amount = "5.00"
+) => {
+  ratesByOrder[orderId] = {
+    shipment_id: shipmentId,
+    rates: [
+      {
+        carrier: "USPS",
+        service: "Priority",
+        name: "USPS Priority",
+        rate_id: rateId,
+        amount,
+        currency: "usd",
+      },
+    ],
+  }
+}
+
 afterEach(() => {
   cleanup()
   mockUseOrders.mockReset()
   mockBulkFulfillOrders.mockReset()
-  mockUseCreateOrderFulfillment.mockReset()
   mockBulkFulfillResultSummary.mockReset()
   mockToastError.mockReset()
   // `mockClear()`, not `mockReset()`: clears call history between tests
@@ -159,7 +195,10 @@ afterEach(() => {
   // `ReadyToShipTable`/`ShipFromSelect`.
   mockUseStore.mockClear()
   mockUseStockLocations.mockClear()
+  // `mockClear()`, not `mockReset()`: the `mockImplementation` set once
+  // below (reading from `ratesByOrder`) must survive every test.
   mockUseOrderCarrierRates.mockClear()
+  ratesByOrder = {}
 })
 
 mockUseOrders.mockReturnValue({
@@ -170,15 +209,16 @@ mockUseOrders.mockReturnValue({
   error: undefined,
 })
 
-// No quote yet (still "loading") by default - keeps `ShippingRateSelect`'s
-// own auto-select effect from firing in every test below that renders the
-// full `ReadyToShipTable`; that behavior is covered on its own terms by
-// `shipping-rate-select.spec.tsx`.
-mockUseOrderCarrierRates.mockReturnValue({
-  data: undefined,
+// No quote for an order with no `ratesByOrder` entry (still "loading") -
+// keeps `ShippingRateSelect`'s own auto-select effect from firing for a row
+// no test below has opted into a quote for; that behavior is covered on its
+// own terms by `shipping-rate-select.spec.tsx`. A test that calls
+// `setOrderRate` for a given order id gets that exact quote back instead.
+mockUseOrderCarrierRates.mockImplementation((orderId: string) => ({
+  data: ratesByOrder[orderId],
   isError: false,
   refetch: vi.fn(),
-})
+}))
 
 mockPrompt.mockResolvedValue(true)
 
@@ -355,6 +395,74 @@ describe("PackageCell", () => {
 })
 
 /**
+ * Direct, isolated coverage of the bulk command's own payload-building
+ * logic - including the "skip a selected order with no quote yet" path,
+ * which `enableRowSelection` makes unreachable through the checkbox UI in
+ * the full `ReadyToShipTable` render below (a row can't be selected via the
+ * checkbox at all unless it already has a `rowRates` entry), so it's
+ * exercised here directly instead of left as an untested assumption.
+ */
+describe("buildBulkFulfillments", () => {
+  it("builds one fulfillment entry per order id, preferring each order's own location override over the store-wide default", () => {
+    const { fulfillments, skippedOrderIds } = buildBulkFulfillments(
+      ["order_1", "order_2"],
+      { order_1: "sloc_a" },
+      {
+        order_1: { shipmentId: "shp_a", rateId: "rate_a" },
+        order_2: { shipmentId: "shp_b", rateId: "rate_b" },
+      },
+      "loc_default"
+    )
+
+    expect(fulfillments).toEqual([
+      {
+        order_id: "order_1",
+        location_id: "sloc_a",
+        shipment_id: "shp_a",
+        rate_id: "rate_a",
+      },
+      {
+        order_id: "order_2",
+        location_id: "loc_default",
+        shipment_id: "shp_b",
+        rate_id: "rate_b",
+      },
+    ])
+    expect(skippedOrderIds).toEqual([])
+  })
+
+  it("leaves location_id undefined, rather than null, when neither an override nor a store default exists", () => {
+    const { fulfillments } = buildBulkFulfillments(
+      ["order_1"],
+      {},
+      { order_1: { shipmentId: "shp_a", rateId: "rate_a" } },
+      null
+    )
+
+    expect(fulfillments[0].location_id).toBeUndefined()
+  })
+
+  it("skips a selected order with no quoted rate yet, reports it as skipped, and still builds the rest", () => {
+    const { fulfillments, skippedOrderIds } = buildBulkFulfillments(
+      ["order_1", "order_2"],
+      {},
+      { order_1: { shipmentId: "shp_a", rateId: "rate_a" } },
+      "loc_default"
+    )
+
+    expect(fulfillments).toEqual([
+      {
+        order_id: "order_1",
+        location_id: "loc_default",
+        shipment_id: "shp_a",
+        rate_id: "rate_a",
+      },
+    ])
+    expect(skippedOrderIds).toEqual(["order_2"])
+  })
+})
+
+/**
  * A minimal but render-complete `ReadyToShipOrder` fixture: one value for
  * every field each column in `useReadyToShipTableColumns` reads (customer,
  * shipping method -> shipping option -> service zone -> fulfillment set ->
@@ -431,7 +539,7 @@ describe("ReadyToShipTable bulk Fulfill command", () => {
     expect(screen.queryByRole("button", { name: /fulfillSelected/ })).toBeNull()
   })
 
-  it("selecting a single row and triggering 'Fulfill selected' calls useBulkFulfillOrders's mutateAsync with exactly that row's id", async () => {
+  it("selecting a single row and triggering 'Fulfill selected' calls useBulkFulfillOrders's mutateAsync with that row's order id, location and quoted rate", async () => {
     mockUseOrders.mockReturnValue({
       orders: [
         makeReadyToShipOrder("order_1"),
@@ -442,6 +550,7 @@ describe("ReadyToShipTable bulk Fulfill command", () => {
       isError: false,
       error: undefined,
     })
+    setOrderRate("order_1", "shp_1", "rate_1")
     mockBulkFulfillOrders.mockResolvedValue({
       succeeded: ["order_1"],
       failed: [],
@@ -451,7 +560,9 @@ describe("ReadyToShipTable bulk Fulfill command", () => {
     renderReadyToShipTable()
 
     // index 0 is the header "select all" checkbox; data rows start at 1.
-    const checkboxes = screen.getAllByRole("checkbox")
+    // order_1 has a quoted rate (`setOrderRate` above) so its checkbox is
+    // selectable; order_2's isn't.
+    const checkboxes = await screen.findAllByRole("checkbox")
     await user.click(checkboxes[1])
 
     const fulfillSelected = await screen.findByRole("button", {
@@ -461,13 +572,20 @@ describe("ReadyToShipTable bulk Fulfill command", () => {
 
     await waitFor(() => {
       expect(mockBulkFulfillOrders).toHaveBeenCalledWith({
-        order_ids: ["order_1"],
+        fulfillments: [
+          {
+            order_id: "order_1",
+            location_id: "loc_default",
+            shipment_id: "shp_1",
+            rate_id: "rate_1",
+          },
+        ],
       })
     })
     expect(mockBulkFulfillOrders).toHaveBeenCalledTimes(1)
   })
 
-  it("selecting multiple rows calls mutateAsync with exactly the selected rows' ids", async () => {
+  it("selecting multiple rows calls mutateAsync with exactly the selected rows' fulfillments", async () => {
     mockUseOrders.mockReturnValue({
       orders: [
         makeReadyToShipOrder("order_1"),
@@ -479,6 +597,8 @@ describe("ReadyToShipTable bulk Fulfill command", () => {
       isError: false,
       error: undefined,
     })
+    setOrderRate("order_1", "shp_1", "rate_1")
+    setOrderRate("order_2", "shp_2", "rate_2")
     mockBulkFulfillOrders.mockResolvedValue({
       succeeded: ["order_1", "order_2"],
       failed: [],
@@ -489,8 +609,8 @@ describe("ReadyToShipTable bulk Fulfill command", () => {
 
     // Re-queried between clicks (rather than reusing one stale snapshot of
     // `getAllByRole`), since selecting the first row re-renders the table.
-    await user.click(screen.getAllByRole("checkbox")[1])
-    await user.click(screen.getAllByRole("checkbox")[2])
+    await user.click((await screen.findAllByRole("checkbox"))[1])
+    await user.click((await screen.findAllByRole("checkbox"))[2])
 
     const fulfillSelected = await screen.findByRole("button", {
       name: /fulfillSelected/,
@@ -501,7 +621,99 @@ describe("ReadyToShipTable bulk Fulfill command", () => {
       expect(mockBulkFulfillOrders).toHaveBeenCalledTimes(1)
     })
     const call = mockBulkFulfillOrders.mock.calls[0][0]
-    expect([...call.order_ids].sort()).toEqual(["order_1", "order_2"])
+    expect(
+      [...call.fulfillments].sort((a: any, b: any) =>
+        a.order_id.localeCompare(b.order_id)
+      )
+    ).toEqual([
+      {
+        order_id: "order_1",
+        location_id: "loc_default",
+        shipment_id: "shp_1",
+        rate_id: "rate_1",
+      },
+      {
+        order_id: "order_2",
+        location_id: "loc_default",
+        shipment_id: "shp_2",
+        rate_id: "rate_2",
+      },
+    ])
+  })
+
+  it("sends each selected row's own Ship From override and quoted rate on Fulfill Selected, not just the store default", async () => {
+    mockUseOrders.mockReturnValue({
+      orders: [
+        makeReadyToShipOrder("order_1"),
+        makeReadyToShipOrder("order_2"),
+      ],
+      count: 2,
+      isLoading: false,
+      isError: false,
+      error: undefined,
+    })
+    mockUseStockLocations.mockReturnValue({
+      stock_locations: [
+        { id: "loc_default", name: "Warehouse A" },
+        { id: "sloc_a", name: "Warehouse A2" },
+        { id: "sloc_b", name: "Warehouse B2" },
+      ],
+    })
+    setOrderRate("order_1", "shp_a", "rate_a")
+    setOrderRate("order_2", "shp_b", "rate_b")
+    mockBulkFulfillOrders.mockResolvedValue({
+      succeeded: ["order_1", "order_2"],
+      failed: [],
+    })
+
+    const user = userEvent.setup()
+    renderReadyToShipTable()
+
+    // Give each row its own Ship From override via the real `ShipFromSelect`
+    // rendered in the `ship_from` column - targeted by its order-specific
+    // `aria-label` (`ship-from-select.tsx`), not by combobox index, since
+    // the `shipping_rate` column's `ShippingRateSelect` is also a
+    // "combobox" and would otherwise throw off the indices.
+    await user.click(
+      await screen.findByRole("combobox", { name: "Ship from - order order_1" })
+    )
+    await user.click(await screen.findByText("Warehouse A2"))
+
+    await user.click(
+      screen.getByRole("combobox", { name: "Ship from - order order_2" })
+    )
+    await user.click(await screen.findByText("Warehouse B2"))
+
+    await user.click((await screen.findAllByRole("checkbox"))[1])
+    await user.click((await screen.findAllByRole("checkbox"))[2])
+
+    const fulfillSelected = await screen.findByRole("button", {
+      name: /fulfillSelected/,
+    })
+    await user.click(fulfillSelected)
+
+    await waitFor(() => {
+      expect(mockBulkFulfillOrders).toHaveBeenCalledTimes(1)
+    })
+    const call = mockBulkFulfillOrders.mock.calls[0][0]
+    expect(
+      [...call.fulfillments].sort((a: any, b: any) =>
+        a.order_id.localeCompare(b.order_id)
+      )
+    ).toEqual([
+      {
+        order_id: "order_1",
+        location_id: "sloc_a",
+        shipment_id: "shp_a",
+        rate_id: "rate_a",
+      },
+      {
+        order_id: "order_2",
+        location_id: "sloc_b",
+        shipment_id: "shp_b",
+        rate_id: "rate_b",
+      },
+    ])
   })
 
   it("on a successful mutation, passes the exact structured { succeeded, failed } result to BulkFulfillResultSummary, and dismissing it removes it from the DOM", async () => {
@@ -512,6 +724,7 @@ describe("ReadyToShipTable bulk Fulfill command", () => {
       isError: false,
       error: undefined,
     })
+    setOrderRate("order_1", "shp_1", "rate_1")
     const result = {
       succeeded: ["order_1"],
       failed: [
@@ -523,7 +736,7 @@ describe("ReadyToShipTable bulk Fulfill command", () => {
     const user = userEvent.setup()
     renderReadyToShipTable()
 
-    const checkboxes = screen.getAllByRole("checkbox")
+    const checkboxes = await screen.findAllByRole("checkbox")
     await user.click(checkboxes[1])
     await user.click(
       await screen.findByRole("button", { name: /fulfillSelected/ })
@@ -552,12 +765,13 @@ describe("ReadyToShipTable bulk Fulfill command", () => {
       isError: false,
       error: undefined,
     })
+    setOrderRate("order_1", "shp_1", "rate_1")
     mockBulkFulfillOrders.mockRejectedValue(new Error("Network request failed"))
 
     const user = userEvent.setup()
     renderReadyToShipTable()
 
-    const checkboxes = screen.getAllByRole("checkbox")
+    const checkboxes = await screen.findAllByRole("checkbox")
     await user.click(checkboxes[1])
     await user.click(
       await screen.findByRole("button", { name: /fulfillSelected/ })
@@ -582,13 +796,15 @@ describe("ReadyToShipTable bulk Fulfill command", () => {
       isError: false,
       error: undefined,
     })
+    setOrderRate("order_1", "shp_1", "rate_1")
+    setOrderRate("order_2", "shp_2", "rate_2")
     mockPrompt.mockResolvedValueOnce(false)
 
     const user = userEvent.setup()
     renderReadyToShipTable()
 
-    await user.click(screen.getAllByRole("checkbox")[1])
-    await user.click(screen.getAllByRole("checkbox")[2])
+    await user.click((await screen.findAllByRole("checkbox"))[1])
+    await user.click((await screen.findAllByRole("checkbox"))[2])
 
     const fulfillSelected = await screen.findByRole("button", {
       name: /fulfillSelected/,
@@ -616,6 +832,7 @@ describe("ReadyToShipTable bulk Fulfill command", () => {
       isError: false,
       error: undefined,
     })
+    setOrderRate("order_1", "shp_1", "rate_1")
 
     let resolveBulkFulfill: (value: any) => void = () => {}
     mockBulkFulfillOrders.mockImplementation(
@@ -628,7 +845,7 @@ describe("ReadyToShipTable bulk Fulfill command", () => {
     const user = userEvent.setup()
     renderReadyToShipTable()
 
-    await user.click(screen.getAllByRole("checkbox")[1])
+    await user.click((await screen.findAllByRole("checkbox"))[1])
 
     // First click: confirms (the default `mockPrompt` resolution) and
     // starts the still-pending mutation.
@@ -689,12 +906,17 @@ describe("ReadyToShipTable Fulfill popover - composed tree (regression)", () => 
       isError: false,
       error: undefined,
     })
+    // `FulfillConfirmPopover`'s own guard (Task 13) requires a quoted rate
+    // to be on hand before it renders the real button instead of
+    // `DisabledFulfillCell` - without this, there'd be no enabled button to
+    // click here at all.
+    setOrderRate("order_1", "shp_order_1", "rate_order_1")
 
     const user = userEvent.setup()
     renderComposedReadyToShipTable()
 
     await user.click(
-      screen.getByRole("button", { name: "orders.readyToShip.fulfill" })
+      await screen.findByRole("button", { name: "orders.readyToShip.fulfill" })
     )
 
     expect(
@@ -711,23 +933,35 @@ describe("ReadyToShipTable Fulfill popover - composed tree (regression)", () => 
       isError: false,
       error: undefined,
     })
-    mockUseCreateOrderFulfillment.mockResolvedValue({})
+    setOrderRate("order_1", "shp_order_1", "rate_order_1")
+    mockBulkFulfillOrders.mockResolvedValue({
+      succeeded: ["order_1"],
+      failed: [],
+    })
 
     const user = userEvent.setup()
     renderComposedReadyToShipTable()
 
     await user.click(
-      screen.getByRole("button", { name: "orders.readyToShip.fulfill" })
+      await screen.findByRole("button", { name: "orders.readyToShip.fulfill" })
     )
     await screen.findByText("orders.readyToShip.confirmHeading")
 
     await user.click(screen.getByRole("button", { name: "actions.confirm" }))
 
+    // `FulfillConfirmPopover` now fulfills via `useBulkFulfillOrders` (a
+    // one-item `fulfillments` array), not `useCreateOrderFulfillment` - the
+    // same mutation the bulk "Fulfill selected" command itself calls.
     await waitFor(() => {
-      expect(mockUseCreateOrderFulfillment).toHaveBeenCalledWith({
-        location_id: "loc_order_1",
-        shipping_option_id: "so_order_1",
-        items: [{ id: "item_order_1", quantity: 1 }],
+      expect(mockBulkFulfillOrders).toHaveBeenCalledWith({
+        fulfillments: [
+          {
+            order_id: "order_1",
+            location_id: "loc_order_1",
+            shipment_id: "shp_order_1",
+            rate_id: "rate_order_1",
+          },
+        ],
       })
     })
 
@@ -758,6 +992,10 @@ describe("ReadyToShipTable bulk row selection - no shipping method guard", () =>
       isError: false,
       error: undefined,
     })
+    // order_1 also needs a quoted rate (Task 13's own gate) to isolate what
+    // this test actually covers - the shipping-method guard, not the rate
+    // one.
+    setOrderRate("order_1", "shp_1", "rate_1")
 
     renderReadyToShipTable()
 
@@ -782,6 +1020,7 @@ describe("ReadyToShipTable bulk row selection - no shipping method guard", () =>
       isError: false,
       error: undefined,
     })
+    setOrderRate("order_1", "shp_1", "rate_1")
     mockBulkFulfillOrders.mockResolvedValue({
       succeeded: ["order_1"],
       failed: [],
@@ -799,7 +1038,14 @@ describe("ReadyToShipTable bulk row selection - no shipping method guard", () =>
 
     await waitFor(() => {
       expect(mockBulkFulfillOrders).toHaveBeenCalledWith({
-        order_ids: ["order_1"],
+        fulfillments: [
+          {
+            order_id: "order_1",
+            location_id: "loc_default",
+            shipment_id: "shp_1",
+            rate_id: "rate_1",
+          },
+        ],
       })
     })
   })

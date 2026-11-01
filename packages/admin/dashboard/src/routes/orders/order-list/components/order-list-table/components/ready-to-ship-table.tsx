@@ -2,7 +2,7 @@ import { HttpTypes } from "@medusajs/types"
 import { Button, Checkbox, Tooltip, toast, usePrompt } from "@medusajs/ui"
 import { keepPreviousData } from "@tanstack/react-query"
 import { createColumnHelper, RowSelectionState } from "@tanstack/react-table"
-import { useCallback, useMemo, useState } from "react"
+import { useCallback, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { useSearchParams } from "react-router-dom"
 
@@ -115,11 +115,18 @@ export const getHandlingHours = (
 }
 
 /**
- * Whether the order has a shipping method at all - the single precondition
- * the Shipping Rate/Ship From columns, the Fulfill button
+ * Whether the order has a shipping method at all - the baseline
+ * precondition the Shipping Rate/Ship From columns, the Fulfill button
  * (`FulfillConfirmPopover`/`DisabledFulfillCell`), and the bulk row
  * selection checkbox below all gate on. Centralized here so the bulk
  * checkbox can't drift from the single-row Fulfill button's own guard.
+ *
+ * This alone isn't sufficient to fulfill, though: both the bulk checkbox
+ * (`enableRowSelection` below) and `FulfillConfirmPopover` additionally
+ * require a quoted carrier rate to already be on hand for the order
+ * (`rowRates[order.id]`) - per Task 11's note that quoting gates
+ * fulfillability, since buying a label needs the `shipment_id`/`rate_id`
+ * that quote provides.
  */
 export const orderHasShippingMethod = (
   order: Pick<ReadyToShipOrder, "shipping_methods">
@@ -255,6 +262,63 @@ const toShippingRateParcel = (
   height: parcel.height ?? undefined,
 })
 
+export type BulkFulfillmentEntry = {
+  order_id: string
+  location_id?: string
+  shipment_id: string
+  rate_id: string
+}
+
+/**
+ * Builds the bulk "Fulfill selected" command's `fulfillments` payload from
+ * the selected order ids plus this component's own per-row state
+ * (`rowLocationOverride`/`rowRates`, falling back to the store-wide
+ * `defaultLocationId` the same way the `ship_from`/`shipping_rate` columns'
+ * cells do). A selected order with no `rowRates` entry yet is skipped
+ * rather than sent with a missing `shipment_id`/`rate_id` - `enableRowSelection`
+ * already keeps such an order from being selected via the checkbox in the
+ * first place, but this re-checks at submit time rather than trusting that
+ * selection-time gate never goes stale, and reports which order ids (if
+ * any) it had to skip so the caller can surface that to the admin.
+ *
+ * Extracted as a pure function (rather than inlined in the command's
+ * `action`) so this skip behavior - easy to leave as an untested
+ * assumption, since `enableRowSelection` makes it unreachable through the
+ * checkbox UI in this same render - has a direct, isolated test of its own.
+ */
+export const buildBulkFulfillments = (
+  orderIds: string[],
+  rowLocationOverride: Record<string, string>,
+  rowRates: Record<string, { shipmentId: string; rateId: string }>,
+  defaultLocationId: string | null
+): { fulfillments: BulkFulfillmentEntry[]; skippedOrderIds: string[] } => {
+  const skippedOrderIds: string[] = []
+
+  const fulfillments = orderIds.reduce<BulkFulfillmentEntry[]>(
+    (acc, orderId) => {
+      const rate = rowRates[orderId]
+
+      if (!rate) {
+        skippedOrderIds.push(orderId)
+        return acc
+      }
+
+      acc.push({
+        order_id: orderId,
+        location_id:
+          rowLocationOverride[orderId] ?? defaultLocationId ?? undefined,
+        shipment_id: rate.shipmentId,
+        rate_id: rate.rateId,
+      })
+
+      return acc
+    },
+    []
+  )
+
+  return { fulfillments, skippedOrderIds }
+}
+
 const columnHelper = createColumnHelper<ReadyToShipOrder>()
 
 const useReadyToShipTableColumns = (
@@ -263,9 +327,46 @@ const useReadyToShipTableColumns = (
   defaultLocationId: string | null,
   rowLocationOverride: Record<string, string>,
   setRowLocationOverride: (orderId: string, locationId: string) => void,
+  rowRates: Record<string, { shipmentId: string; rateId: string }>,
   setRowRate: (orderId: string, rate: { shipmentId: string; rateId: string }) => void
 ) => {
   const { t } = useTranslation()
+
+  // `_DataTable` (via TanStack Table's own `flexRender`, which does
+  // `React.createElement(columnDef.cell, props)` - see
+  // `node_modules/@tanstack/react-table`) uses each column's `cell`
+  // function itself as the rendered element's component *type*, not just
+  // as a plain render-prop call. That means regenerating this array - a
+  // brand new `cell` function reference for every column - makes React
+  // treat every cell as a *different* component type and remount it from
+  // scratch, discarding whatever state/refs it held. For
+  // `ShippingRateSelect` in particular that's catastrophic: a remount
+  // resets its own `autoSelectedDataRef` auto-select guard, so the fresh
+  // instance treats the still-same quote as newly arrived, calls
+  // `onChange` again, which calls `setRowRate` again, which changes
+  // `rowRates` again, which (if this memo depended on it) would
+  // regenerate this array again - an infinite render loop.
+  //
+  // So this array must be created exactly once and never recomputed for
+  // the lifetime of the table - not just excluding `rowPackages`/
+  // `rowLocationOverride`/`rowRates` from the dependency array below, but
+  // `t` too: `useTranslation`'s own `t` is stable in the real
+  // `react-i18next`, but several of this codebase's tests stub it with a
+  // fresh closure every render, which would otherwise retrigger the exact
+  // same loop. Every value these cells need is instead read through a ref,
+  // updated eagerly on every render below, so each cell still renders the
+  // current value - the `cell`/`header` functions themselves still run
+  // fresh on every actual render regardless of this memo's own identity.
+  const tRef = useRef(t)
+  tRef.current = t
+  const defaultLocationIdRef = useRef(defaultLocationId)
+  defaultLocationIdRef.current = defaultLocationId
+  const rowPackagesRef = useRef(rowPackages)
+  rowPackagesRef.current = rowPackages
+  const rowLocationOverrideRef = useRef(rowLocationOverride)
+  rowLocationOverrideRef.current = rowLocationOverride
+  const rowRatesRef = useRef(rowRates)
+  rowRatesRef.current = rowRates
 
   return useMemo(
     () => [
@@ -317,7 +418,7 @@ const useReadyToShipTableColumns = (
         id: "item",
         header: () => (
           <div className="flex h-full w-full items-center">
-            <span className="truncate">{t("fields.items")}</span>
+            <span className="truncate">{tRef.current("fields.items")}</span>
           </div>
         ),
         cell: ({ row }) => <ItemCell items={row.original.items ?? []} />,
@@ -326,14 +427,17 @@ const useReadyToShipTableColumns = (
         id: "ship_from",
         header: () => (
           <div className="flex h-full w-full items-center">
-            <span className="truncate">{t("orders.readyToShip.shipFrom")}</span>
+            <span className="truncate">
+              {tRef.current("orders.readyToShip.shipFrom")}
+            </span>
           </div>
         ),
         cell: ({ row }) => (
           <ShipFromSelect
             orderId={row.original.id}
             defaultLocationId={
-              rowLocationOverride[row.original.id] ?? defaultLocationId
+              rowLocationOverrideRef.current[row.original.id] ??
+              defaultLocationIdRef.current
             }
             onChange={(id) => setRowLocationOverride(row.original.id, id)}
           />
@@ -343,7 +447,9 @@ const useReadyToShipTableColumns = (
         id: "package",
         header: () => (
           <div className="flex h-full w-full items-center">
-            <span className="truncate">{t("orders.readyToShip.package")}</span>
+            <span className="truncate">
+              {tRef.current("orders.readyToShip.package")}
+            </span>
           </div>
         ),
         cell: ({ row }) => (
@@ -358,7 +464,7 @@ const useReadyToShipTableColumns = (
         header: () => (
           <div className="flex h-full w-full items-center">
             <span className="truncate">
-              {t("orders.readyToShip.shippingRate")}
+              {tRef.current("orders.readyToShip.shippingRate")}
             </span>
           </div>
         ),
@@ -366,10 +472,12 @@ const useReadyToShipTableColumns = (
           <ShippingRateSelect
             orderId={row.original.id}
             locationId={
-              rowLocationOverride[row.original.id] ?? defaultLocationId ?? ""
+              rowLocationOverrideRef.current[row.original.id] ??
+              defaultLocationIdRef.current ??
+              ""
             }
             parcel={toShippingRateParcel(
-              rowPackages[row.original.id] ??
+              rowPackagesRef.current[row.original.id] ??
                 computeOrderParcel(row.original.items ?? [])
             )}
             onChange={(rate) => setRowRate(row.original.id, rate)}
@@ -380,7 +488,7 @@ const useReadyToShipTableColumns = (
         header: () => (
           <div className="flex h-full w-full items-center">
             <span className="truncate">
-              {t("orders.readyToShip.orderDate")}
+              {tRef.current("orders.readyToShip.orderDate")}
             </span>
           </div>
         ),
@@ -391,7 +499,7 @@ const useReadyToShipTableColumns = (
         header: () => (
           <div className="flex h-full w-full items-center">
             <span className="truncate">
-              {t("orders.readyToShip.shipDate")}
+              {tRef.current("orders.readyToShip.shipDate")}
             </span>
           </div>
         ),
@@ -407,7 +515,7 @@ const useReadyToShipTableColumns = (
         header: () => (
           <div className="flex h-full w-full items-center">
             <span className="truncate">
-              {t("orders.readyToShip.shipTime")}
+              {tRef.current("orders.readyToShip.shipTime")}
             </span>
           </div>
         ),
@@ -429,18 +537,22 @@ const useReadyToShipTableColumns = (
       }),
       columnHelper.display({
         id: "fulfill",
-        cell: ({ row }) => <FulfillConfirmPopover order={row.original} />,
+        cell: ({ row }) => (
+          <FulfillConfirmPopover
+            order={row.original}
+            rowLocationOverride={rowLocationOverrideRef.current}
+            rowRates={rowRatesRef.current}
+          />
+        ),
       }),
     ],
-    [
-      t,
-      rowPackages,
-      setRowPackage,
-      defaultLocationId,
-      rowLocationOverride,
-      setRowLocationOverride,
-      setRowRate,
-    ]
+    // Deliberately not `t`/`defaultLocationId`/`rowPackages`/
+    // `rowLocationOverride`/`rowRates` themselves - see the refs declared
+    // above this `useMemo` for why. Only the mutation setters remain here:
+    // all three are already stable (`useCallback` with an empty dependency
+    // array in `ReadyToShipTable` below), so this array is, in effect,
+    // created exactly once for the table's lifetime.
+    [setRowPackage, setRowLocationOverride, setRowRate]
   )
 }
 
@@ -501,9 +613,11 @@ export const ReadyToShipTable = () => {
   // default, or whichever rate the admin picks from the `shipping_rate`
   // column's dropdown - written by `ShippingRateSelect`'s `onChange`. Same
   // keyed-by-order-id shape as `rowPackages`/`rowLocationOverride` above.
-  // Not consumed anywhere in this task yet - Task 13's dependency for
-  // buying the fulfillment against this exact quote.
-  const [_rowRates, setRowRates] = useState<
+  // Consumed by `enableRowSelection` and the bulk command's `action` below
+  // (a row with no entry here isn't selectable/fulfillable yet - its quote
+  // is still loading or failed) and passed down to `FulfillConfirmPopover`
+  // for the single-row Fulfill action.
+  const [rowRates, setRowRates] = useState<
     Record<string, { shipmentId: string; rateId: string }>
   >({})
 
@@ -545,6 +659,7 @@ export const ReadyToShipTable = () => {
     defaultLocationId,
     rowLocationOverride,
     setRowLocationOverride,
+    rowRates,
     setRowRate
   )
 
@@ -560,9 +675,13 @@ export const ReadyToShipTable = () => {
     prefix: QUERY_PREFIX,
     // Keyed off the same `shipping_methods` check the single-row Fulfill
     // button (`FulfillConfirmPopover`/`DisabledFulfillCell`) already gates
-    // on, so an order that button would refuse to fulfill can't be
-    // selected via the bulk checkbox either - see `orderHasShippingMethod`.
-    enableRowSelection: (row) => orderHasShippingMethod(row.original),
+    // on - see `orderHasShippingMethod` - plus a quoted carrier rate
+    // already being on hand for the row (`rowRates`), since buying a label
+    // needs the `shipment_id`/`rate_id` that quote provides. Neither check
+    // alone is enough; an order can have a shipping method but still be
+    // mid-quote (or have a failed quote) when the admin selects it.
+    enableRowSelection: (row) =>
+      orderHasShippingMethod(row.original) && !!rowRates[row.original.id],
     rowSelection: {
       state: rowSelection,
       updater: setRowSelection,
@@ -628,9 +747,26 @@ export const ReadyToShipTable = () => {
                   return
                 }
 
-                const result = await bulkFulfillOrders({
-                  order_ids: orderIds,
-                })
+                const { fulfillments, skippedOrderIds } = buildBulkFulfillments(
+                  orderIds,
+                  rowLocationOverride,
+                  rowRates,
+                  defaultLocationId
+                )
+
+                if (skippedOrderIds.length > 0) {
+                  toast.error(
+                    t("orders.readyToShip.fulfillSelectedRateNotReady", {
+                      count: skippedOrderIds.length,
+                    })
+                  )
+                }
+
+                if (fulfillments.length === 0) {
+                  return
+                }
+
+                const result = await bulkFulfillOrders({ fulfillments })
                 setBulkFulfillResult(result)
               } catch (e) {
                 toast.error(

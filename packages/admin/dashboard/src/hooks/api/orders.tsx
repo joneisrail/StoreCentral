@@ -246,32 +246,55 @@ export const useCreateOrderFulfillment = (
 /**
  * The Bulk Fulfill Orders API route's response shape, reused as-is by
  * `BulkFulfillResultSummary` (the UI that renders it) rather than each
- * side redeclaring its own copy of the same shape.
+ * side redeclaring its own copy of the same shape. `label_pdf_url` is only
+ * present when the provider can combine every successfully bought label
+ * into a single PDF for the batch - `BulkFulfillResultSummary` renders its
+ * "Print N labels" link only when it's present.
  */
 export type BulkFulfillOrdersResult = {
   succeeded: string[]
   failed: { order_id: string; error: string }[]
+  label_pdf_url?: string
+}
+
+/**
+ * The payload shape for `useBulkFulfillOrders` below - one entry per order
+ * to fulfill, each against the shipment/rate already quoted for it by
+ * `useOrderCarrierRates` (Task 6) and picked via `ShippingRateSelect`
+ * (Task 11). `location_id` is optional: omitted, the backend falls back to
+ * the order's default ship-from location, the same fallback
+ * `rowLocationOverride` itself defaults from in `ready-to-ship-table.tsx`.
+ */
+export type BulkFulfillOrdersPayload = {
+  fulfillments: {
+    order_id: string
+    location_id?: string
+    shipment_id: string
+    rate_id: string
+  }[]
 }
 
 /**
  * Bulk-fulfills one or more orders in a single request, used by the Ready
- * to Ship table's "Fulfill selected" command bar action. Mirrors
- * `useBulkTagOrders` (`hooks/api/order-tags.ts`): a dedicated mutation
- * hook wrapping the SDK's own `bulkFulfill` method, invalidating the same
- * query keys `useCreateOrderFulfillment` does on success since this is the
- * same underlying operation (fulfillment creation) applied to many orders
- * at once - including `ordersQueryKeys.all` broadly, since a successful
- * batch likely moves some orders out of the Ready to Ship view entirely.
+ * to Ship table's "Fulfill selected" command bar action and (with a
+ * one-item `fulfillments` array) `FulfillConfirmPopover`'s single-row
+ * Fulfill action. Mirrors `useBulkTagOrders` (`hooks/api/order-tags.ts`): a
+ * dedicated mutation hook wrapping the SDK's own `bulkFulfill` method,
+ * invalidating the same query keys `useCreateOrderFulfillment` does on
+ * success since this is the same underlying operation (fulfillment
+ * creation) applied to one or many orders at once - including
+ * `ordersQueryKeys.all` broadly, since a successful batch likely moves
+ * some orders out of the Ready to Ship view entirely.
  */
 export const useBulkFulfillOrders = (
   options?: UseMutationOptions<
     BulkFulfillOrdersResult,
     FetchError,
-    { order_ids: string[] }
+    BulkFulfillOrdersPayload
   >
 ) => {
   return useMutation({
-    mutationFn: (payload: { order_ids: string[] }) =>
+    mutationFn: (payload: BulkFulfillOrdersPayload) =>
       sdk.admin.order.bulkFulfill(payload),
     ...options,
     onSuccess: (data, variables, context) => {

@@ -12,12 +12,14 @@ vi.mock("react-i18next", () => ({
 
 const mutateAsync = vi.fn()
 
-// `fulfill-confirm-popover.tsx` consumes the real `useCreateOrderFulfillment`
-// mutation hook. It's mocked here the same way `useOrders` is mocked in
-// `ready-to-ship-table.spec.tsx`: to control success/failure deterministically
-// and to keep module evaluation free of `lib/client`'s build-time defines.
+// `fulfill-confirm-popover.tsx` consumes the real `useBulkFulfillOrders`
+// mutation hook (a one-item `fulfillments` array, same as the Ready to
+// Ship table's own bulk "Fulfill selected" command). It's mocked here the
+// same way `useOrders` is mocked in `ready-to-ship-table.spec.tsx`: to
+// control success/failure deterministically and to keep module evaluation
+// free of `lib/client`'s build-time defines.
 vi.mock("../../../../../../hooks/api/orders", () => ({
-  useCreateOrderFulfillment: () => ({
+  useBulkFulfillOrders: () => ({
     mutateAsync,
     isPending: false,
   }),
@@ -73,6 +75,11 @@ const baseOrder = {
   ],
 } as any
 
+// This order's quoted rate - present for every test below except the ones
+// specifically covering the "no quote yet" gate, keyed the same way
+// `ReadyToShipTable`'s own `rowRates` state is.
+const quotedRate = { order_1: { shipmentId: "shp_1", rateId: "rate_1" } }
+
 afterEach(() => {
   cleanup()
   mutateAsync.mockReset()
@@ -82,7 +89,28 @@ describe("FulfillConfirmPopover", () => {
   it("renders the inert, disabled Fulfill button when the order has no shipping method - no popover is wired", () => {
     render(
       <TooltipProvider>
-        <FulfillConfirmPopover order={{ ...baseOrder, shipping_methods: [] }} />
+        <FulfillConfirmPopover
+          order={{ ...baseOrder, shipping_methods: [] }}
+          rowLocationOverride={{}}
+          rowRates={quotedRate}
+        />
+      </TooltipProvider>
+    )
+
+    const button = screen.getByRole("button", {
+      name: "orders.readyToShip.fulfill",
+    }) as HTMLButtonElement
+    expect(button.disabled).toBe(true)
+  })
+
+  it("renders the inert, disabled Fulfill button when the order has a shipping method but no quoted rate yet - buying a label needs the shipment_id/rate_id a quote provides", () => {
+    render(
+      <TooltipProvider>
+        <FulfillConfirmPopover
+          order={baseOrder}
+          rowLocationOverride={{}}
+          rowRates={{}}
+        />
       </TooltipProvider>
     )
 
@@ -94,7 +122,13 @@ describe("FulfillConfirmPopover", () => {
 
   it("opens a read-only confirmation showing the default location and only the remaining-quantity items", async () => {
     const user = userEvent.setup()
-    render(<FulfillConfirmPopover order={baseOrder} />)
+    render(
+      <FulfillConfirmPopover
+        order={baseOrder}
+        rowLocationOverride={{}}
+        rowRates={quotedRate}
+      />
+    )
 
     await user.click(
       screen.getByRole("button", { name: "orders.readyToShip.fulfill" })
@@ -112,7 +146,13 @@ describe("FulfillConfirmPopover", () => {
   it("confirms with the unmodified defaults and closes the popover on success", async () => {
     mutateAsync.mockResolvedValueOnce({})
     const user = userEvent.setup()
-    render(<FulfillConfirmPopover order={baseOrder} />)
+    render(
+      <FulfillConfirmPopover
+        order={baseOrder}
+        rowLocationOverride={{}}
+        rowRates={quotedRate}
+      />
+    )
 
     await user.click(
       screen.getByRole("button", { name: "orders.readyToShip.fulfill" })
@@ -122,13 +162,46 @@ describe("FulfillConfirmPopover", () => {
     await user.click(screen.getByRole("button", { name: "actions.confirm" }))
 
     expect(mutateAsync).toHaveBeenCalledWith({
-      location_id: "loc_1",
-      shipping_option_id: "so_1",
-      items: [{ id: "item_1", quantity: 2 }],
+      fulfillments: [
+        {
+          order_id: "order_1",
+          location_id: "loc_1",
+          shipment_id: "shp_1",
+          rate_id: "rate_1",
+        },
+      ],
     })
 
     await waitFor(() => {
       expect(screen.queryByText("orders.readyToShip.confirmHeading")).toBeNull()
+    })
+  })
+
+  it("calls useBulkFulfillOrders with a one-item fulfillments array using the row's Ship From override on Confirm", async () => {
+    mutateAsync.mockResolvedValueOnce({})
+    const user = userEvent.setup()
+    render(
+      <FulfillConfirmPopover
+        order={baseOrder}
+        rowLocationOverride={{ order_1: "sloc_a" }}
+        rowRates={{ order_1: { shipmentId: "shp_a", rateId: "rate_a" } }}
+      />
+    )
+
+    await user.click(
+      screen.getByRole("button", { name: "orders.readyToShip.fulfill" })
+    )
+    await user.click(screen.getByRole("button", { name: "actions.confirm" }))
+
+    expect(mutateAsync).toHaveBeenCalledWith({
+      fulfillments: [
+        {
+          order_id: "order_1",
+          location_id: "sloc_a",
+          shipment_id: "shp_a",
+          rate_id: "rate_a",
+        },
+      ],
     })
   })
 
@@ -137,7 +210,13 @@ describe("FulfillConfirmPopover", () => {
       new Error("Unable to buy a shipping label: incomplete address")
     )
     const user = userEvent.setup()
-    render(<FulfillConfirmPopover order={baseOrder} />)
+    render(
+      <FulfillConfirmPopover
+        order={baseOrder}
+        rowLocationOverride={{}}
+        rowRates={quotedRate}
+      />
+    )
 
     await user.click(
       screen.getByRole("button", { name: "orders.readyToShip.fulfill" })

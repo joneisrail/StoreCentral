@@ -1253,6 +1253,7 @@
       "fulfill": "Fulfill",
       "fulfillSelected": "Fulfill selected",
       "fulfillSelectedConfirmDescription": "Fulfill {{count}} order(s)? This purchases real shipping labels and cannot be undone.",
+      "fulfillSelectedRateNotReady": "Skipped {{count}} order(s) - their shipping rate isn't ready yet",
       "noShippingMethod": "No shipping method",
       "noRecordsMessage": "Orders ready to ship will show up here.",
       "confirmHeading": "Confirm fulfillment",

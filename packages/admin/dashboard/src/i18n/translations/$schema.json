@@ -4883,6 +4883,9 @@
             "fulfillSelectedConfirmDescription": {
               "type": "string"
             },
+            "fulfillSelectedRateNotReady": {
+              "type": "string"
+            },
             "noShippingMethod": {
               "type": "string"
             },
@@ -4926,6 +4929,7 @@
             "fulfill",
             "fulfillSelected",
             "fulfillSelectedConfirmDescription",
+            "fulfillSelectedRateNotReady",
             "noShippingMethod",
             "noRecordsMessage",
             "confirmHeading",

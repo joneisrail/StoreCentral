@@ -826,34 +826,51 @@ export class Order {
   }
 
   /**
-   * This method fulfills one or more orders in a single request. It sends a
-   * request to the [Bulk Fulfill Orders](https://docs.medusajs.com/api/admin/orders/bulk-fulfill-orders)
+   * This method fulfills one or more orders in a single request, each
+   * against the shipment/rate already quoted for it (via the Order Carrier
+   * Rates API route). It sends a request to the
+   * [Bulk Fulfill Orders](https://docs.medusajs.com/api/admin/orders/bulk-fulfill-orders)
    * API route. Each order's fulfillment attempt is independent - one
    * order's failure doesn't stop or roll back the fulfillment of the
    * others in the same batch.
    *
-   * @param body - The IDs of the orders to fulfill.
+   * @param body - The orders to fulfill, each with the shipment/rate id to buy its label against.
    * @param headers - Headers to pass in the request.
-   * @returns The IDs of the orders that were fulfilled successfully, and
-   * the orders that failed along with their error message.
+   * @returns The IDs of the orders that were fulfilled successfully, the
+   * orders that failed along with their error message, and, when the
+   * provider supports it, a single PDF combining every successfully
+   * bought label.
    *
    * @example
    * sdk.admin.order.bulkFulfill({
-   *   order_ids: ["order_123", "order_321"],
+   *   fulfillments: [
+   *     { order_id: "order_123", shipment_id: "shp_123", rate_id: "rate_123" },
+   *     { order_id: "order_321", shipment_id: "shp_321", rate_id: "rate_321" },
+   *   ],
    * })
-   * .then(({ succeeded, failed }) => {
-   *   console.log(succeeded, failed)
+   * .then(({ succeeded, failed, label_pdf_url }) => {
+   *   console.log(succeeded, failed, label_pdf_url)
    * })
    */
   async bulkFulfill(
     body: {
-      order_ids: string[]
+      fulfillments: {
+        order_id: string
+        location_id?: string
+        shipment_id: string
+        rate_id: string
+      }[]
     },
     headers?: ClientHeaders
   ) {
     return await this.client.fetch<{
       succeeded: string[]
-      failed: { order_id: string; error: string }[]
+      failed: {
+        order_id: string
+        error: string
+        easypost_shipment_id?: string
+      }[]
+      label_pdf_url?: string
     }>(`/admin/orders/fulfillments/batch`, {
       method: "POST",
       headers,

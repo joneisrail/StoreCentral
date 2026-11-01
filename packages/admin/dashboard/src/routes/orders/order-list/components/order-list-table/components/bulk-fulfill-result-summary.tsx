@@ -20,13 +20,19 @@ type BulkFulfillResultSummaryProps = {
  * `ReadyToShipTable`'s own state) rather than `Alert`'s own `dismissible`
  * prop, since that prop only toggles the alert's internal visibility - it
  * wouldn't let a later bulk action's result replace this one reliably.
+ *
+ * When the batch's response includes `label_pdf_url` (every successfully
+ * bought label combined into one PDF by the provider), a "Print N labels"
+ * link to it is rendered too - absent for a batch where every fulfillment
+ * failed, or whenever the provider doesn't support combining labels this
+ * way.
  */
 export const BulkFulfillResultSummary = ({
   result,
   onDismiss,
 }: BulkFulfillResultSummaryProps) => {
   const { t } = useTranslation()
-  const { succeeded, failed } = result
+  const { succeeded, failed, label_pdf_url } = result
   const hasFailures = failed.length > 0
 
   return (
@@ -47,6 +53,20 @@ export const BulkFulfillResultSummary = ({
             {t("actions.close")}
           </Button>
         </div>
+        {label_pdf_url && (
+          <a
+            href={label_pdf_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-ui-fg-interactive hover:text-ui-fg-interactive-hover transition-fg underline"
+          >
+            <Text size="small" as="span">
+              {`Print ${succeeded.length} label${
+                succeeded.length === 1 ? "" : "s"
+              }`}
+            </Text>
+          </a>
+        )}
         {hasFailures && (
           <div className="flex flex-col gap-y-1">
             {failed.map((failure) => (

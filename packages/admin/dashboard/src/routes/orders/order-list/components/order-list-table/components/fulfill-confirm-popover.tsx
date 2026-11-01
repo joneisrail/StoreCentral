@@ -2,7 +2,7 @@ import { Alert, Button, Popover, Text } from "@medusajs/ui"
 import { useState } from "react"
 import { useTranslation } from "react-i18next"
 
-import { useCreateOrderFulfillment } from "../../../../../../hooks/api/orders"
+import { useBulkFulfillOrders } from "../../../../../../hooks/api/orders"
 import { getFulfillableQuantity } from "../../../../../../lib/order-item"
 import {
   DisabledFulfillCell,
@@ -13,27 +13,40 @@ import {
 
 type FulfillConfirmPopoverProps = {
   order: ReadyToShipOrder
+  // The admin's in-progress Ship From override and the live carrier rate
+  // picked for each row, keyed by order id - the same `rowLocationOverride`/
+  // `rowRates` state `ReadyToShipTable` passes (resolved per-row) to the
+  // `ship_from`/`shipping_rate` columns' own cells. Passed down as the whole
+  // dict, not pre-resolved for this order, since - unlike those columns -
+  // this component also uses `rowRates[order.id]`'s mere presence (not just
+  // its value) to gate `hasShippingMethod` below.
+  rowLocationOverride: Record<string, string>
+  rowRates: Record<string, { shipmentId: string; rateId: string }>
 }
 
 /**
  * Read-only confirmation popover for the Ready to Ship table's Fulfill
- * action. Shows the order's default fulfillment location (resolved via the
- * same shipping method -> shipping option -> service zone -> fulfillment
- * set -> location chain `order-create-fulfillment-form.tsx` uses) and the
- * order's remaining (unfulfilled) line items, using the same
+ * action. Shows the order's fulfillment location (`rowLocationOverride`'s
+ * entry for this order, if the admin picked a different Ship From, else the
+ * default resolved via the same shipping method -> shipping option ->
+ * service zone -> fulfillment set -> location chain
+ * `order-create-fulfillment-form.tsx` uses) and the order's remaining
+ * (unfulfilled) line items, using the same
  * `quantity - detail.fulfilled_quantity` formula as that form and
- * `computeOrderParcel`. Confirm calls `useCreateOrderFulfillment` with
- * those exact, unmodified values - this is a confirmation display, never
- * an editable form. An order that needs a different location or
- * quantities still goes through the full fulfillment form on the order
- * detail page, which this plan leaves unchanged.
+ * `computeOrderParcel`. Confirm calls `useBulkFulfillOrders` with a
+ * one-item `fulfillments` array built from those values plus this row's
+ * quoted `rowRates` entry (the shipment/rate id `ShippingRateSelect`
+ * picked) - this is a confirmation display, never an editable form. An
+ * order that needs different quantities still goes through the full
+ * fulfillment form on the order detail page, which this plan leaves
+ * unchanged.
  *
- * On success the popover closes. `useCreateOrderFulfillment`'s own
- * `onSuccess` already invalidates `ordersQueryKeys.all`, and
- * `ReadyToShipTable`'s `useOrders` query key is built under that same
- * `orders` key hierarchy, so no additional invalidation is needed here.
+ * On success the popover closes. `useBulkFulfillOrders`'s own `onSuccess`
+ * already invalidates `ordersQueryKeys.all`, and `ReadyToShipTable`'s
+ * `useOrders` query key is built under that same `orders` key hierarchy, so
+ * no additional invalidation is needed here.
  *
- * On failure (e.g. the fulfillment provider can't quote/buy a label for an
+ * On failure (e.g. the fulfillment provider can't buy a label for an
  * incomplete address) the popover stays open and the error message is
  * rendered inline inside the content, per the design spec's Error
  * handling section - deliberately not a toast, unlike the full
@@ -41,11 +54,13 @@ type FulfillConfirmPopoverProps = {
  */
 export const FulfillConfirmPopover = ({
   order,
+  rowLocationOverride,
+  rowRates,
 }: FulfillConfirmPopoverProps) => {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
-  const { mutateAsync, isPending } = useCreateOrderFulfillment(order.id)
+  const { mutateAsync, isPending } = useBulkFulfillOrders()
 
   const shippingMethod = order.shipping_methods?.[0]
   // Deliberately `!!shippingMethod`, not `orderHasShippingMethod(order)`:
@@ -62,7 +77,20 @@ export const FulfillConfirmPopover = ({
     return <DisabledFulfillCell />
   }
 
-  const locationId = getShipFromLocationId(shippingMethod)
+  // Per Task 11's note (quoting gates fulfillability): a shipping method
+  // alone isn't enough to buy a label against - `rate` below is also
+  // required, since `shipment_id`/`rate_id` are mandatory on the
+  // fulfillments payload. A row whose quote is still loading or failed
+  // renders the same disabled state as a row with no shipping method at
+  // all, kept separate from `hasShippingMethod` above only to preserve that
+  // existing narrowing comment's reasoning.
+  const rate = rowRates[order.id]
+
+  if (!rate) {
+    return <DisabledFulfillCell />
+  }
+
+  const locationId = rowLocationOverride[order.id] ?? getShipFromLocationId(shippingMethod)
   const locationName = getShipFromLocationName(shippingMethod)
 
   const fulfillableItems = (order.items ?? []).filter(
@@ -86,12 +114,14 @@ export const FulfillConfirmPopover = ({
 
     try {
       await mutateAsync({
-        location_id: locationId,
-        shipping_option_id: shippingMethod.shipping_option_id ?? undefined,
-        items: fulfillableItems.map((item) => ({
-          id: item.id,
-          quantity: getFulfillableQuantity(item),
-        })),
+        fulfillments: [
+          {
+            order_id: order.id,
+            location_id: locationId ?? undefined,
+            shipment_id: rate.shipmentId,
+            rate_id: rate.rateId,
+          },
+        ],
       })
       setOpen(false)
     } catch (e) {

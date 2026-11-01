@@ -70,6 +70,53 @@ describe("BulkFulfillResultSummary", () => {
     expect(screen.getByText("order_3: No shipping method")).toBeTruthy()
   })
 
+  it("renders a Print N labels link when label_pdf_url is present", () => {
+    render(
+      <BulkFulfillResultSummary
+        result={{
+          succeeded: ["order_1"],
+          failed: [],
+          label_pdf_url: "https://x/batch.pdf",
+        }}
+        onDismiss={() => {}}
+      />
+    )
+
+    expect(
+      screen
+        .getByRole("link", { name: /print 1 label/i })
+        .getAttribute("href")
+    ).toBe("https://x/batch.pdf")
+  })
+
+  it("pluralizes the Print N labels link's text for more than one succeeded order", () => {
+    render(
+      <BulkFulfillResultSummary
+        result={{
+          succeeded: ["order_1", "order_2"],
+          failed: [],
+          label_pdf_url: "https://x/batch.pdf",
+        }}
+        onDismiss={() => {}}
+      />
+    )
+
+    expect(
+      screen.getByRole("link", { name: /print 2 labels/i })
+    ).toBeTruthy()
+  })
+
+  it("renders no Print labels link when label_pdf_url is absent", () => {
+    render(
+      <BulkFulfillResultSummary
+        result={{ succeeded: ["order_1"], failed: [] }}
+        onDismiss={() => {}}
+      />
+    )
+
+    expect(screen.queryByRole("link")).toBeNull()
+  })
+
   it("calls onDismiss when the close button is clicked", async () => {
     const user = userEvent.setup()
     const onDismiss = vi.fn()
