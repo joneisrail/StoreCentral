@@ -2,7 +2,7 @@ import { HttpTypes } from "@medusajs/types"
 import { Button, Checkbox, Tooltip, toast, usePrompt } from "@medusajs/ui"
 import { keepPreviousData } from "@tanstack/react-query"
 import { createColumnHelper, RowSelectionState } from "@tanstack/react-table"
-import { useMemo, useState } from "react"
+import { useCallback, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { useSearchParams } from "react-router-dom"
 
@@ -27,11 +27,20 @@ import {
 } from "../../../../../../hooks/api/orders"
 import { useDataTable } from "../../../../../../hooks/use-data-table"
 import { getStylizedAmount } from "../../../../../../lib/money-amount-helpers"
-import { computeOrderParcel } from "../../../../../../lib/order-parcel"
+import {
+  computeOrderParcel,
+  formatPackageField,
+} from "../../../../../../lib/order-parcel"
 import { READY_TO_SHIP_FIELDS } from "../../../const"
 import { BulkFulfillResultSummary } from "./bulk-fulfill-result-summary"
 import { FulfillConfirmPopover } from "./fulfill-confirm-popover"
 import { ItemCell } from "./item-cell"
+import { PackagePopover, PackageSelection } from "./package-popover"
+
+// Re-exported for Task 11/13 (re-quoting carrier rates and buying the
+// fulfillment) to import the exact payload shape `rowPackages` below is
+// keyed with, without reaching into `package-popover.tsx` directly.
+export type { PackageSelection }
 
 const PAGE_SIZE = 20
 const QUERY_PREFIX = "rts"
@@ -119,10 +128,6 @@ export const ShipFromCell = ({
   )
 }
 
-const formatPackageField = (value: number | null, notSetLabel: string) => {
-  return value === null ? notSetLabel : String(value)
-}
-
 /**
  * Renders the parcel computed from the order's unfulfilled items. Each
  * missing weight/length/width/height field renders as "Not set" rather
@@ -204,7 +209,9 @@ export const DisabledFulfillCell = () => {
 
 const columnHelper = createColumnHelper<ReadyToShipOrder>()
 
-const useReadyToShipTableColumns = () => {
+const useReadyToShipTableColumns = (
+  setRowPackage: (orderId: string, parcel: PackageSelection) => void
+) => {
   const { t } = useTranslation()
 
   return useMemo(
@@ -280,7 +287,12 @@ const useReadyToShipTableColumns = () => {
             <span className="truncate">{t("orders.readyToShip.package")}</span>
           </div>
         ),
-        cell: ({ row }) => <PackageCell items={row.original.items ?? []} />,
+        cell: ({ row }) => (
+          <PackagePopover
+            initialParcel={computeOrderParcel(row.original.items ?? [])}
+            onChange={(parcel) => setRowPackage(row.original.id, parcel)}
+          />
+        ),
       }),
       columnHelper.display({
         id: "shipping_rate",
@@ -322,7 +334,7 @@ const useReadyToShipTableColumns = () => {
         cell: ({ row }) => <FulfillConfirmPopover order={row.original} />,
       }),
     ],
-    [t]
+    [t, setRowPackage]
   )
 }
 
@@ -348,6 +360,20 @@ export const ReadyToShipTable = () => {
   // still in flight must be a no-op rather than firing a second, possibly
   // overlapping request for the same selection.
   const [isBulkFulfilling, setIsBulkFulfilling] = useState(false)
+  // The admin's in-progress Package selections, keyed by order id - written
+  // by `PackagePopover`'s `onChange` via the `package` column's cell below.
+  // This is Task 11's dependency for re-quoting carrier rates against the
+  // chosen package, not consumed anywhere in this task yet.
+  const [rowPackages, setRowPackages] = useState<Record<string, PackageSelection>>(
+    {}
+  )
+
+  // A stable identity (a purely functional `setState` updater, no outer
+  // dependencies) so it doesn't force `useReadyToShipTableColumns`'s
+  // `useMemo` to recompute every render just because this closure is new.
+  const setRowPackage = useCallback((orderId: string, parcel: PackageSelection) => {
+    setRowPackages((prev) => ({ ...prev, [orderId]: parcel }))
+  }, [])
 
   const offsetKey = `${QUERY_PREFIX}_offset`
   const offset = Number(searchParams.get(offsetKey) ?? 0)
@@ -366,7 +392,7 @@ export const ReadyToShipTable = () => {
     }
   )
 
-  const columns = useReadyToShipTableColumns()
+  const columns = useReadyToShipTableColumns(setRowPackage)
 
   const { mutateAsync: bulkFulfillOrders } = useBulkFulfillOrders()
 

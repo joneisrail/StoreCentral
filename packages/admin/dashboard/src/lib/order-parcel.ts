@@ -88,6 +88,16 @@ function computeDimensions(
   }
 }
 
+/**
+ * Formats a single parcel field (weight/length/width/height) as its value,
+ * or `notSetLabel` ("Not set") when the field is `null`, rather than
+ * fabricating a default. Shared by `PackageCell` and `PackagePopover`'s
+ * trigger label so the two can never render this convention differently.
+ */
+export function formatPackageField(value: number | null, notSetLabel: string) {
+  return value === null ? notSetLabel : String(value)
+}
+
 function firstDefined(
   variants: (ParcelItem["variant"] | undefined)[],
   pick: (

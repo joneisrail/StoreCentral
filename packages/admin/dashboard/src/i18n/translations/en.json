@@ -1251,7 +1251,9 @@
       "noShippingMethod": "No shipping method",
       "noRecordsMessage": "Orders ready to ship will show up here.",
       "confirmHeading": "Confirm fulfillment",
-      "bulkFulfillSummary": "{{succeeded}} fulfilled, {{failed}} failed"
+      "bulkFulfillSummary": "{{succeeded}} fulfilled, {{failed}} failed",
+      "packageCustom": "Custom",
+      "packageWeightRequired": "Weight is required"
     },
     "shipped": {
       "trackingStatus": "Tracking Status",

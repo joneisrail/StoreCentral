@@ -4879,6 +4879,12 @@
             },
             "bulkFulfillSummary": {
               "type": "string"
+            },
+            "packageCustom": {
+              "type": "string"
+            },
+            "packageWeightRequired": {
+              "type": "string"
             }
           },
           "required": [
@@ -4894,7 +4900,9 @@
             "noShippingMethod",
             "noRecordsMessage",
             "confirmHeading",
-            "bulkFulfillSummary"
+            "bulkFulfillSummary",
+            "packageCustom",
+            "packageWeightRequired"
           ],
           "additionalProperties": false
         },
