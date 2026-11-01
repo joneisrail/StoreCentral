@@ -4859,7 +4859,19 @@
             "orderDate": {
               "type": "string"
             },
-            "shipBy": {
+            "shipDate": {
+              "type": "string"
+            },
+            "shipTime": {
+              "type": "string"
+            },
+            "noSlaSet": {
+              "type": "string"
+            },
+            "overdue": {
+              "type": "string"
+            },
+            "timeLeft": {
               "type": "string"
             },
             "fulfill": {
@@ -4906,7 +4918,11 @@
             "notSet",
             "shippingRate",
             "orderDate",
-            "shipBy",
+            "shipDate",
+            "shipTime",
+            "noSlaSet",
+            "overdue",
+            "timeLeft",
             "fulfill",
             "fulfillSelected",
             "fulfillSelectedConfirmDescription",

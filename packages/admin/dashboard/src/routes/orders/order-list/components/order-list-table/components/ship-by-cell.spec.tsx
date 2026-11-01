@@ -3,33 +3,91 @@ import { TooltipProvider } from "@medusajs/ui"
 import { cleanup, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-// `use-date.tsx` (behind `DateCell`, rendered whenever `handlingHours` is
-// set) reads `i18n.language` directly via `useTranslation`, not just `t` -
-// same convention as `ready-to-ship-table.spec.tsx`.
+// Mirrors the real `en.json` strings for the keys this file's components
+// use, so assertions can check human-readable text rather than raw i18n
+// keys - unlike the identity-passthrough mock other specs in this
+// directory use for purely static labels, `noSlaSet`/`overdue` contain
+// spaces the identity mock can't reproduce, and `timeLeft` needs real
+// interpolation of its `{{hours}}`/`{{minutes}}` placeholders. `i18n` is
+// also provided because `use-date.tsx` (behind `DateCell`, rendered by
+// `ShipDateCell`) reads `i18n.language` directly, not just `t`.
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
-    t: (key: string) => key,
+    t: (key: string, options?: Record<string, unknown>) => {
+      if (key === "orders.readyToShip.timeLeft" && options) {
+        return `${options.hours}h ${options.minutes}m left`
+      }
+
+      const translations: Record<string, string> = {
+        "orders.readyToShip.noSlaSet": "No SLA set",
+        "orders.readyToShip.overdue": "Overdue",
+      }
+
+      return translations[key] ?? key
+    },
     i18n: { language: "en" },
   }),
 }))
 
-import { ShipByCell } from "./ship-by-cell"
+import { ShipDateCell, ShipTimeCell } from "./ship-by-cell"
 
 afterEach(() => {
   cleanup()
 })
 
-describe("ShipByCell", () => {
-  it("renders the deadline date and a live countdown when not yet overdue", () => {
+describe("ShipDateCell", () => {
+  it("renders the computed deadline's date when an SLA is configured", () => {
     const createdAt = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString() // 2h ago
 
     render(
       <TooltipProvider>
-        <ShipByCell createdAt={createdAt} handlingHours={24} />
+        <ShipDateCell createdAt={createdAt} handlingHours={24} />
       </TooltipProvider>
     )
 
-    expect(screen.getByText(/left/i)).toBeTruthy() // e.g. "22h left"
+    // `DateCell` renders the deadline (createdAt + 24h) as a formatted
+    // date, e.g. "Nov 2, 2026" - assert a 4-digit year rendered, and that
+    // the no-SLA state (the only other thing this component can render)
+    // did not.
+    expect(screen.getByText(/\d{4}/)).toBeTruthy()
+    expect(screen.queryByText(/no sla set/i)).toBeNull()
+  })
+
+  it("renders the defined no-SLA state when the sales channel has no handling_hours configured", () => {
+    render(
+      <TooltipProvider>
+        <ShipDateCell createdAt={new Date().toISOString()} handlingHours={null} />
+      </TooltipProvider>
+    )
+
+    expect(screen.getByText(/no sla set/i)).toBeTruthy()
+  })
+
+  it("renders the same no-SLA state when handlingHours is undefined", () => {
+    render(
+      <TooltipProvider>
+        <ShipDateCell
+          createdAt={new Date().toISOString()}
+          handlingHours={undefined}
+        />
+      </TooltipProvider>
+    )
+
+    expect(screen.getByText(/no sla set/i)).toBeTruthy()
+  })
+})
+
+describe("ShipTimeCell", () => {
+  it("renders a live countdown when not yet overdue", () => {
+    const createdAt = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString() // 2h ago
+
+    render(
+      <TooltipProvider>
+        <ShipTimeCell createdAt={createdAt} handlingHours={24} />
+      </TooltipProvider>
+    )
+
+    expect(screen.getByText(/left/i)).toBeTruthy() // e.g. "22h 0m left"
     expect(screen.queryByText(/overdue/i)).toBeNull()
   })
 
@@ -38,17 +96,17 @@ describe("ShipByCell", () => {
 
     render(
       <TooltipProvider>
-        <ShipByCell createdAt={createdAt} handlingHours={24} />
+        <ShipTimeCell createdAt={createdAt} handlingHours={24} />
       </TooltipProvider>
     )
 
     expect(screen.getByText(/overdue/i)).toBeTruthy()
   })
 
-  it("renders a defined no-SLA state when the sales channel has no handling_hours configured", () => {
+  it("renders the defined no-SLA state when the sales channel has no handling_hours configured", () => {
     render(
       <TooltipProvider>
-        <ShipByCell createdAt={new Date().toISOString()} handlingHours={null} />
+        <ShipTimeCell createdAt={new Date().toISOString()} handlingHours={null} />
       </TooltipProvider>
     )
 
@@ -59,7 +117,7 @@ describe("ShipByCell", () => {
   it("renders the same no-SLA state when handlingHours is undefined", () => {
     render(
       <TooltipProvider>
-        <ShipByCell
+        <ShipTimeCell
           createdAt={new Date().toISOString()}
           handlingHours={undefined}
         />

@@ -1,74 +1,114 @@
 import { Badge } from "@medusajs/ui"
 import { useEffect, useState } from "react"
+import { useTranslation } from "react-i18next"
 
 import { DateCell } from "../../../../../../components/table/table-cells/common/date-cell"
 
 const MINUTE_IN_MS = 60_000
 const HOUR_IN_MS = 60 * MINUTE_IN_MS
 
-export type ShipByCellProps = {
+export type ShipByProps = {
   createdAt: string | Date
   handlingHours: number | null | undefined
 }
 
 /**
- * Renders the per-order shipping deadline: the order's `created_at` plus
- * its sales channel's configured `handling_hours` SLA (written to
+ * Computes the per-order shipping deadline - the order's `created_at`
+ * plus its sales channel's configured `handling_hours` SLA (written to
  * `sales_channel.metadata` by the Settings > Fulfillment page - Task 7).
- * Shows the deadline's date (via `DateCell`, so the formatting/tooltip
- * convention matches the `created_at` column elsewhere in this table)
- * alongside either a live countdown ("Xh Ym left", recomputed once a
- * minute) or, once the deadline has passed, a destructive "Overdue" badge.
+ * Returns `null` when no SLA is configured at all (`handlingHours` is
+ * null/undefined) rather than fabricating one.
  *
- * The countdown/"Overdue" state and the "No SLA set" label below are
- * computed, not simple static UI copy, so - matching this file's existing
- * `ShippingRateCell`/`ShipFromCell` convention of rendering computed
- * values directly rather than through `t()` - they're plain strings
- * rather than i18n keys.
- *
- * A sales channel with no `handling_hours` configured at all has no
- * deadline to compute - `handlingHours` is then null/undefined and this
- * renders a muted "No SLA set" label instead of fabricating a deadline.
+ * The single source of truth both `ShipDateCell` and `ShipTimeCell`
+ * below derive their rendering from, so the Ship Date and Ship Time
+ * columns can never compute a different deadline from each other.
  */
-export const ShipByCell = ({ createdAt, handlingHours }: ShipByCellProps) => {
+export const computeShipDeadline = (
+  createdAt: string | Date,
+  handlingHours: number | null | undefined
+): number | null =>
+  handlingHours == null
+    ? null
+    : new Date(createdAt).getTime() + handlingHours * HOUR_IN_MS
+
+/**
+ * The state both `ShipDateCell` and `ShipTimeCell` render when there's no
+ * deadline to compute from (`computeShipDeadline` returned `null`) - a
+ * sales channel with no `handling_hours` configured at all.
+ */
+const NoSlaSetCell = () => {
+  const { t } = useTranslation()
+
+  return (
+    <div className="flex h-full w-full items-center overflow-hidden">
+      <span className="truncate text-ui-fg-muted">
+        {t("orders.readyToShip.noSlaSet")}
+      </span>
+    </div>
+  )
+}
+
+/**
+ * Renders the Ship Date column: the computed deadline's date, via the
+ * same `DateCell` the `created_at` column already uses elsewhere in this
+ * table (so formatting and the hover tooltip stay consistent), or the
+ * shared "No SLA set" state when there's no deadline to compute at all.
+ */
+export const ShipDateCell = ({ createdAt, handlingHours }: ShipByProps) => {
+  const deadline = computeShipDeadline(createdAt, handlingHours)
+
+  if (deadline == null) {
+    return <NoSlaSetCell />
+  }
+
+  return <DateCell date={new Date(deadline)} />
+}
+
+/**
+ * Renders the Ship Time column: a live countdown to the same deadline
+ * `ShipDateCell` renders the date of ("Xh Ym left", recomputed once a
+ * minute via a `setInterval` that only runs while there's a deadline to
+ * count down to), a destructive "Overdue" badge once that deadline has
+ * passed, or the shared "No SLA set" state.
+ */
+export const ShipTimeCell = ({ createdAt, handlingHours }: ShipByProps) => {
+  const { t } = useTranslation()
+  const deadline = computeShipDeadline(createdAt, handlingHours)
   const [now, setNow] = useState(() => Date.now())
 
   useEffect(() => {
-    if (handlingHours == null) {
+    if (deadline == null) {
       return
     }
 
     const interval = setInterval(() => setNow(Date.now()), MINUTE_IN_MS)
     return () => clearInterval(interval)
-  }, [handlingHours])
+  }, [deadline])
 
-  if (handlingHours == null) {
+  if (deadline == null) {
+    return <NoSlaSetCell />
+  }
+
+  const remainingMs = deadline - now
+
+  if (remainingMs <= 0) {
     return (
       <div className="flex h-full w-full items-center overflow-hidden">
-        <span className="truncate text-ui-fg-muted">No SLA set</span>
+        <Badge color="red" size="2xsmall" className="w-fit">
+          {t("orders.readyToShip.overdue")}
+        </Badge>
       </div>
     )
   }
 
-  const deadline = new Date(createdAt).getTime() + handlingHours * HOUR_IN_MS
-  const remainingMs = deadline - now
-  const isOverdue = remainingMs <= 0
-
-  const hoursLeft = Math.floor(remainingMs / HOUR_IN_MS)
-  const minutesLeft = Math.floor((remainingMs % HOUR_IN_MS) / MINUTE_IN_MS)
-
   return (
-    <div className="flex h-full w-full flex-col justify-center gap-y-0.5 overflow-hidden py-1">
-      <DateCell date={new Date(deadline)} />
-      {isOverdue ? (
-        <Badge color="red" size="2xsmall" className="w-fit">
-          Overdue
-        </Badge>
-      ) : (
-        <span className="truncate text-ui-fg-subtle">
-          {hoursLeft}h {minutesLeft}m left
-        </span>
-      )}
+    <div className="flex h-full w-full items-center overflow-hidden">
+      <span className="truncate">
+        {t("orders.readyToShip.timeLeft", {
+          hours: Math.floor(remainingMs / HOUR_IN_MS),
+          minutes: Math.floor((remainingMs % HOUR_IN_MS) / MINUTE_IN_MS),
+        })}
+      </span>
     </div>
   )
 }
