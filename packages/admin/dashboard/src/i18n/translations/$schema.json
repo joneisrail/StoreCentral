@@ -4885,6 +4885,15 @@
             },
             "packageWeightRequired": {
               "type": "string"
+            },
+            "quoting": {
+              "type": "string"
+            },
+            "shippingRateQuoteFailed": {
+              "type": "string"
+            },
+            "retry": {
+              "type": "string"
             }
           },
           "required": [
@@ -4902,7 +4911,10 @@
             "confirmHeading",
             "bulkFulfillSummary",
             "packageCustom",
-            "packageWeightRequired"
+            "packageWeightRequired",
+            "quoting",
+            "shippingRateQuoteFailed",
+            "retry"
           ],
           "additionalProperties": false
         },

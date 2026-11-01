@@ -10,6 +10,12 @@ import {
 import { sdk } from "../../lib/client"
 import { queryClient } from "../../lib/query-client"
 import { queryKeysFactory, TQueryKey } from "../../lib/query-key-factory"
+// Imported from `ready-to-ship-table.tsx`'s own re-export, not directly from
+// `package-popover.tsx` - see that re-export's comment: this is exactly the
+// case (Task 11) it exists for. A type-only import, so this doesn't create a
+// real runtime dependency cycle with `ready-to-ship-table.tsx`, which itself
+// imports `useOrderCarrierRates` (a value) from this file.
+import type { PackageSelection } from "../../routes/orders/order-list/components/order-list-table/components/ready-to-ship-table"
 import { inventoryItemsQueryKeys } from "./inventory"
 import { reservationItemsQueryKeys } from "./reservations"
 
@@ -568,6 +574,75 @@ export const useExportOrders = (
     onSuccess: (data, variables, context) => {
       options?.onSuccess?.(data, variables, context)
     },
+    ...options,
+  })
+}
+
+export type QuotedCarrierRate = {
+  carrier: string
+  service: string
+  name: string
+  rate_id: string
+  amount: string
+  currency: string
+}
+
+export type OrderCarrierRatesResponse = {
+  shipment_id: string
+  rates: QuotedCarrierRate[]
+}
+
+/**
+ * The `POST /admin/orders/:id/carrier-rates` route's (Task 6) request body
+ * shape uses a snake_case `parcel.predefined_package`, unlike
+ * `PackageSelection`'s own camelCase `predefinedPackage` (the shape
+ * `PackagePopover`'s `onChange` hands back, matching the rest of this
+ * dashboard's convention) - mapped here, once, rather than at every call
+ * site of this hook.
+ */
+const toCarrierRatesParcel = (parcel: PackageSelection) => ({
+  weight: parcel.weight,
+  length: parcel.length,
+  width: parcel.width,
+  height: parcel.height,
+  predefined_package: parcel.predefinedPackage,
+})
+
+/**
+ * Quotes every carrier rate EasyPost can offer for one order's parcel,
+ * shipped from the given stock location - the Ready to Ship table's
+ * Shipping Rate column (`shipping-rate-select.tsx`) re-quotes whenever
+ * `location_id`/`parcel` differ from the last call, since both are part of
+ * this query's own key. There's no SDK method for this new, non-core route
+ * - `sdk.client.fetch` is called directly, the same low-level pattern
+ * `FulfillmentQueuePage`
+ * (`apps/backend/src/admin/routes/fulfillment-queue/page.tsx`) already
+ * uses for its own non-core route.
+ *
+ * Unlike this file's other hooks (`useOrder`, `useOrderPreview`, ...), the
+ * raw `useQuery` result is returned as-is - not flattened into
+ * `{ ...data, ...rest }` - since `ShippingRateSelect` reads `data.rates`/
+ * `data.shipment_id` directly, the same shape `FulfillmentQueuePage` itself
+ * reads its own query's `data` with.
+ */
+export const useOrderCarrierRates = (
+  orderId: string,
+  params: { location_id: string; parcel: PackageSelection },
+  options?: { enabled?: boolean }
+) => {
+  return useQuery({
+    queryFn: async () =>
+      sdk.client.fetch<OrderCarrierRatesResponse>(
+        `/admin/orders/${orderId}/carrier-rates`,
+        {
+          method: "POST",
+          body: {
+            location_id: params.location_id,
+            parcel: toCarrierRatesParcel(params.parcel),
+          },
+        }
+      ),
+    queryKey: ["orders", orderId, "carrier-rates", params],
     ...options,
   })
 }

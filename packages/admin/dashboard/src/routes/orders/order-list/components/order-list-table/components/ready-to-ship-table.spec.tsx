@@ -32,6 +32,7 @@ const {
   mockPrompt,
   mockUseStore,
   mockUseStockLocations,
+  mockUseOrderCarrierRates,
 } = vi.hoisted(() => ({
   mockUseOrders: vi.fn(),
   mockBulkFulfillOrders: vi.fn(),
@@ -41,6 +42,7 @@ const {
   mockPrompt: vi.fn(),
   mockUseStore: vi.fn(),
   mockUseStockLocations: vi.fn(),
+  mockUseOrderCarrierRates: vi.fn(),
 }))
 
 // Only `toast.error`/`usePrompt` are swapped out for spies - everything
@@ -73,6 +75,15 @@ vi.mock("@medusajs/ui", async (importOriginal) => {
 // configured per test via `mockReturnValue` so the plain-cell tests below
 // (which never render `ReadyToShipTable` itself) and the bulk-command
 // tests (which do) can use different fixtures in the same file.
+//
+// `useOrderCarrierRates` (Task 11) is mocked for the same reason - the
+// `shipping_rate` column's cell now renders `ShippingRateSelect`, which
+// reads it directly, in every test below that renders the full
+// `ReadyToShipTable`. Its default (set once below, same `mockClear()`
+// reasoning as `mockUseStore`/`mockUseStockLocations`) resolves no rates,
+// so this task's own auto-select/manual-pick behavior - already covered in
+// isolation by `shipping-rate-select.spec.tsx` - doesn't fire unexpectedly
+// in these bulk-command/Ship-From-focused tests.
 vi.mock("../../../../../../hooks/api/orders", () => ({
   useOrders: (...args: any[]) => mockUseOrders(...args),
   useBulkFulfillOrders: () => ({
@@ -83,6 +94,7 @@ vi.mock("../../../../../../hooks/api/orders", () => ({
     mutateAsync: mockUseCreateOrderFulfillment,
     isPending: false,
   }),
+  useOrderCarrierRates: (...args: any[]) => mockUseOrderCarrierRates(...args),
 }))
 
 // `ready-to-ship-table.tsx` now also reads `useStore` directly (for the
@@ -147,6 +159,7 @@ afterEach(() => {
   // `ReadyToShipTable`/`ShipFromSelect`.
   mockUseStore.mockClear()
   mockUseStockLocations.mockClear()
+  mockUseOrderCarrierRates.mockClear()
 })
 
 mockUseOrders.mockReturnValue({
@@ -155,6 +168,16 @@ mockUseOrders.mockReturnValue({
   isLoading: false,
   isError: false,
   error: undefined,
+})
+
+// No quote yet (still "loading") by default - keeps `ShippingRateSelect`'s
+// own auto-select effect from firing in every test below that renders the
+// full `ReadyToShipTable`; that behavior is covered on its own terms by
+// `shipping-rate-select.spec.tsx`.
+mockUseOrderCarrierRates.mockReturnValue({
+  data: undefined,
+  isError: false,
+  refetch: vi.fn(),
 })
 
 mockPrompt.mockResolvedValue(true)

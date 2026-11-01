@@ -1253,7 +1253,10 @@
       "confirmHeading": "Confirm fulfillment",
       "bulkFulfillSummary": "{{succeeded}} fulfilled, {{failed}} failed",
       "packageCustom": "Custom",
-      "packageWeightRequired": "Weight is required"
+      "packageWeightRequired": "Weight is required",
+      "quoting": "Quoting...",
+      "shippingRateQuoteFailed": "Unable to fetch shipping rates",
+      "retry": "Retry"
     },
     "shipped": {
       "trackingStatus": "Tracking Status",

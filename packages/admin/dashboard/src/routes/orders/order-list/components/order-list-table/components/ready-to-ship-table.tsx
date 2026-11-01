@@ -31,6 +31,7 @@ import { getStylizedAmount } from "../../../../../../lib/money-amount-helpers"
 import {
   computeOrderParcel,
   formatPackageField,
+  OrderParcel,
 } from "../../../../../../lib/order-parcel"
 import { READY_TO_SHIP_FIELDS } from "../../../const"
 import { BulkFulfillResultSummary } from "./bulk-fulfill-result-summary"
@@ -38,6 +39,7 @@ import { FulfillConfirmPopover } from "./fulfill-confirm-popover"
 import { ItemCell } from "./item-cell"
 import { PackagePopover, PackageSelection } from "./package-popover"
 import { ShipFromSelect } from "./ship-from-select"
+import { ShippingRateSelect } from "./shipping-rate-select"
 
 // Re-exported for Task 11/13 (re-quoting carrier rates and buying the
 // fulfillment) to import the exact payload shape `rowPackages` below is
@@ -209,13 +211,39 @@ export const DisabledFulfillCell = () => {
   )
 }
 
+/**
+ * Coerces whichever parcel shape a row's Package column currently holds
+ * into the single `PackageSelection` shape `ShippingRateSelect`/
+ * `useOrderCarrierRates` require: either the admin's confirmed
+ * `PackageSelection` (Task 9, written via `setRowPackage` - already has a
+ * required, validated `weight`), or, before any package has been confirmed
+ * yet, the raw `OrderParcel` `computeOrderParcel` derives from the order's
+ * own items (whose `weight`/dimensions are nullable). A `null` weight (no
+ * unfulfilled item has one) becomes `0` rather than failing to type-check -
+ * EasyPost still rejects a 0-weight parcel, which surfaces through
+ * `ShippingRateSelect`'s existing inline error + retry, the same place any
+ * other unquotable parcel would.
+ */
+const toShippingRateParcel = (
+  parcel: PackageSelection | OrderParcel
+): PackageSelection => ({
+  predefinedPackage:
+    "predefinedPackage" in parcel ? parcel.predefinedPackage : undefined,
+  weight: parcel.weight ?? 0,
+  length: parcel.length ?? undefined,
+  width: parcel.width ?? undefined,
+  height: parcel.height ?? undefined,
+})
+
 const columnHelper = createColumnHelper<ReadyToShipOrder>()
 
 const useReadyToShipTableColumns = (
+  rowPackages: Record<string, PackageSelection>,
   setRowPackage: (orderId: string, parcel: PackageSelection) => void,
   defaultLocationId: string | null,
   rowLocationOverride: Record<string, string>,
-  setRowLocationOverride: (orderId: string, locationId: string) => void
+  setRowLocationOverride: (orderId: string, locationId: string) => void,
+  setRowRate: (orderId: string, rate: { shipmentId: string; rateId: string }) => void
 ) => {
   const { t } = useTranslation()
 
@@ -315,9 +343,16 @@ const useReadyToShipTableColumns = (
           </div>
         ),
         cell: ({ row }) => (
-          <ShippingRateCell
-            shippingMethod={row.original.shipping_methods?.[0]}
-            currencyCode={row.original.currency_code}
+          <ShippingRateSelect
+            orderId={row.original.id}
+            locationId={
+              rowLocationOverride[row.original.id] ?? defaultLocationId ?? ""
+            }
+            parcel={toShippingRateParcel(
+              rowPackages[row.original.id] ??
+                computeOrderParcel(row.original.items ?? [])
+            )}
+            onChange={(rate) => setRowRate(row.original.id, rate)}
           />
         ),
       }),
@@ -345,7 +380,15 @@ const useReadyToShipTableColumns = (
         cell: ({ row }) => <FulfillConfirmPopover order={row.original} />,
       }),
     ],
-    [t, setRowPackage, defaultLocationId, rowLocationOverride, setRowLocationOverride]
+    [
+      t,
+      rowPackages,
+      setRowPackage,
+      defaultLocationId,
+      rowLocationOverride,
+      setRowLocationOverride,
+      setRowRate,
+    ]
   )
 }
 
@@ -373,8 +416,9 @@ export const ReadyToShipTable = () => {
   const [isBulkFulfilling, setIsBulkFulfilling] = useState(false)
   // The admin's in-progress Package selections, keyed by order id - written
   // by `PackagePopover`'s `onChange` via the `package` column's cell below.
-  // This is Task 11's dependency for re-quoting carrier rates against the
-  // chosen package, not consumed anywhere in this task yet.
+  // Read by the `shipping_rate` column's cell to re-quote carrier rates
+  // against the chosen package (falling back to the order's computed
+  // parcel for a row with no confirmed package yet).
   const [rowPackages, setRowPackages] = useState<Record<string, PackageSelection>>(
     {}
   )
@@ -397,6 +441,23 @@ export const ReadyToShipTable = () => {
   const setRowLocationOverride = useCallback(
     (orderId: string, locationId: string) => {
       setRowLocationOverrideState((prev) => ({ ...prev, [orderId]: locationId }))
+    },
+    []
+  )
+
+  // The live carrier rate picked for each row - the cheapest quoted rate by
+  // default, or whichever rate the admin picks from the `shipping_rate`
+  // column's dropdown - written by `ShippingRateSelect`'s `onChange`. Same
+  // keyed-by-order-id shape as `rowPackages`/`rowLocationOverride` above.
+  // Not consumed anywhere in this task yet - Task 13's dependency for
+  // buying the fulfillment against this exact quote.
+  const [_rowRates, setRowRates] = useState<
+    Record<string, { shipmentId: string; rateId: string }>
+  >({})
+
+  const setRowRate = useCallback(
+    (orderId: string, rate: { shipmentId: string; rateId: string }) => {
+      setRowRates((prev) => ({ ...prev, [orderId]: rate }))
     },
     []
   )
@@ -427,10 +488,12 @@ export const ReadyToShipTable = () => {
   )
 
   const columns = useReadyToShipTableColumns(
+    rowPackages,
     setRowPackage,
     defaultLocationId,
     rowLocationOverride,
-    setRowLocationOverride
+    setRowLocationOverride,
+    setRowRate
   )
 
   const { mutateAsync: bulkFulfillOrders } = useBulkFulfillOrders()
