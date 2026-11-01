@@ -3,13 +3,9 @@ import { useState } from "react"
 import { useTranslation } from "react-i18next"
 
 import { useBulkFulfillOrders } from "../../../../../../hooks/api/orders"
+import { useStockLocations } from "../../../../../../hooks/api/stock-locations"
 import { getFulfillableQuantity } from "../../../../../../lib/order-item"
-import {
-  DisabledFulfillCell,
-  getShipFromLocationId,
-  getShipFromLocationName,
-  ReadyToShipOrder,
-} from "./ready-to-ship-table"
+import { DisabledFulfillCell, ReadyToShipOrder } from "./ready-to-ship-table"
 
 type FulfillConfirmPopoverProps = {
   order: ReadyToShipOrder
@@ -22,45 +18,62 @@ type FulfillConfirmPopoverProps = {
   // its value) to gate `hasShippingMethod` below.
   rowLocationOverride: Record<string, string>
   rowRates: Record<string, { shipmentId: string; rateId: string }>
+  // The store-wide default ship-from location, same prop
+  // `ReadyToShipTable` resolves once (via `useStore`) and threads through to
+  // the `ship_from`/`shipping_rate` columns' cells. Required here so this
+  // component resolves `location_id` *exactly* the same way
+  // `buildBulkFulfillments` does for the bulk path
+  // (`rowLocationOverride[order.id] ?? defaultLocationId`, with no further
+  // fallback to the shipping method's own checkout-time location) - what's
+  // displayed, quoted against, and sent must always be the same value.
+  defaultLocationId: string | null
 }
 
 /**
  * Read-only confirmation popover for the Ready to Ship table's Fulfill
- * action. Shows the order's fulfillment location (`rowLocationOverride`'s
- * entry for this order, if the admin picked a different Ship From, else the
- * default resolved via the same shipping method -> shipping option ->
- * service zone -> fulfillment set -> location chain
- * `order-create-fulfillment-form.tsx` uses) and the order's remaining
- * (unfulfilled) line items, using the same
- * `quantity - detail.fulfilled_quantity` formula as that form and
- * `computeOrderParcel`. Confirm calls `useBulkFulfillOrders` with a
- * one-item `fulfillments` array built from those values plus this row's
- * quoted `rowRates` entry (the shipment/rate id `ShippingRateSelect`
- * picked) - this is a confirmation display, never an editable form. An
- * order that needs different quantities still goes through the full
- * fulfillment form on the order detail page, which this plan leaves
- * unchanged.
+ * action. Shows the order's fulfillment location - `rowLocationOverride`'s
+ * entry for this order if the admin picked a different Ship From, else the
+ * store-wide `defaultLocationId`, resolved via `useStockLocations` for its
+ * display name - the *same* resolution `buildBulkFulfillments` uses for the
+ * bulk path, deliberately not the shipping method's own checkout-time
+ * location: what's displayed here, what `ShippingRateSelect` quoted
+ * against, and what's actually sent on confirm must always agree. Also
+ * shows the order's remaining (unfulfilled) line items, using the same
+ * `quantity - detail.fulfilled_quantity` formula as
+ * `order-create-fulfillment-form.tsx` and `computeOrderParcel`. Confirm
+ * calls `useBulkFulfillOrders` with a one-item `fulfillments` array built
+ * from those values plus this row's quoted `rowRates` entry (the
+ * shipment/rate id `ShippingRateSelect` picked) - this is a confirmation
+ * display, never an editable form. An order that needs different
+ * quantities still goes through the full fulfillment form on the order
+ * detail page, which this plan leaves unchanged.
  *
- * On success the popover closes. `useBulkFulfillOrders`'s own `onSuccess`
- * already invalidates `ordersQueryKeys.all`, and `ReadyToShipTable`'s
- * `useOrders` query key is built under that same `orders` key hierarchy, so
- * no additional invalidation is needed here.
+ * `useBulkFulfillOrders`'s own `onSuccess` already invalidates
+ * `ordersQueryKeys.all`, and `ReadyToShipTable`'s `useOrders` query key is
+ * built under that same `orders` key hierarchy, so no additional
+ * invalidation is needed here.
  *
- * On failure (e.g. the fulfillment provider can't buy a label for an
- * incomplete address) the popover stays open and the error message is
- * rendered inline inside the content, per the design spec's Error
- * handling section - deliberately not a toast, unlike the full
- * fulfillment form's own error handling.
+ * Request-level failure (the mutation's promise rejecting - e.g. a network
+ * error) and a structured per-order failure (the batch route always
+ * resolves with HTTP 200, recording a failed fulfillment in the response's
+ * own `failed` array instead - see `fulfillments/batch/route.ts`) both keep
+ * the popover open and render the error message inline, per the design
+ * spec's Error handling section - deliberately not a toast, unlike the
+ * full fulfillment form's own error handling. Only a resolved response with
+ * no `failed` entry for this order counts as success and closes the
+ * popover.
  */
 export const FulfillConfirmPopover = ({
   order,
   rowLocationOverride,
   rowRates,
+  defaultLocationId,
 }: FulfillConfirmPopoverProps) => {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const { mutateAsync, isPending } = useBulkFulfillOrders()
+  const { stock_locations } = useStockLocations()
 
   const shippingMethod = order.shipping_methods?.[0]
   // Deliberately `!!shippingMethod`, not `orderHasShippingMethod(order)`:
@@ -90,8 +103,16 @@ export const FulfillConfirmPopover = ({
     return <DisabledFulfillCell />
   }
 
-  const locationId = rowLocationOverride[order.id] ?? getShipFromLocationId(shippingMethod)
-  const locationName = getShipFromLocationName(shippingMethod)
+  // Mirrors `buildBulkFulfillments` exactly - no fallback to the shipping
+  // method's own checkout-time location. `ShippingRateSelect` already
+  // quoted this exact row against this exact `locationId` (see
+  // `ready-to-ship-table.tsx`'s `shipping_rate` column cell), so sending
+  // (and displaying) anything else here would quote one address and buy a
+  // label for another.
+  const locationId = rowLocationOverride[order.id] ?? defaultLocationId ?? undefined
+  const locationName =
+    stock_locations?.find((location) => location.id === locationId)?.name ??
+    t("fields.location")
 
   const fulfillableItems = (order.items ?? []).filter(
     (item) => getFulfillableQuantity(item) > 0
@@ -113,16 +134,31 @@ export const FulfillConfirmPopover = ({
     setErrorMessage(null)
 
     try {
-      await mutateAsync({
+      const result = await mutateAsync({
         fulfillments: [
           {
             order_id: order.id,
-            location_id: locationId ?? undefined,
+            location_id: locationId,
             shipment_id: rate.shipmentId,
             rate_id: rate.rateId,
           },
         ],
       })
+
+      // The batch route always resolves with HTTP 200 - a failed label
+      // buy/fulfillment creation for this order is recorded in the
+      // response's own `failed` array, not a rejected promise (see
+      // `fulfillments/batch/route.ts`). Only the absence of a `failed`
+      // entry for this order counts as success; finding one keeps the
+      // popover open and surfaces that exact error, the same as a thrown
+      // request-level error below.
+      const failure = result.failed.find((f) => f.order_id === order.id)
+
+      if (failure) {
+        setErrorMessage(failure.error)
+        return
+      }
+
       setOpen(false)
     } catch (e) {
       setErrorMessage(

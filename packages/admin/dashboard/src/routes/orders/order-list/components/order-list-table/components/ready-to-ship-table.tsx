@@ -542,6 +542,7 @@ const useReadyToShipTableColumns = (
             order={row.original}
             rowLocationOverride={rowLocationOverrideRef.current}
             rowRates={rowRatesRef.current}
+            defaultLocationId={defaultLocationIdRef.current}
           />
         ),
       }),
@@ -578,6 +579,59 @@ export const ReadyToShipTable = () => {
   // still in flight must be a no-op rather than firing a second, possibly
   // overlapping request for the same selection.
   const [isBulkFulfilling, setIsBulkFulfilling] = useState(false)
+  // The live carrier rate picked for each row - the cheapest quoted rate by
+  // default, or whichever rate the admin picks from the `shipping_rate`
+  // column's dropdown - written by `ShippingRateSelect`'s `onChange`. Same
+  // keyed-by-order-id shape as `rowPackages`/`rowLocationOverride` below.
+  // Consumed by `enableRowSelection` and the bulk command's `action` below
+  // (a row with no entry here isn't selectable/fulfillable yet - its quote
+  // is still loading or failed) and passed down to `FulfillConfirmPopover`
+  // for the single-row Fulfill action.
+  //
+  // Declared before `rowPackages`/`rowLocationOverride` below (rather than
+  // alongside `rowRates`'s own `setRowRate`, which would read more
+  // naturally next to them) specifically so `setRowPackage`/
+  // `setRowLocationOverride` can close over the already-initialized
+  // `clearRowRate` below - `const` bindings are in scope for a closure
+  // regardless of source order (the closures aren't *called* until long
+  // after this render finishes), but only once their own declaration has
+  // actually run earlier in *this* render pass.
+  const [rowRates, setRowRates] = useState<
+    Record<string, { shipmentId: string; rateId: string }>
+  >({})
+
+  const setRowRate = useCallback(
+    (orderId: string, rate: { shipmentId: string; rateId: string }) => {
+      setRowRates((prev) => ({ ...prev, [orderId]: rate }))
+    },
+    []
+  )
+
+  // Invalidates a row's quoted rate - called whenever that row's Ship From
+  // or Package selection changes (`setRowPackage`/`setRowLocationOverride`
+  // below), since either one changes `ShippingRateSelect`'s own query key
+  // and therefore what it's actually quoting against. Without this, the
+  // *stale* rate stays in `rowRates` (and keeps gating `enableRowSelection`/
+  // `FulfillConfirmPopover` open) for the entire window between "the
+  // location/package changed" and "the new quote resolves" - a fulfillment
+  // confirmed in that window would buy a label whose EasyPost
+  // shipment/parcel no longer matches the `location_id` actually being
+  // sent. `ShippingRateSelect`'s own auto-select effect naturally
+  // repopulates this once its new quote arrives (or leaves it cleared, if
+  // the new quote fails), so this only needs to clear it, never set a new
+  // value itself.
+  const clearRowRate = useCallback((orderId: string) => {
+    setRowRates((prev) => {
+      if (!(orderId in prev)) {
+        return prev
+      }
+
+      const next = { ...prev }
+      delete next[orderId]
+      return next
+    })
+  }, [])
+
   // The admin's in-progress Package selections, keyed by order id - written
   // by `PackagePopover`'s `onChange` via the `package` column's cell below.
   // Read by the `shipping_rate` column's cell to re-quote carrier rates
@@ -587,12 +641,17 @@ export const ReadyToShipTable = () => {
     {}
   )
 
-  // A stable identity (a purely functional `setState` updater, no outer
-  // dependencies) so it doesn't force `useReadyToShipTableColumns`'s
-  // `useMemo` to recompute every render just because this closure is new.
-  const setRowPackage = useCallback((orderId: string, parcel: PackageSelection) => {
-    setRowPackages((prev) => ({ ...prev, [orderId]: parcel }))
-  }, [])
+  // A stable identity (`clearRowRate` is itself stable too, so this closure
+  // never changes reference across renders) so it doesn't force
+  // `useReadyToShipTableColumns`'s `useMemo` to recompute every render just
+  // because this closure is new.
+  const setRowPackage = useCallback(
+    (orderId: string, parcel: PackageSelection) => {
+      setRowPackages((prev) => ({ ...prev, [orderId]: parcel }))
+      clearRowRate(orderId)
+    },
+    [clearRowRate]
+  )
 
   // The admin's in-progress Ship From overrides, keyed by order id - written
   // by `ShipFromSelect`'s `onChange` via the `ship_from` column's cell
@@ -605,27 +664,9 @@ export const ReadyToShipTable = () => {
   const setRowLocationOverride = useCallback(
     (orderId: string, locationId: string) => {
       setRowLocationOverrideState((prev) => ({ ...prev, [orderId]: locationId }))
+      clearRowRate(orderId)
     },
-    []
-  )
-
-  // The live carrier rate picked for each row - the cheapest quoted rate by
-  // default, or whichever rate the admin picks from the `shipping_rate`
-  // column's dropdown - written by `ShippingRateSelect`'s `onChange`. Same
-  // keyed-by-order-id shape as `rowPackages`/`rowLocationOverride` above.
-  // Consumed by `enableRowSelection` and the bulk command's `action` below
-  // (a row with no entry here isn't selectable/fulfillable yet - its quote
-  // is still loading or failed) and passed down to `FulfillConfirmPopover`
-  // for the single-row Fulfill action.
-  const [rowRates, setRowRates] = useState<
-    Record<string, { shipmentId: string; rateId: string }>
-  >({})
-
-  const setRowRate = useCallback(
-    (orderId: string, rate: { shipmentId: string; rateId: string }) => {
-      setRowRates((prev) => ({ ...prev, [orderId]: rate }))
-    },
-    []
+    [clearRowRate]
   )
 
   // The store-wide default ship-from location, written by the Fulfillment

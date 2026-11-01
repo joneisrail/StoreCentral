@@ -659,8 +659,6 @@ describe("ReadyToShipTable bulk Fulfill command", () => {
         { id: "sloc_b", name: "Warehouse B2" },
       ],
     })
-    setOrderRate("order_1", "shp_a", "rate_a")
-    setOrderRate("order_2", "shp_b", "rate_b")
     mockBulkFulfillOrders.mockResolvedValue({
       succeeded: ["order_1", "order_2"],
       failed: [],
@@ -674,11 +672,21 @@ describe("ReadyToShipTable bulk Fulfill command", () => {
     // `aria-label` (`ship-from-select.tsx`), not by combobox index, since
     // the `shipping_rate` column's `ShippingRateSelect` is also a
     // "combobox" and would otherwise throw off the indices.
+    //
+    // Each `setOrderRate` call here, right before its row's own Ship From
+    // click, stands in for the fresh quote `ShippingRateSelect` would get
+    // back from a real re-quote against the *new* location (its own
+    // `rowRates` entry for this order is cleared the instant the override
+    // itself changes - see `clearRowRate` in `ready-to-ship-table.tsx` -
+    // and only repopulated once a quote for the new location actually
+    // resolves, which this simulates).
+    setOrderRate("order_1", "shp_a", "rate_a")
     await user.click(
       await screen.findByRole("combobox", { name: "Ship from - order order_1" })
     )
     await user.click(await screen.findByText("Warehouse A2"))
 
+    setOrderRate("order_2", "shp_b", "rate_b")
     await user.click(
       screen.getByRole("combobox", { name: "Ship from - order order_2" })
     )
@@ -951,13 +959,18 @@ describe("ReadyToShipTable Fulfill popover - composed tree (regression)", () => 
 
     // `FulfillConfirmPopover` now fulfills via `useBulkFulfillOrders` (a
     // one-item `fulfillments` array), not `useCreateOrderFulfillment` - the
-    // same mutation the bulk "Fulfill selected" command itself calls.
+    // same mutation the bulk "Fulfill selected" command itself calls. The
+    // location sent is the store-wide default (`loc_default`, from
+    // `mockUseStore` above) - not `order_1`'s own shipping method location
+    // (`loc_order_1`) - since no Ship From override is set for this row;
+    // `FulfillConfirmPopover` resolves `location_id` exactly the same way
+    // `buildBulkFulfillments` does for the bulk path.
     await waitFor(() => {
       expect(mockBulkFulfillOrders).toHaveBeenCalledWith({
         fulfillments: [
           {
             order_id: "order_1",
-            location_id: "loc_order_1",
+            location_id: "loc_default",
             shipment_id: "shp_order_1",
             rate_id: "rate_order_1",
           },
@@ -1106,5 +1119,99 @@ describe("ReadyToShipTable Ship From column", () => {
     // row's trigger - untouched - still shows the store default.
     expect(screen.getByText("Warehouse B")).toBeTruthy()
     expect(screen.getByText("Warehouse A")).toBeTruthy()
+  })
+})
+
+/**
+ * Review finding (Important #2 of the Task 13 re-review): `rowRates` was
+ * never cleared when a row's Ship From or Package selection changed, so a
+ * *stale* rate - quoted against the previous location/parcel - kept
+ * gating `enableRowSelection`/`FulfillConfirmPopover` open for the entire
+ * window between "the location/package changed" and "the new quote
+ * resolves". A fulfillment confirmed in that window would buy a label
+ * whose EasyPost shipment no longer matches what's actually being sent.
+ * `ready-to-ship-table.tsx`'s `clearRowRate` (called from
+ * `setRowLocationOverride`/`setRowPackage`) fixes this by clearing the
+ * row's `rowRates` entry the instant either selection changes, re-disabling
+ * the row until a fresh quote for the new location/parcel actually
+ * resolves.
+ */
+describe("ReadyToShipTable rate invalidation on Ship From/Package change", () => {
+  it("clears the row's quoted rate - disabling it again - the instant the admin changes that row's Ship From, since the old rate was quoted against the previous location", async () => {
+    mockUseOrders.mockReturnValue({
+      orders: [makeReadyToShipOrder("order_1")],
+      count: 1,
+      isLoading: false,
+      isError: false,
+      error: undefined,
+    })
+    mockUseStockLocations.mockReturnValue({
+      stock_locations: [
+        { id: "loc_default", name: "Warehouse A" },
+        { id: "sloc_a", name: "Warehouse A2" },
+      ],
+    })
+    setOrderRate("order_1", "shp_1", "rate_1")
+
+    const user = userEvent.setup()
+    renderReadyToShipTable()
+
+    const checkboxBefore = (await screen.findAllByRole(
+      "checkbox"
+    ))[1] as HTMLButtonElement
+    expect(checkboxBefore.disabled).toBe(false)
+
+    await user.click(
+      screen.getByRole("combobox", { name: "Ship from - order order_1" })
+    )
+    await user.click(await screen.findByText("Warehouse A2"))
+
+    // No new quote was simulated for the new location (unlike the
+    // integration test above, which calls `setOrderRate` again before the
+    // click to stand in for one) - `ShippingRateSelect`'s own `data` is
+    // therefore unchanged, so its auto-select guard correctly does *not*
+    // repopulate `rowRates` here. The row stays disabled until a genuinely
+    // new quote arrives, exactly the gap this fix closes.
+    const checkboxAfter = (await screen.findAllByRole(
+      "checkbox"
+    ))[1] as HTMLButtonElement
+    expect(checkboxAfter.disabled).toBe(true)
+  })
+
+  it("clears the row's quoted rate - disabling it again - the instant the admin confirms a different Package selection, since the old rate was quoted against the previous parcel", async () => {
+    mockUseOrders.mockReturnValue({
+      orders: [makeReadyToShipOrder("order_1")],
+      count: 1,
+      isLoading: false,
+      isError: false,
+      error: undefined,
+    })
+    setOrderRate("order_1", "shp_1", "rate_1")
+
+    const user = userEvent.setup()
+    renderReadyToShipTable()
+
+    const checkboxBefore = (await screen.findAllByRole(
+      "checkbox"
+    ))[1] as HTMLButtonElement
+    expect(checkboxBefore.disabled).toBe(false)
+
+    // `makeReadyToShipOrder`'s single item has `variant: { weight: 1,
+    // length: 1, width: 1, height: 1 }`, so `PackagePopover`'s trigger -
+    // nothing confirmed yet - reads "Custom — 1x1x1, 1".
+    await user.click(
+      screen.getByRole("button", { name: "Custom — 1x1x1, 1" })
+    )
+    await user.click(
+      await screen.findByRole("radio", {
+        name: "USPS Card (6in x 4.5in x 0.016in)",
+      })
+    )
+    await user.click(screen.getByRole("button", { name: "actions.confirm" }))
+
+    const checkboxAfter = (await screen.findAllByRole(
+      "checkbox"
+    ))[1] as HTMLButtonElement
+    expect(checkboxAfter.disabled).toBe(true)
   })
 })
