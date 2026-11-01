@@ -30,6 +30,8 @@ const {
   mockBulkFulfillResultSummary,
   mockToastError,
   mockPrompt,
+  mockUseStore,
+  mockUseStockLocations,
 } = vi.hoisted(() => ({
   mockUseOrders: vi.fn(),
   mockBulkFulfillOrders: vi.fn(),
@@ -37,6 +39,8 @@ const {
   mockBulkFulfillResultSummary: vi.fn(),
   mockToastError: vi.fn(),
   mockPrompt: vi.fn(),
+  mockUseStore: vi.fn(),
+  mockUseStockLocations: vi.fn(),
 }))
 
 // Only `toast.error`/`usePrompt` are swapped out for spies - everything
@@ -81,6 +85,19 @@ vi.mock("../../../../../../hooks/api/orders", () => ({
   }),
 }))
 
+// `ready-to-ship-table.tsx` now also reads `useStore` directly (for the
+// store-wide default ship-from location), and the `ship_from` column's
+// cell renders `ShipFromSelect`, which reads `useStockLocations` - both
+// pull in the same build-time-define-dependent `lib/client` as `orders`
+// above, so both are mocked out for the same reason.
+vi.mock("../../../../../../hooks/api/store", () => ({
+  useStore: (...args: any[]) => mockUseStore(...args),
+}))
+
+vi.mock("../../../../../../hooks/api/stock-locations", () => ({
+  useStockLocations: (...args: any[]) => mockUseStockLocations(...args),
+}))
+
 // Stubbed so the bulk-command tests below can assert exactly what props
 // `ReadyToShipTable` passes it, without depending on its own i18n
 // interpolation - that's covered directly in
@@ -122,6 +139,14 @@ afterEach(() => {
   // the mutation as if the user confirmed. The confirm-gating tests below
   // override it per-call with `mockResolvedValueOnce`.
   mockPrompt.mockClear()
+  // Same `mockClear()` reasoning as `mockPrompt` above: every test below
+  // renders the full `ReadyToShipTable` (whose `ship_from` column cell now
+  // reads both of these via `ShipFromSelect`), not just `mockUseOrders` -
+  // so their defaults, set once below, need to survive every test rather
+  // than reset to `undefined` and break destructuring in
+  // `ReadyToShipTable`/`ShipFromSelect`.
+  mockUseStore.mockClear()
+  mockUseStockLocations.mockClear()
 })
 
 mockUseOrders.mockReturnValue({
@@ -133,6 +158,29 @@ mockUseOrders.mockReturnValue({
 })
 
 mockPrompt.mockResolvedValue(true)
+
+mockUseStore.mockReturnValue({
+  store: {
+    id: "store_1",
+    metadata: { default_ship_from_location_id: "loc_default" },
+  },
+})
+
+mockUseStockLocations.mockReturnValue({
+  stock_locations: [{ id: "loc_default", name: "Warehouse A" }],
+})
+
+// jsdom doesn't implement these - Radix `Select`'s pointer-based open/select
+// handling (now rendered for real as `ShipFromSelect` in every row of the
+// bulk-command tests' full `ReadyToShipTable` below) calls them
+// unconditionally, which would otherwise throw as soon as a trigger is
+// clicked.
+if (!Element.prototype.hasPointerCapture) {
+  Element.prototype.hasPointerCapture = vi.fn()
+}
+if (!Element.prototype.scrollIntoView) {
+  Element.prototype.scrollIntoView = vi.fn()
+}
 
 describe("ReadyToShipTable shipping rate / fulfill", () => {
   it("shows $0.00 for a free shipping method, distinct from no shipping method at all", () => {
@@ -731,5 +779,63 @@ describe("ReadyToShipTable bulk row selection - no shipping method guard", () =>
         order_ids: ["order_1"],
       })
     })
+  })
+})
+
+/**
+ * Task 10 coverage for the `ship_from` column's wiring: `ShipFromSelect`
+ * itself (defaulting, calling `onChange` immediately) is covered in
+ * isolation by `ship-from-select.spec.tsx` - this exercises the part that
+ * lives in `ReadyToShipTable` itself: resolving the store-wide default via
+ * `useStore`, and keeping each row's override independent in
+ * `rowLocationOverride`.
+ */
+describe("ReadyToShipTable Ship From column", () => {
+  it("defaults every row with no override yet to the store's default_ship_from_location_id", async () => {
+    mockUseOrders.mockReturnValue({
+      orders: [
+        makeReadyToShipOrder("order_1"),
+        makeReadyToShipOrder("order_2"),
+      ],
+      count: 2,
+      isLoading: false,
+      isError: false,
+      error: undefined,
+    })
+
+    renderReadyToShipTable()
+
+    expect(await screen.findAllByText("Warehouse A")).toHaveLength(2)
+  })
+
+  it("picking a different Ship From location on one row only overrides that row - the other row keeps the store default", async () => {
+    mockUseOrders.mockReturnValue({
+      orders: [
+        makeReadyToShipOrder("order_1"),
+        makeReadyToShipOrder("order_2"),
+      ],
+      count: 2,
+      isLoading: false,
+      isError: false,
+      error: undefined,
+    })
+    mockUseStockLocations.mockReturnValue({
+      stock_locations: [
+        { id: "loc_default", name: "Warehouse A" },
+        { id: "loc_b", name: "Warehouse B" },
+      ],
+    })
+
+    const user = userEvent.setup()
+    renderReadyToShipTable()
+
+    const triggers = await screen.findAllByRole("combobox")
+    await user.click(triggers[0])
+    await user.click(await screen.findByText("Warehouse B"))
+
+    // The first row switched to the newly picked location; the second
+    // row's trigger - untouched - still shows the store default.
+    expect(screen.getByText("Warehouse B")).toBeTruthy()
+    expect(screen.getByText("Warehouse A")).toBeTruthy()
   })
 })

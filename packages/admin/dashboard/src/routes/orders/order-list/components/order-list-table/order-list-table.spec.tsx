@@ -36,6 +36,21 @@ vi.mock("../../../../../hooks/api/orders", () => ({
   }),
 }))
 
+// `ReadyToShipTable` also calls `useStore` unconditionally (for the Ship
+// From column's store-wide default), independent of row count - so this
+// still needs mocking even with every table above on its "no records"
+// path.
+vi.mock("../../../../../hooks/api/store", () => ({
+  useStore: () => ({ store: undefined }),
+}))
+
+// Same reasoning as the `useStore` mock above: `ReadyToShipTable`'s Ship
+// From column cell renders `ShipFromSelect`, which calls
+// `useStockLocations`.
+vi.mock("../../../../../hooks/api/stock-locations", () => ({
+  useStockLocations: () => ({ stock_locations: [] }),
+}))
+
 // `useOrderTableFilters` (the All tab only) calls `useRegions` /
 // `useSalesChannels` / `useOrderTags`, which also reach `lib/client`.
 // The All tab's filters aren't what this test is about, so the hook is

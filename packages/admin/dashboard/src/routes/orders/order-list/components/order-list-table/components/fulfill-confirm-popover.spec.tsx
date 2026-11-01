@@ -23,6 +23,23 @@ vi.mock("../../../../../../hooks/api/orders", () => ({
   }),
 }))
 
+// `fulfill-confirm-popover.tsx` imports `getShipFromLocationId`/
+// `getShipFromLocationName` from `./ready-to-ship-table`, which - as a
+// whole module - also imports `useStore` (for the Ship From column's
+// store-wide default). That pulls in `lib/client`'s build-time defines at
+// module-evaluation time, regardless of whether `ReadyToShipTable` itself
+// is ever rendered here, so it needs mocking for the same reason
+// `useOrders` above does.
+vi.mock("../../../../../../hooks/api/store", () => ({
+  useStore: () => ({ store: undefined }),
+}))
+
+// Same reasoning as the `useStore` mock above: `ready-to-ship-table.tsx`
+// also imports `ShipFromSelect`, which imports `useStockLocations`.
+vi.mock("../../../../../../hooks/api/stock-locations", () => ({
+  useStockLocations: () => ({ stock_locations: [] }),
+}))
+
 import { FulfillConfirmPopover } from "./fulfill-confirm-popover"
 
 const baseOrder = {

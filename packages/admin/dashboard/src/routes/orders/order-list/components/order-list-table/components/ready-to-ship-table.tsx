@@ -25,6 +25,7 @@ import {
   useBulkFulfillOrders,
   useOrders,
 } from "../../../../../../hooks/api/orders"
+import { useStore } from "../../../../../../hooks/api/store"
 import { useDataTable } from "../../../../../../hooks/use-data-table"
 import { getStylizedAmount } from "../../../../../../lib/money-amount-helpers"
 import {
@@ -36,6 +37,7 @@ import { BulkFulfillResultSummary } from "./bulk-fulfill-result-summary"
 import { FulfillConfirmPopover } from "./fulfill-confirm-popover"
 import { ItemCell } from "./item-cell"
 import { PackagePopover, PackageSelection } from "./package-popover"
+import { ShipFromSelect } from "./ship-from-select"
 
 // Re-exported for Task 11/13 (re-quoting carrier rates and buying the
 // fulfillment) to import the exact payload shape `rowPackages` below is
@@ -210,7 +212,10 @@ export const DisabledFulfillCell = () => {
 const columnHelper = createColumnHelper<ReadyToShipOrder>()
 
 const useReadyToShipTableColumns = (
-  setRowPackage: (orderId: string, parcel: PackageSelection) => void
+  setRowPackage: (orderId: string, parcel: PackageSelection) => void,
+  defaultLocationId: string | null,
+  rowLocationOverride: Record<string, string>,
+  setRowLocationOverride: (orderId: string, locationId: string) => void
 ) => {
   const { t } = useTranslation()
 
@@ -277,7 +282,13 @@ const useReadyToShipTableColumns = (
           </div>
         ),
         cell: ({ row }) => (
-          <ShipFromCell shippingMethod={row.original.shipping_methods?.[0]} />
+          <ShipFromSelect
+            orderId={row.original.id}
+            defaultLocationId={
+              rowLocationOverride[row.original.id] ?? defaultLocationId
+            }
+            onChange={(id) => setRowLocationOverride(row.original.id, id)}
+          />
         ),
       }),
       columnHelper.display({
@@ -334,7 +345,7 @@ const useReadyToShipTableColumns = (
         cell: ({ row }) => <FulfillConfirmPopover order={row.original} />,
       }),
     ],
-    [t, setRowPackage]
+    [t, setRowPackage, defaultLocationId, rowLocationOverride, setRowLocationOverride]
   )
 }
 
@@ -375,6 +386,29 @@ export const ReadyToShipTable = () => {
     setRowPackages((prev) => ({ ...prev, [orderId]: parcel }))
   }, [])
 
+  // The admin's in-progress Ship From overrides, keyed by order id - written
+  // by `ShipFromSelect`'s `onChange` via the `ship_from` column's cell
+  // below. Same keyed-by-order-id shape as `rowPackages` above. A row with
+  // no entry here falls back to the store-wide `defaultLocationId`.
+  const [rowLocationOverride, setRowLocationOverrideState] = useState<
+    Record<string, string>
+  >({})
+
+  const setRowLocationOverride = useCallback(
+    (orderId: string, locationId: string) => {
+      setRowLocationOverrideState((prev) => ({ ...prev, [orderId]: locationId }))
+    },
+    []
+  )
+
+  // The store-wide default ship-from location, written by the Fulfillment
+  // settings page - resolved once here rather than per row, since every row
+  // without its own override falls back to the same value.
+  const { store } = useStore()
+  const defaultLocationId =
+    (store?.metadata?.default_ship_from_location_id as string | undefined) ??
+    null
+
   const offsetKey = `${QUERY_PREFIX}_offset`
   const offset = Number(searchParams.get(offsetKey) ?? 0)
 
@@ -392,7 +426,12 @@ export const ReadyToShipTable = () => {
     }
   )
 
-  const columns = useReadyToShipTableColumns(setRowPackage)
+  const columns = useReadyToShipTableColumns(
+    setRowPackage,
+    defaultLocationId,
+    rowLocationOverride,
+    setRowLocationOverride
+  )
 
   const { mutateAsync: bulkFulfillOrders } = useBulkFulfillOrders()
 
