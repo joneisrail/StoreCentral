@@ -31,6 +31,7 @@ import { computeOrderParcel } from "../../../../../../lib/order-parcel"
 import { READY_TO_SHIP_FIELDS } from "../../../const"
 import { BulkFulfillResultSummary } from "./bulk-fulfill-result-summary"
 import { FulfillConfirmPopover } from "./fulfill-confirm-popover"
+import { ItemCell } from "./item-cell"
 
 const PAGE_SIZE = 20
 const QUERY_PREFIX = "rts"
@@ -251,6 +252,15 @@ const useReadyToShipTableColumns = () => {
       columnHelper.accessor("customer", {
         header: () => <CustomerHeader />,
         cell: ({ getValue }) => <CustomerCell customer={getValue()} />,
+      }),
+      columnHelper.display({
+        id: "item",
+        header: () => (
+          <div className="flex h-full w-full items-center">
+            <span className="truncate">{t("fields.items")}</span>
+          </div>
+        ),
+        cell: ({ row }) => <ItemCell items={row.original.items ?? []} />,
       }),
       columnHelper.display({
         id: "ship_from",
