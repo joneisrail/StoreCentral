@@ -4889,6 +4889,9 @@
             "noShippingMethod": {
               "type": "string"
             },
+            "noRateYet": {
+              "type": "string"
+            },
             "noRecordsMessage": {
               "type": "string"
             },
@@ -4931,6 +4934,7 @@
             "fulfillSelectedConfirmDescription",
             "fulfillSelectedRateNotReady",
             "noShippingMethod",
+            "noRateYet",
             "noRecordsMessage",
             "confirmHeading",
             "bulkFulfillSummary",

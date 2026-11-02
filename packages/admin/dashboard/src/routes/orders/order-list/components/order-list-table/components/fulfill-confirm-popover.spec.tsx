@@ -125,7 +125,8 @@ describe("FulfillConfirmPopover", () => {
     expect(button.disabled).toBe(true)
   })
 
-  it("renders the inert, disabled Fulfill button when the order has a shipping method but no quoted rate yet - buying a label needs the shipment_id/rate_id a quote provides", () => {
+  it("renders the inert, disabled Fulfill button - with its own distinct 'rate not ready' tooltip, not 'no shipping method' - when the order has a shipping method but no quoted rate yet", async () => {
+    const user = userEvent.setup()
     render(
       <TooltipProvider>
         <FulfillConfirmPopover
@@ -141,6 +142,17 @@ describe("FulfillConfirmPopover", () => {
       name: "orders.readyToShip.fulfill",
     }) as HTMLButtonElement
     expect(button.disabled).toBe(true)
+
+    await user.hover(button)
+
+    // Distinct from the no-shipping-method case's tooltip - this row does
+    // have a shipping method, it's the quote that's missing.
+    await waitFor(() => {
+      expect(
+        screen.getAllByText("orders.readyToShip.noRateYet").length
+      ).toBeGreaterThan(0)
+    })
+    expect(screen.queryByText("orders.readyToShip.noShippingMethod")).toBeNull()
   })
 
   it("opens a read-only confirmation showing the resolved location and only the remaining-quantity items", async () => {

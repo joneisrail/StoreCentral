@@ -219,18 +219,32 @@ export const ShippingRateCell = ({
 }
 
 /**
- * Renders the disabled Fulfill button for an order with no shipping method
- * at all - the same precondition the Shipping Rate and Ship From columns
- * fail under. `FulfillConfirmPopover` renders this directly for that case
- * and wires up the real confirm popover itself for every order that does
- * have a shipping method, so this component only ever renders the single,
- * disabled state - there is no enabled rendering to toggle between here.
+ * Renders the disabled Fulfill button for an order that can't be fulfilled
+ * yet. `FulfillConfirmPopover` renders this directly, for either of two
+ * distinct reasons - no shipping method at all (the same precondition the
+ * Shipping Rate and Ship From columns fail under), or a shipping method but
+ * no quoted carrier rate yet (still loading, or the quote failed) - and
+ * wires up the real confirm popover itself for every order that has both,
+ * so this component only ever renders a disabled state, never the enabled
+ * one. `reason` picks which tooltip explains *why*: defaults to
+ * `"noShippingMethod"` since that's `ready-to-ship-table.spec.tsx`'s own
+ * direct usage of this component (its own tests predate `reason` existing
+ * at all), but every caller should pass the one that actually applies
+ * rather than relying on the default.
  */
-export const DisabledFulfillCell = () => {
+export const DisabledFulfillCell = ({
+  reason = "noShippingMethod",
+}: {
+  reason?: "noShippingMethod" | "noRateYet"
+} = {}) => {
   const { t } = useTranslation()
+  const tooltipKey =
+    reason === "noRateYet"
+      ? "orders.readyToShip.noRateYet"
+      : "orders.readyToShip.noShippingMethod"
 
   return (
-    <Tooltip content={t("orders.readyToShip.noShippingMethod")}>
+    <Tooltip content={t(tooltipKey)}>
       <Button size="small" variant="secondary" disabled>
         {t("orders.readyToShip.fulfill")}
       </Button>
@@ -261,6 +275,25 @@ const toShippingRateParcel = (
   width: parcel.width ?? undefined,
   height: parcel.height ?? undefined,
 })
+
+/**
+ * Whether two `PackageSelection`s describe the same parcel, field by field.
+ * Used by `setRowPackage` below to recognize a "no-op" confirm - the admin
+ * reopens the Package popover and confirms the exact same preset/custom
+ * values without changing anything - so it can skip clearing that row's
+ * quoted rate: `PackagePopover`'s own confirm handlers call `onChange`
+ * unconditionally on every confirm, whether or not the selection actually
+ * changed, so this comparison has to happen on the receiving end.
+ */
+export const isSamePackageSelection = (
+  a: PackageSelection,
+  b: PackageSelection
+): boolean =>
+  a.predefinedPackage === b.predefinedPackage &&
+  a.weight === b.weight &&
+  a.length === b.length &&
+  a.width === b.width &&
+  a.height === b.height
 
 export type BulkFulfillmentEntry = {
   order_id: string
@@ -641,14 +674,35 @@ export const ReadyToShipTable = () => {
     {}
   )
 
+  // A "latest" ref so `setRowPackage` below can read the row's *previous*
+  // package without needing `rowPackages` itself in its own dependency
+  // array (which would make it a new closure every time any row's package
+  // changes, defeating the whole point of keeping it stable - same
+  // reasoning as the refs in `useReadyToShipTableColumns`).
+  const rowPackagesRef = useRef(rowPackages)
+  rowPackagesRef.current = rowPackages
+
   // A stable identity (`clearRowRate` is itself stable too, so this closure
   // never changes reference across renders) so it doesn't force
   // `useReadyToShipTableColumns`'s `useMemo` to recompute every render just
   // because this closure is new.
   const setRowPackage = useCallback(
     (orderId: string, parcel: PackageSelection) => {
+      const previous = rowPackagesRef.current[orderId]
+
       setRowPackages((prev) => ({ ...prev, [orderId]: parcel }))
-      clearRowRate(orderId)
+
+      // `PackagePopover`'s own confirm handlers call `onChange`
+      // unconditionally on every confirm, whether or not the admin
+      // actually changed anything - re-confirming the same preset/custom
+      // values is a real, easy-to-hit path (reopen the popover, click
+      // Confirm again). Only clear this row's quoted rate when the
+      // package *actually* changed; otherwise the row would be stuck
+      // disabled on an unrelated no-op confirm until some other change
+      // happened to trigger a fresh quote.
+      if (!previous || !isSamePackageSelection(previous, parcel)) {
+        clearRowRate(orderId)
+      }
     },
     [clearRowRate]
   )

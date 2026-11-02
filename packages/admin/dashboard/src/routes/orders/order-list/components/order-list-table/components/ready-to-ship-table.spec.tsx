@@ -135,6 +135,7 @@ vi.mock("./bulk-fulfill-result-summary", () => ({
 import {
   buildBulkFulfillments,
   DisabledFulfillCell,
+  isSamePackageSelection,
   PackageCell,
   ReadyToShipTable,
   ShipFromCell,
@@ -281,7 +282,7 @@ describe("ReadyToShipTable shipping rate / fulfill", () => {
     expect(screen.queryByText(/0\.00/)).toBeNull()
   })
 
-  it("renders a disabled Fulfill button with a 'No shipping method' tooltip - this is the only state DisabledFulfillCell renders, since FulfillConfirmPopover wires the enabled case up itself", async () => {
+  it("renders a disabled Fulfill button with a 'No shipping method' tooltip by default - FulfillConfirmPopover wires the enabled case up itself, this component only ever renders a disabled one", async () => {
     const user = userEvent.setup()
 
     render(
@@ -302,6 +303,30 @@ describe("ReadyToShipTable shipping rate / fulfill", () => {
         screen.getAllByText("orders.readyToShip.noShippingMethod").length
       ).toBeGreaterThan(0)
     })
+  })
+
+  it("renders a distinct 'rate not ready' tooltip when reason is 'noRateYet' - a row with a shipping method whose quote just isn't in yet, not one with no shipping method at all", async () => {
+    const user = userEvent.setup()
+
+    render(
+      <TooltipProvider>
+        <DisabledFulfillCell reason="noRateYet" />
+      </TooltipProvider>
+    )
+
+    const disabledButton = screen.getByRole("button", {
+      name: "orders.readyToShip.fulfill",
+    }) as HTMLButtonElement
+    expect(disabledButton.disabled).toBe(true)
+
+    await user.hover(disabledButton)
+
+    await waitFor(() => {
+      expect(
+        screen.getAllByText("orders.readyToShip.noRateYet").length
+      ).toBeGreaterThan(0)
+    })
+    expect(screen.queryByText("orders.readyToShip.noShippingMethod")).toBeNull()
   })
 })
 
@@ -459,6 +484,50 @@ describe("buildBulkFulfillments", () => {
       },
     ])
     expect(skippedOrderIds).toEqual(["order_2"])
+  })
+})
+
+/**
+ * Review finding (re-review of the Important #1 fix above): `setRowPackage`
+ * clearing `rowRates` unconditionally - even when the newly confirmed
+ * package is identical to what was already selected - left a perfectly
+ * fulfillable row stuck disabled, since `PackagePopover`'s own confirm
+ * handlers call `onChange` unconditionally too (unlike `ShipFromSelect`'s
+ * underlying Radix `Select`, which doesn't fire `onValueChange` for an
+ * unchanged value). `isSamePackageSelection` is what `setRowPackage` now
+ * checks before clearing - direct, isolated coverage here, with the full
+ * no-op-confirm-through-the-real-UI behavior covered by
+ * `ready-to-ship-table.spec.tsx`'s own integration test further down.
+ */
+describe("isSamePackageSelection", () => {
+  it("returns true for two PackageSelections with identical fields", () => {
+    expect(
+      isSamePackageSelection(
+        { predefinedPackage: "Card", weight: 1 },
+        { predefinedPackage: "Card", weight: 1 }
+      )
+    ).toBe(true)
+    expect(
+      isSamePackageSelection(
+        { weight: 5, length: 10, width: 20, height: 30 },
+        { weight: 5, length: 10, width: 20, height: 30 }
+      )
+    ).toBe(true)
+  })
+
+  it("returns false when any field differs", () => {
+    expect(
+      isSamePackageSelection(
+        { predefinedPackage: "Card", weight: 1 },
+        { predefinedPackage: "Letter", weight: 1 }
+      )
+    ).toBe(false)
+    expect(
+      isSamePackageSelection(
+        { weight: 5, length: 10, width: 20, height: 30 },
+        { weight: 6, length: 10, width: 20, height: 30 }
+      )
+    ).toBe(false)
   })
 })
 
@@ -1213,5 +1282,56 @@ describe("ReadyToShipTable rate invalidation on Ship From/Package change", () =>
       "checkbox"
     ))[1] as HTMLButtonElement
     expect(checkboxAfter.disabled).toBe(true)
+  })
+
+  it("confirming the Package popover with the same values as before does not disable the row's fulfill checkbox/button - only a genuinely different package selection should re-gate fulfillment", async () => {
+    mockUseOrders.mockReturnValue({
+      orders: [makeReadyToShipOrder("order_1")],
+      count: 1,
+      isLoading: false,
+      isError: false,
+      error: undefined,
+    })
+    setOrderRate("order_1", "shp_1", "rate_1")
+
+    const user = userEvent.setup()
+    renderReadyToShipTable()
+
+    // Give the row an explicit Package selection (away from the computed
+    // default), and simulate the fresh quote that follows a real re-quote
+    // against it - same as the "confirms a different Package selection"
+    // test above.
+    await user.click(
+      screen.getByRole("button", { name: "Custom — 1x1x1, 1" })
+    )
+    await user.click(
+      await screen.findByRole("radio", {
+        name: "USPS Card (6in x 4.5in x 0.016in)",
+      })
+    )
+    setOrderRate("order_1", "shp_card", "rate_card")
+    await user.click(screen.getByRole("button", { name: "actions.confirm" }))
+
+    const checkboxAfterFirstConfirm = (await screen.findAllByRole(
+      "checkbox"
+    ))[1] as HTMLButtonElement
+    expect(checkboxAfterFirstConfirm.disabled).toBe(false)
+
+    // Reopen the same popover - its trigger now reads the confirmed
+    // preset's own label - and confirm again with no changes at all.
+    // `PackagePopover`'s own confirm handlers call `onChange`
+    // unconditionally either way, so this only stays enabled if
+    // `setRowPackage` itself recognizes the value is unchanged and skips
+    // clearing the rate (no second `setOrderRate` call here - there's
+    // nothing new to quote, and there must not need to be).
+    await user.click(
+      screen.getByRole("button", { name: "USPS Card (6in x 4.5in x 0.016in)" })
+    )
+    await user.click(screen.getByRole("button", { name: "actions.confirm" }))
+
+    const checkboxAfterSecondConfirm = (await screen.findAllByRole(
+      "checkbox"
+    ))[1] as HTMLButtonElement
+    expect(checkboxAfterSecondConfirm.disabled).toBe(false)
   })
 })

@@ -94,13 +94,14 @@ export const FulfillConfirmPopover = ({
   // alone isn't enough to buy a label against - `rate` below is also
   // required, since `shipment_id`/`rate_id` are mandatory on the
   // fulfillments payload. A row whose quote is still loading or failed
-  // renders the same disabled state as a row with no shipping method at
-  // all, kept separate from `hasShippingMethod` above only to preserve that
-  // existing narrowing comment's reasoning.
+  // renders a disabled button too, kept separate from `hasShippingMethod`
+  // above only to preserve that existing narrowing comment's reasoning -
+  // but with its own `"noRateYet"` tooltip, not `"noShippingMethod"`: this
+  // row does have one, it's the rate that's missing.
   const rate = rowRates[order.id]
 
   if (!rate) {
-    return <DisabledFulfillCell />
+    return <DisabledFulfillCell reason="noRateYet" />
   }
 
   // Mirrors `buildBulkFulfillments` exactly - no fallback to the shipping
