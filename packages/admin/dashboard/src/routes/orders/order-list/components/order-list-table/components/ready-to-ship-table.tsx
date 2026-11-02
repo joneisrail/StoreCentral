@@ -356,7 +356,11 @@ const columnHelper = createColumnHelper<ReadyToShipOrder>()
 
 const useReadyToShipTableColumns = (
   rowPackages: Record<string, PackageSelection>,
-  setRowPackage: (orderId: string, parcel: PackageSelection) => void,
+  setRowPackage: (
+    orderId: string,
+    parcel: PackageSelection,
+    baselineParcel: OrderParcel
+  ) => void,
   defaultLocationId: string | null,
   rowLocationOverride: Record<string, string>,
   setRowLocationOverride: (orderId: string, locationId: string) => void,
@@ -485,12 +489,24 @@ const useReadyToShipTableColumns = (
             </span>
           </div>
         ),
-        cell: ({ row }) => (
-          <PackagePopover
-            initialParcel={computeOrderParcel(row.original.items ?? [])}
-            onChange={(parcel) => setRowPackage(row.original.id, parcel)}
-          />
-        ),
+        cell: ({ row }) => {
+          // Computed once per render and reused for both props: it's
+          // `PackagePopover`'s starting point *and* the baseline
+          // `setRowPackage` falls back to below when this row has no
+          // explicit prior selection yet - the same parcel `rowRates` was
+          // actually quoted against in that case (see the
+          // `shipping_rate` column's cell further down).
+          const baselineParcel = computeOrderParcel(row.original.items ?? [])
+
+          return (
+            <PackagePopover
+              initialParcel={baselineParcel}
+              onChange={(parcel) =>
+                setRowPackage(row.original.id, parcel, baselineParcel)
+              }
+            />
+          )
+        },
       }),
       columnHelper.display({
         id: "shipping_rate",
@@ -687,7 +703,11 @@ export const ReadyToShipTable = () => {
   // `useReadyToShipTableColumns`'s `useMemo` to recompute every render just
   // because this closure is new.
   const setRowPackage = useCallback(
-    (orderId: string, parcel: PackageSelection) => {
+    (
+      orderId: string,
+      parcel: PackageSelection,
+      baselineParcel: OrderParcel
+    ) => {
       const previous = rowPackagesRef.current[orderId]
 
       setRowPackages((prev) => ({ ...prev, [orderId]: parcel }))
@@ -696,11 +716,24 @@ export const ReadyToShipTable = () => {
       // unconditionally on every confirm, whether or not the admin
       // actually changed anything - re-confirming the same preset/custom
       // values is a real, easy-to-hit path (reopen the popover, click
-      // Confirm again). Only clear this row's quoted rate when the
-      // package *actually* changed; otherwise the row would be stuck
-      // disabled on an unrelated no-op confirm until some other change
-      // happened to trigger a fresh quote.
-      if (!previous || !isSamePackageSelection(previous, parcel)) {
+      // Confirm again), and so is confirming a *row's very first*
+      // selection without touching anything, since the popover always
+      // opens pre-filled from `baselineParcel`. Either way, the parcel
+      // `rowRates` was actually quoted against - `rowPackagesRef.current`
+      // when this row already has an explicit selection, else
+      // `baselineParcel` itself, exactly mirroring the `??` fallback the
+      // `shipping_rate` column's cell uses to build that same quote - is
+      // what has to be compared, not just whether a prior *explicit*
+      // selection existed. Both sides go through `toShippingRateParcel`
+      // so an `OrderParcel`'s nullable fields and a `PackageSelection`'s
+      // optional ones compare like for like. Only clear this row's quoted
+      // rate when that effective parcel *actually* changed; otherwise the
+      // row would be stuck disabled on an unrelated no-op confirm until
+      // some other change happened to trigger a fresh quote.
+      const previousEffective = toShippingRateParcel(previous ?? baselineParcel)
+      const nextEffective = toShippingRateParcel(parcel)
+
+      if (!isSamePackageSelection(previousEffective, nextEffective)) {
         clearRowRate(orderId)
       }
     },

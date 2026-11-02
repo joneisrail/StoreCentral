@@ -1334,4 +1334,44 @@ describe("ReadyToShipTable rate invalidation on Ship From/Package change", () =>
     ))[1] as HTMLButtonElement
     expect(checkboxAfterSecondConfirm.disabled).toBe(false)
   })
+
+  it("confirming the Package popover's default Custom state unchanged - a row's very first confirm, with no prior explicit selection at all - does not disable the row's fulfill checkbox/button either", async () => {
+    mockUseOrders.mockReturnValue({
+      orders: [makeReadyToShipOrder("order_1")],
+      count: 1,
+      isLoading: false,
+      isError: false,
+      error: undefined,
+    })
+    setOrderRate("order_1", "shp_1", "rate_1")
+
+    const user = userEvent.setup()
+    renderReadyToShipTable()
+
+    const checkboxBefore = (await screen.findAllByRole(
+      "checkbox"
+    ))[1] as HTMLButtonElement
+    expect(checkboxBefore.disabled).toBe(false)
+
+    // Opens and confirms the Package popover without touching anything -
+    // this row has never had an explicit selection before, so
+    // `rowPackages[orderId]` is still undefined going in. The popover
+    // always opens pre-filled from the order's own computed parcel
+    // (`makeReadyToShipOrder`'s item: weight/length/width/height all 1,
+    // hence "Custom — 1x1x1, 1"), and confirming it unchanged sends back
+    // that exact same parcel - the same one `rowRates` was already quoted
+    // against. `setRowPackage`'s `!previous` branch alone would wrongly
+    // treat this as "changed" (there's no *prior explicit* selection to
+    // compare against) without falling back to that same computed
+    // baseline for the comparison.
+    await user.click(
+      screen.getByRole("button", { name: "Custom — 1x1x1, 1" })
+    )
+    await user.click(screen.getByRole("button", { name: "actions.confirm" }))
+
+    const checkboxAfter = (await screen.findAllByRole(
+      "checkbox"
+    ))[1] as HTMLButtonElement
+    expect(checkboxAfter.disabled).toBe(false)
+  })
 })
