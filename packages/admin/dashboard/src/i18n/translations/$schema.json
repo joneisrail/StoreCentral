@@ -4915,6 +4915,12 @@
             },
             "retry": {
               "type": "string"
+            },
+            "noShipFromLocation": {
+              "type": "string"
+            },
+            "orphanedLabel": {
+              "type": "string"
             }
           },
           "required": [
@@ -4942,7 +4948,9 @@
             "packageWeightRequired",
             "quoting",
             "shippingRateQuoteFailed",
-            "retry"
+            "retry",
+            "noShipFromLocation",
+            "orphanedLabel"
           ],
           "additionalProperties": false
         },

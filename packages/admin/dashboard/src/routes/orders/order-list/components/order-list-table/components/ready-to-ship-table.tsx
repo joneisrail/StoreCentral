@@ -96,6 +96,31 @@ export const getShipFromLocationId = (
     ?.id ?? null
 
 /**
+ * THE single place a Ready to Ship row's Ship From location is resolved.
+ * Every site that needs it - the Ship From cell's displayed value, the
+ * carrier-rates quote (`ShippingRateSelect`), the single-row Fulfill send
+ * (`FulfillConfirmPopover`) and the bulk Fulfill send
+ * (`buildBulkFulfillments`) - goes through this, so what's displayed, what's
+ * quoted against and what's bought can never disagree.
+ *
+ * Priority: the admin's per-row override, then the store-wide default
+ * (Settings > Fulfillment), then - only as a last resort, for a store that
+ * hasn't configured a default yet - the location the order's checkout
+ * shipping method's shipping option is linked to. Returns `null` when none
+ * of those resolve; callers then show an actionable "set a default ship-from
+ * location" message instead of attempting a quote that can't succeed.
+ */
+export const resolveShipFromLocationId = (
+  order: Pick<ReadyToShipOrder, "id" | "shipping_methods">,
+  rowLocationOverride: Record<string, string>,
+  defaultLocationId: string | null
+): string | null =>
+  rowLocationOverride[order.id] ??
+  defaultLocationId ??
+  getShipFromLocationId(order.shipping_methods?.[0]) ??
+  null
+
+/**
  * Resolves the `handling_hours` SLA the Ship Date and Ship Time columns
  * both compute their shared deadline from (via `computeShipDeadline`),
  * written to `sales_channel.metadata` by the Settings > Fulfillment page
@@ -305,9 +330,12 @@ export type BulkFulfillmentEntry = {
 /**
  * Builds the bulk "Fulfill selected" command's `fulfillments` payload from
  * the selected order ids plus this component's own per-row state
- * (`rowLocationOverride`/`rowRates`, falling back to the store-wide
- * `defaultLocationId` the same way the `ship_from`/`shipping_rate` columns'
- * cells do). A selected order with no `rowRates` entry yet is skipped
+ * (`rowLocationOverride`/`rowRates`), resolving each order's location with
+ * `resolveShipFromLocationId` - the same resolution the `ship_from`/
+ * `shipping_rate` columns' cells use. `orders` supplies each order's
+ * shipping method for that resolution's last-resort fallback; an order
+ * missing from it simply skips that fallback. A selected order with no
+ * `rowRates` entry yet is skipped
  * rather than sent with a missing `shipment_id`/`rate_id` - `enableRowSelection`
  * already keeps such an order from being selected via the checkbox in the
  * first place, but this re-checks at submit time rather than trusting that
@@ -323,9 +351,11 @@ export const buildBulkFulfillments = (
   orderIds: string[],
   rowLocationOverride: Record<string, string>,
   rowRates: Record<string, { shipmentId: string; rateId: string }>,
-  defaultLocationId: string | null
+  defaultLocationId: string | null,
+  orders: Pick<ReadyToShipOrder, "id" | "shipping_methods">[] = []
 ): { fulfillments: BulkFulfillmentEntry[]; skippedOrderIds: string[] } => {
   const skippedOrderIds: string[] = []
+  const ordersById = new Map(orders.map((order) => [order.id, order]))
 
   const fulfillments = orderIds.reduce<BulkFulfillmentEntry[]>(
     (acc, orderId) => {
@@ -339,7 +369,11 @@ export const buildBulkFulfillments = (
       acc.push({
         order_id: orderId,
         location_id:
-          rowLocationOverride[orderId] ?? defaultLocationId ?? undefined,
+          resolveShipFromLocationId(
+            ordersById.get(orderId) ?? { id: orderId },
+            rowLocationOverride,
+            defaultLocationId
+          ) ?? undefined,
         shipment_id: rate.shipmentId,
         rate_id: rate.rateId,
       })
@@ -472,10 +506,11 @@ const useReadyToShipTableColumns = (
         cell: ({ row }) => (
           <ShipFromSelect
             orderId={row.original.id}
-            defaultLocationId={
-              rowLocationOverrideRef.current[row.original.id] ??
+            defaultLocationId={resolveShipFromLocationId(
+              row.original,
+              rowLocationOverrideRef.current,
               defaultLocationIdRef.current
-            }
+            )}
             onChange={(id) => setRowLocationOverride(row.original.id, id)}
           />
         ),
@@ -501,6 +536,10 @@ const useReadyToShipTableColumns = (
           return (
             <PackagePopover
               initialParcel={baselineParcel}
+              // Controlled by `rowPackages` (which survives paging), so the
+              // trigger always shows the package this row is actually
+              // quoted and fulfilled with - not a snapshot from mount time.
+              selection={rowPackagesRef.current[row.original.id]}
               onChange={(parcel) =>
                 setRowPackage(row.original.id, parcel, baselineParcel)
               }
@@ -520,11 +559,11 @@ const useReadyToShipTableColumns = (
         cell: ({ row }) => (
           <ShippingRateSelect
             orderId={row.original.id}
-            locationId={
-              rowLocationOverrideRef.current[row.original.id] ??
-              defaultLocationIdRef.current ??
-              ""
-            }
+            locationId={resolveShipFromLocationId(
+              row.original,
+              rowLocationOverrideRef.current,
+              defaultLocationIdRef.current
+            )}
             parcel={toShippingRateParcel(
               rowPackagesRef.current[row.original.id] ??
                 computeOrderParcel(row.original.items ?? [])
@@ -879,7 +918,8 @@ export const ReadyToShipTable = () => {
                   orderIds,
                   rowLocationOverride,
                   rowRates,
-                  defaultLocationId
+                  defaultLocationId,
+                  (orders as ReadyToShipOrder[] | undefined) ?? []
                 )
 
                 if (skippedOrderIds.length > 0) {

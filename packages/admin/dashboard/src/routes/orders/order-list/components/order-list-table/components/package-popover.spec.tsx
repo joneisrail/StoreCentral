@@ -15,9 +15,29 @@ vi.mock("react-i18next", () => ({
   }),
 }))
 
-import { PackagePopover } from "./package-popover"
+import { useState } from "react"
+
+import { PackagePopover, PackageSelection } from "./package-popover"
 
 const parcel = { weight: 10, length: 5, width: 4, height: 3 }
+
+// `PackagePopover` is controlled by its `selection` prop - this harness plays
+// the parent (`ReadyToShipTable`'s `rowPackages`) for tests that confirm a
+// selection and then look at the trigger.
+const ControlledPackagePopover = ({
+  initialParcel = parcel,
+}: {
+  initialParcel?: typeof parcel
+}) => {
+  const [selection, setSelection] = useState<PackageSelection | undefined>()
+  return (
+    <PackagePopover
+      initialParcel={initialParcel}
+      selection={selection}
+      onChange={setSelection}
+    />
+  )
+}
 
 afterEach(() => {
   cleanup()
@@ -58,9 +78,7 @@ describe("PackagePopover", () => {
   })
 
   it("closes the popover and updates the trigger to the preset's label once confirmed", () => {
-    render(
-      <PackagePopover initialParcel={parcel} onChange={vi.fn()} />
-    )
+    render(<ControlledPackagePopover />)
 
     fireEvent.click(screen.getByRole("button"))
     fireEvent.click(
@@ -232,5 +250,94 @@ describe("PackagePopover", () => {
         "Custom — orders.readyToShip.notSetxorders.readyToShip.notSetxorders.readyToShip.notSet, orders.readyToShip.notSet"
       )
     ).toBeTruthy()
+  })
+
+  describe("controlled by the confirmed selection", () => {
+    it("shows an already-confirmed preset on a fresh mount (e.g. after paging away and back), not the computed default", () => {
+      render(
+        <PackagePopover
+          initialParcel={parcel}
+          selection={{ predefinedPackage: "SmallFlatRateBox", weight: 10 }}
+          onChange={vi.fn()}
+        />
+      )
+
+      expect(
+        screen.getByText("USPS Small Flat Rate Box (8.6875in x 5.4375in x 1.75in)")
+      ).toBeTruthy()
+      expect(screen.queryByText(/^Custom — /)).toBeNull()
+    })
+
+    it("shows an already-confirmed custom package on a fresh mount, and reopens with its values", () => {
+      render(
+        <PackagePopover
+          initialParcel={parcel}
+          selection={{ weight: 22, length: 9, width: 8, height: 7 }}
+          onChange={vi.fn()}
+        />
+      )
+
+      expect(screen.getByText("Custom — 9x8x7, 22")).toBeTruthy()
+
+      fireEvent.click(screen.getByRole("button"))
+      expect(
+        (screen.getByLabelText("fields.weight") as HTMLInputElement).value
+      ).toBe("22")
+      expect(
+        (screen.getByLabelText("fields.length") as HTMLInputElement).value
+      ).toBe("9")
+    })
+
+    it("follows the selection prop when the parent changes it, rather than a snapshot taken at mount", () => {
+      const { rerender } = render(
+        <PackagePopover initialParcel={parcel} onChange={vi.fn()} />
+      )
+      expect(screen.getByText("Custom — 5x4x3, 10")).toBeTruthy()
+
+      rerender(
+        <PackagePopover
+          initialParcel={parcel}
+          selection={{ predefinedPackage: "SmallFlatRateBox", weight: 10 }}
+          onChange={vi.fn()}
+        />
+      )
+      expect(
+        screen.getByText("USPS Small Flat Rate Box (8.6875in x 5.4375in x 1.75in)")
+      ).toBeTruthy()
+    })
+
+    it("follows a changed computed parcel (e.g. items refetched) while nothing is confirmed yet", () => {
+      const { rerender } = render(
+        <PackagePopover initialParcel={parcel} onChange={vi.fn()} />
+      )
+      expect(screen.getByText("Custom — 5x4x3, 10")).toBeTruthy()
+
+      rerender(
+        <PackagePopover
+          initialParcel={{ weight: 30, length: 6, width: 5, height: 4 }}
+          onChange={vi.fn()}
+        />
+      )
+      expect(screen.getByText("Custom — 6x5x4, 30")).toBeTruthy()
+
+      fireEvent.click(screen.getByRole("button"))
+      expect(
+        (screen.getByLabelText("fields.weight") as HTMLInputElement).value
+      ).toBe("30")
+    })
+
+    it("does not change the trigger on its own when the parent ignores onChange", () => {
+      const onChange = vi.fn()
+      render(<PackagePopover initialParcel={parcel} onChange={onChange} />)
+
+      fireEvent.click(screen.getByRole("button"))
+      fireEvent.click(
+        screen.getByText("USPS Small Flat Rate Box (8.6875in x 5.4375in x 1.75in)")
+      )
+      fireEvent.click(screen.getByRole("button", { name: "actions.confirm" }))
+
+      expect(onChange).toHaveBeenCalledTimes(1)
+      expect(screen.getByText("Custom — 5x4x3, 10")).toBeTruthy()
+    })
   })
 })

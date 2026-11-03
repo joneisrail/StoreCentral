@@ -130,6 +130,9 @@ vi.mock("./bulk-fulfill-result-summary", () => ({
       </div>
     )
   },
+  OrphanedLabelNotice: ({ shipmentId }: { shipmentId: string }) => (
+    <span>orphaned:{shipmentId}</span>
+  ),
 }))
 
 import {
@@ -456,7 +459,7 @@ describe("buildBulkFulfillments", () => {
     expect(skippedOrderIds).toEqual([])
   })
 
-  it("leaves location_id undefined, rather than null, when neither an override nor a store default exists", () => {
+  it("leaves location_id undefined, rather than null, when neither an override, a store default, nor a checkout location exists", () => {
     const { fulfillments } = buildBulkFulfillments(
       ["order_1"],
       {},
@@ -465,6 +468,40 @@ describe("buildBulkFulfillments", () => {
     )
 
     expect(fulfillments[0].location_id).toBeUndefined()
+  })
+
+  it("falls back to the order's checkout shipping option location only when there's no override and no store default", () => {
+    const orderWithCheckoutLocation = {
+      id: "order_1",
+      shipping_methods: [
+        {
+          shipping_option: {
+            service_zone: {
+              fulfillment_set: { location: { id: "loc_checkout" } },
+            },
+          },
+        },
+      ],
+    } as any
+
+    const withoutDefault = buildBulkFulfillments(
+      ["order_1"],
+      {},
+      { order_1: { shipmentId: "shp_a", rateId: "rate_a" } },
+      null,
+      [orderWithCheckoutLocation]
+    )
+    expect(withoutDefault.fulfillments[0].location_id).toBe("loc_checkout")
+
+    // The store default (and an override) still take priority over it.
+    const withDefault = buildBulkFulfillments(
+      ["order_1"],
+      {},
+      { order_1: { shipmentId: "shp_a", rateId: "rate_a" } },
+      "loc_default",
+      [orderWithCheckoutLocation]
+    )
+    expect(withDefault.fulfillments[0].location_id).toBe("loc_default")
   })
 
   it("skips a selected order with no quoted rate yet, reports it as skipped, and still builds the rest", () => {
@@ -1188,6 +1225,135 @@ describe("ReadyToShipTable Ship From column", () => {
     // row's trigger - untouched - still shows the store default.
     expect(screen.getByText("Warehouse B")).toBeTruthy()
     expect(screen.getByText("Warehouse A")).toBeTruthy()
+  })
+
+  it("with no store default configured, shows - and quotes against - the order's checkout shipping option location instead of failing every row", async () => {
+    mockUseStore.mockReturnValue({ store: { id: "store_1", metadata: {} } })
+    mockUseOrders.mockReturnValue({
+      orders: [makeReadyToShipOrder("order_1")],
+      count: 1,
+      isLoading: false,
+      isError: false,
+      error: undefined,
+    })
+    mockUseStockLocations.mockReturnValue({
+      stock_locations: [{ id: "loc_order_1", name: "Checkout Warehouse" }],
+    })
+
+    try {
+      renderReadyToShipTable()
+
+      expect(await screen.findByText("Checkout Warehouse")).toBeTruthy()
+      expect(mockUseOrderCarrierRates).toHaveBeenCalledWith(
+        "order_1",
+        expect.objectContaining({ location_id: "loc_order_1" })
+      )
+      expect(
+        screen.queryByText("orders.readyToShip.noShipFromLocation")
+      ).toBeNull()
+    } finally {
+      mockUseStore.mockReturnValue({
+        store: {
+          id: "store_1",
+          metadata: { default_ship_from_location_id: "loc_default" },
+        },
+      })
+      mockUseStockLocations.mockReturnValue({
+        stock_locations: [{ id: "loc_default", name: "Warehouse A" }],
+      })
+    }
+  })
+
+  it("shows an actionable 'set a default ship-from location' message when nothing at all resolves a location", async () => {
+    mockUseStore.mockReturnValue({ store: { id: "store_1", metadata: {} } })
+    const order = makeReadyToShipOrder("order_1")
+    order.shipping_methods[0].shipping_option = null
+    mockUseOrders.mockReturnValue({
+      orders: [order],
+      count: 1,
+      isLoading: false,
+      isError: false,
+      error: undefined,
+    })
+
+    try {
+      renderReadyToShipTable()
+
+      expect(
+        await screen.findByText("orders.readyToShip.noShipFromLocation")
+      ).toBeTruthy()
+    } finally {
+      mockUseStore.mockReturnValue({
+        store: {
+          id: "store_1",
+          metadata: { default_ship_from_location_id: "loc_default" },
+        },
+      })
+    }
+  })
+})
+
+describe("ReadyToShipTable Package column across a row remount", () => {
+  it("still shows the row's confirmed package after its row unmounts and remounts (e.g. paging away and back) - the same package it's quoted with", async () => {
+    const pageWithOrder = {
+      orders: [makeReadyToShipOrder("order_1")],
+      count: 1,
+      isLoading: false,
+      isError: false,
+      error: undefined,
+    }
+    mockUseOrders.mockReturnValue(pageWithOrder)
+
+    const user = userEvent.setup()
+    const { rerender } = renderReadyToShipTable()
+
+    await user.click(screen.getByRole("button", { name: "Custom — 1x1x1, 1" }))
+    await user.click(
+      await screen.findByRole("radio", {
+        name: "USPS Card (6in x 4.5in x 0.016in)",
+      })
+    )
+    await user.click(screen.getByRole("button", { name: "actions.confirm" }))
+    expect(
+      screen.getByRole("button", { name: "USPS Card (6in x 4.5in x 0.016in)" })
+    ).toBeTruthy()
+
+    // "Page away": the row unmounts...
+    mockUseOrders.mockReturnValue({ ...pageWithOrder, orders: [], count: 1 })
+    rerender(
+      <MemoryRouter>
+        <TooltipProvider>
+          <ReadyToShipTable />
+        </TooltipProvider>
+      </MemoryRouter>
+    )
+    expect(
+      screen.queryByRole("button", { name: "USPS Card (6in x 4.5in x 0.016in)" })
+    ).toBeNull()
+
+    // ...and "page back": a brand new PackagePopover instance mounts.
+    mockUseOrders.mockReturnValue(pageWithOrder)
+    rerender(
+      <MemoryRouter>
+        <TooltipProvider>
+          <ReadyToShipTable />
+        </TooltipProvider>
+      </MemoryRouter>
+    )
+
+    expect(
+      await screen.findByRole("button", {
+        name: "USPS Card (6in x 4.5in x 0.016in)",
+      })
+    ).toBeTruthy()
+    expect(screen.queryByRole("button", { name: "Custom — 1x1x1, 1" })).toBeNull()
+    // And it's the package the row is quoted with.
+    expect(mockUseOrderCarrierRates).toHaveBeenLastCalledWith(
+      "order_1",
+      expect.objectContaining({
+        parcel: expect.objectContaining({ predefinedPackage: "Card" }),
+      })
+    )
   })
 })
 

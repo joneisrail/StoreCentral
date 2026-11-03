@@ -247,4 +247,140 @@ describe("ShippingRateSelect", () => {
     fireEvent.click(retryButton)
     expect(mockRefetch).toHaveBeenCalledTimes(1)
   })
+
+  it("re-selects a previous selection's rate when the row switches back to it from a selection whose quote failed (A -> B[error] -> A)", async () => {
+    const onChange = vi.fn()
+    // A's quote, as React Query caches it: switching back to A returns this
+    // exact same object reference.
+    mockUseOrderCarrierRates.mockReturnValue({
+      data: TWO_RATES,
+      isError: false,
+      refetch: vi.fn(),
+    })
+
+    const { rerender } = render(
+      <ShippingRateSelect
+        orderId="order_1"
+        locationId="sloc_a"
+        parcel={parcel}
+        onChange={onChange}
+      />
+    )
+    await waitFor(() => expect(onChange).toHaveBeenCalledTimes(1))
+
+    // Switch to B, whose quote errors (e.g. a location with no address).
+    // The parent clears the row's rate at this point.
+    mockUseOrderCarrierRates.mockReturnValue({
+      data: undefined,
+      isError: true,
+      refetch: vi.fn(),
+    })
+    rerender(
+      <ShippingRateSelect
+        orderId="order_1"
+        locationId="sloc_b"
+        parcel={parcel}
+        onChange={onChange}
+      />
+    )
+
+    // Back to A: the same cached `data` reference as before.
+    mockUseOrderCarrierRates.mockReturnValue({
+      data: TWO_RATES,
+      isError: false,
+      refetch: vi.fn(),
+    })
+    rerender(
+      <ShippingRateSelect
+        orderId="order_1"
+        locationId="sloc_a"
+        parcel={parcel}
+        onChange={onChange}
+      />
+    )
+
+    // The rate must be handed back to the parent again, or the row stays
+    // disabled while still displaying A's rate.
+    await waitFor(() => expect(onChange).toHaveBeenCalledTimes(2))
+    expect(onChange).toHaveBeenLastCalledWith({
+      shipmentId: "shp_1",
+      rateId: "rate_fedex",
+    })
+  })
+
+  it("re-selects a previous selection's rate when switching back to it before the other selection's quote even arrived (A -> B[loading] -> A)", async () => {
+    const onChange = vi.fn()
+    mockUseOrderCarrierRates.mockReturnValue({
+      data: TWO_RATES,
+      isError: false,
+      refetch: vi.fn(),
+    })
+    const { rerender } = render(
+      <ShippingRateSelect
+        orderId="order_1"
+        locationId="sloc_a"
+        parcel={parcel}
+        onChange={onChange}
+      />
+    )
+    await waitFor(() => expect(onChange).toHaveBeenCalledTimes(1))
+
+    mockUseOrderCarrierRates.mockReturnValue({
+      data: undefined,
+      isError: false,
+      refetch: vi.fn(),
+    })
+    rerender(
+      <ShippingRateSelect
+        orderId="order_1"
+        locationId="sloc_b"
+        parcel={parcel}
+        onChange={onChange}
+      />
+    )
+
+    mockUseOrderCarrierRates.mockReturnValue({
+      data: TWO_RATES,
+      isError: false,
+      refetch: vi.fn(),
+    })
+    rerender(
+      <ShippingRateSelect
+        orderId="order_1"
+        locationId="sloc_a"
+        parcel={parcel}
+        onChange={onChange}
+      />
+    )
+
+    await waitFor(() => expect(onChange).toHaveBeenCalledTimes(2))
+  })
+
+  it("shows an actionable 'set a default ship-from location' message, not a retryable error, when no location resolves", () => {
+    mockUseOrderCarrierRates.mockReturnValue({
+      data: undefined,
+      isError: false,
+      refetch: vi.fn(),
+    })
+
+    render(
+      <ShippingRateSelect
+        orderId="order_1"
+        locationId={null}
+        parcel={parcel}
+        onChange={vi.fn()}
+      />
+    )
+
+    expect(
+      screen.getByText("orders.readyToShip.noShipFromLocation")
+    ).toBeTruthy()
+    expect(screen.queryByRole("button", { name: /retry/i })).toBeNull()
+    // The hook itself is responsible for not sending the request (its
+    // `enabled` is false without a location) - it's handed the null as-is.
+    expect(mockUseOrderCarrierRates).toHaveBeenCalledWith(
+      "order_1",
+      expect.objectContaining({ location_id: null })
+    )
+  })
 })

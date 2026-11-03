@@ -310,5 +310,65 @@ describe("FulfillConfirmPopover", () => {
       )
     ).toBeTruthy()
     expect(screen.getByText("orders.readyToShip.confirmHeading")).toBeTruthy()
+    // No label was bought for this failure - no orphaned-label notice.
+    expect(screen.queryByText("orders.readyToShip.orphanedLabel")).toBeNull()
+  })
+
+  it("tells the admin a label was already bought, with its shipment id, when the fulfillment failed after the purchase", async () => {
+    mutateAsync.mockResolvedValueOnce({
+      succeeded: [],
+      failed: [
+        {
+          order_id: "order_1",
+          error: "Fulfillment could not be recorded",
+          easypost_shipment_id: "shp_bought_1",
+        },
+      ],
+    })
+    const user = userEvent.setup()
+    render(
+      <FulfillConfirmPopover
+        order={baseOrder}
+        rowLocationOverride={{}}
+        rowRates={quotedRate}
+        defaultLocationId="loc_1"
+      />
+    )
+
+    await user.click(
+      screen.getByRole("button", { name: "orders.readyToShip.fulfill" })
+    )
+    await user.click(screen.getByRole("button", { name: "actions.confirm" }))
+
+    expect(
+      await screen.findByText("Fulfillment could not be recorded")
+    ).toBeTruthy()
+    expect(screen.getByText("orders.readyToShip.orphanedLabel")).toBeTruthy()
+  })
+
+  it("falls back to the checkout shipping option's own location - displayed and sent - only when no override and no store default exist", async () => {
+    mutateAsync.mockResolvedValueOnce({ succeeded: ["order_1"], failed: [] })
+    const user = userEvent.setup()
+    render(
+      <FulfillConfirmPopover
+        order={baseOrder}
+        rowLocationOverride={{}}
+        rowRates={quotedRate}
+        defaultLocationId={null}
+      />
+    )
+
+    await user.click(
+      screen.getByRole("button", { name: "orders.readyToShip.fulfill" })
+    )
+    expect(await screen.findByText("Warehouse A")).toBeTruthy()
+
+    await user.click(screen.getByRole("button", { name: "actions.confirm" }))
+
+    expect(mutateAsync).toHaveBeenCalledWith({
+      fulfillments: [
+        expect.objectContaining({ order_id: "order_1", location_id: "loc_1" }),
+      ],
+    })
   })
 })

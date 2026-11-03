@@ -70,6 +70,36 @@ describe("BulkFulfillResultSummary", () => {
     expect(screen.getByText("order_3: No shipping method")).toBeTruthy()
   })
 
+  it("surfaces the bought shipment id for a failed order whose label was already purchased, and nothing extra for one that wasn't", () => {
+    render(
+      <BulkFulfillResultSummary
+        result={{
+          succeeded: [],
+          failed: [
+            {
+              order_id: "order_orphan",
+              error: "Fulfillment could not be recorded",
+              easypost_shipment_id: "shp_bought_1",
+            },
+            { order_id: "order_plain", error: "rate expired" },
+          ],
+        }}
+        onDismiss={() => {}}
+      />
+    )
+
+    expect(
+      screen.getByText(
+        `orders.readyToShip.orphanedLabel:${JSON.stringify({
+          shipmentId: "shp_bought_1",
+        })}`
+      )
+    ).toBeTruthy()
+    expect(screen.getAllByText(/orders\.readyToShip\.orphanedLabel/)).toHaveLength(
+      1
+    )
+  })
+
   it("renders a Print N labels link when label_pdf_url is present", () => {
     render(
       <BulkFulfillResultSummary

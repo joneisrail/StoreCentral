@@ -1263,7 +1263,9 @@
       "packageWeightRequired": "Weight is required",
       "quoting": "Quoting...",
       "shippingRateQuoteFailed": "Unable to fetch shipping rates",
-      "retry": "Retry"
+      "retry": "Retry",
+      "noShipFromLocation": "Set a default ship-from location in Settings > Fulfillment",
+      "orphanedLabel": "A shipping label was already bought (EasyPost shipment {{shipmentId}}), but the fulfillment couldn't be recorded. Don't ship or re-buy until this is resolved - contact support with this shipment id."
     },
     "shipped": {
       "trackingStatus": "Tracking Status",

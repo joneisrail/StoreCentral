@@ -2,10 +2,18 @@ import { Alert, Button, Popover, Text } from "@medusajs/ui"
 import { useState } from "react"
 import { useTranslation } from "react-i18next"
 
-import { useBulkFulfillOrders } from "../../../../../../hooks/api/orders"
+import {
+  BulkFulfillOrderFailure,
+  useBulkFulfillOrders,
+} from "../../../../../../hooks/api/orders"
 import { useStockLocations } from "../../../../../../hooks/api/stock-locations"
 import { getFulfillableQuantity } from "../../../../../../lib/order-item"
-import { DisabledFulfillCell, ReadyToShipOrder } from "./ready-to-ship-table"
+import { OrphanedLabelNotice } from "./bulk-fulfill-result-summary"
+import {
+  DisabledFulfillCell,
+  ReadyToShipOrder,
+  resolveShipFromLocationId,
+} from "./ready-to-ship-table"
 
 type FulfillConfirmPopoverProps = {
   order: ReadyToShipOrder
@@ -21,23 +29,22 @@ type FulfillConfirmPopoverProps = {
   // The store-wide default ship-from location, same prop
   // `ReadyToShipTable` resolves once (via `useStore`) and threads through to
   // the `ship_from`/`shipping_rate` columns' cells. Required here so this
-  // component resolves `location_id` *exactly* the same way
-  // `buildBulkFulfillments` does for the bulk path
-  // (`rowLocationOverride[order.id] ?? defaultLocationId`, with no further
-  // fallback to the shipping method's own checkout-time location) - what's
-  // displayed, quoted against, and sent must always be the same value.
+  // component resolves `location_id` with the very same
+  // `resolveShipFromLocationId` the bulk path (`buildBulkFulfillments`) and
+  // those cells use - what's displayed, quoted against, and sent must
+  // always be the same value.
   defaultLocationId: string | null
 }
 
 /**
  * Read-only confirmation popover for the Ready to Ship table's Fulfill
- * action. Shows the order's fulfillment location - `rowLocationOverride`'s
- * entry for this order if the admin picked a different Ship From, else the
- * store-wide `defaultLocationId`, resolved via `useStockLocations` for its
- * display name - the *same* resolution `buildBulkFulfillments` uses for the
- * bulk path, deliberately not the shipping method's own checkout-time
- * location: what's displayed here, what `ShippingRateSelect` quoted
- * against, and what's actually sent on confirm must always agree. Also
+ * action. Shows the order's fulfillment location - resolved by
+ * `resolveShipFromLocationId` (the admin's override, else the store-wide
+ * default, else the checkout shipping option's own location as a last
+ * resort), with its display name from `useStockLocations` - the *same*
+ * resolution `buildBulkFulfillments` uses for the bulk path: what's
+ * displayed here, what `ShippingRateSelect` quoted against, and what's
+ * actually sent on confirm must always agree. Also
  * shows the order's remaining (unfulfilled) line items, using the same
  * `quantity - detail.fulfilled_quantity` formula as
  * `order-create-fulfillment-form.tsx` and `computeOrderParcel`. Confirm
@@ -71,7 +78,13 @@ export const FulfillConfirmPopover = ({
 }: FulfillConfirmPopoverProps) => {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
-  const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  // The failure to show inline: a request-level error, or this order's own
+  // `failed` entry - which may carry `easypost_shipment_id` when a label was
+  // already bought before the fulfillment failed to be recorded.
+  const [failure, setFailure] = useState<Pick<
+    BulkFulfillOrderFailure,
+    "error" | "easypost_shipment_id"
+  > | null>(null)
   const { mutateAsync, isPending } = useBulkFulfillOrders()
   const { stock_locations } = useStockLocations()
 
@@ -104,13 +117,13 @@ export const FulfillConfirmPopover = ({
     return <DisabledFulfillCell reason="noRateYet" />
   }
 
-  // Mirrors `buildBulkFulfillments` exactly - no fallback to the shipping
-  // method's own checkout-time location. `ShippingRateSelect` already
-  // quoted this exact row against this exact `locationId` (see
-  // `ready-to-ship-table.tsx`'s `shipping_rate` column cell), so sending
-  // (and displaying) anything else here would quote one address and buy a
-  // label for another.
-  const locationId = rowLocationOverride[order.id] ?? defaultLocationId ?? undefined
+  // The exact same `resolveShipFromLocationId` the Ship From cell,
+  // `ShippingRateSelect`'s quote and `buildBulkFulfillments` use - this row
+  // was quoted against this exact `locationId`, so sending (and displaying)
+  // anything else here would quote one address and buy a label for another.
+  const locationId =
+    resolveShipFromLocationId(order, rowLocationOverride, defaultLocationId) ??
+    undefined
   const locationName =
     stock_locations?.find((location) => location.id === locationId)?.name ??
     t("fields.location")
@@ -127,12 +140,12 @@ export const FulfillConfirmPopover = ({
     setOpen(next)
 
     if (next) {
-      setErrorMessage(null)
+      setFailure(null)
     }
   }
 
   const handleConfirm = async () => {
-    setErrorMessage(null)
+    setFailure(null)
 
     try {
       const result = await mutateAsync({
@@ -153,18 +166,18 @@ export const FulfillConfirmPopover = ({
       // entry for this order counts as success; finding one keeps the
       // popover open and surfaces that exact error, the same as a thrown
       // request-level error below.
-      const failure = result.failed.find((f) => f.order_id === order.id)
+      const orderFailure = result.failed.find((f) => f.order_id === order.id)
 
-      if (failure) {
-        setErrorMessage(failure.error)
+      if (orderFailure) {
+        setFailure(orderFailure)
         return
       }
 
       setOpen(false)
     } catch (e) {
-      setErrorMessage(
-        e instanceof Error ? e.message : t("errorBoundary.defaultTitle")
-      )
+      setFailure({
+        error: e instanceof Error ? e.message : t("errorBoundary.defaultTitle"),
+      })
     }
   }
 
@@ -246,9 +259,16 @@ export const FulfillConfirmPopover = ({
             </div>
           </div>
 
-          {errorMessage && (
+          {failure && (
             <Alert variant="error" dismissible={false} className="p-2">
-              {errorMessage}
+              <div className="flex flex-col gap-y-1">
+                <span>{failure.error}</span>
+                {failure.easypost_shipment_id && (
+                  <OrphanedLabelNotice
+                    shipmentId={failure.easypost_shipment_id}
+                  />
+                )}
+              </div>
             </Alert>
           )}
 

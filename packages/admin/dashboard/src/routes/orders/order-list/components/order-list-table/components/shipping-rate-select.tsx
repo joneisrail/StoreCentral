@@ -10,7 +10,8 @@ import { PackageSelection } from "./ready-to-ship-table"
 
 type ShippingRateSelectProps = {
   orderId: string
-  locationId: string
+  // Resolved by `resolveShipFromLocationId`; `null` when nothing resolves.
+  locationId: string | null
   parcel: PackageSelection
   onChange: (rate: { shipmentId: string; rateId: string }) => void
 }
@@ -34,7 +35,9 @@ const formatRateLabel = (rate: OrderCarrierRatesResponse["rates"][number]) =>
  * run" boolean - is what tells "a genuinely new quote arrived" apart from
  * "this component re-rendered for an unrelated reason." Only a real
  * re-quote (a new `data` object, because the query key itself changed)
- * clears that guard and re-selects the new cheapest rate.
+ * clears that guard and re-selects the new cheapest rate - and so does
+ * `data` going away (a new key still loading, or failing), so that switching
+ * back to an earlier, still-cached key re-selects its rate too.
  */
 export const ShippingRateSelect = ({
   orderId,
@@ -54,7 +57,19 @@ export const ShippingRateSelect = ({
   )
 
   useEffect(() => {
-    if (!data || data.rates.length === 0) {
+    if (!data) {
+      // The current key is loading or failed. Forget which quote was last
+      // auto-selected: the parent cleared this row's rate when its Ship
+      // From/Package changed, so if the admin now switches BACK to a
+      // previous selection, React Query hands back that selection's cached
+      // `data` - the very same object reference as before - and it must be
+      // treated as fresh, or nothing would ever repopulate the row's rate
+      // and the row would stay disabled while still showing that rate.
+      autoSelectedDataRef.current = undefined
+      return
+    }
+
+    if (data.rates.length === 0) {
       return
     }
 
@@ -67,6 +82,19 @@ export const ShippingRateSelect = ({
     setSelectedRateId(cheapest.rate_id)
     onChange({ shipmentId: data.shipment_id, rateId: cheapest.rate_id })
   }, [data, onChange])
+
+  if (!locationId) {
+    // Nothing resolved a Ship From location for this row (no per-row pick,
+    // no store default, no checkout location) - a quote can't succeed and
+    // Retry can't fix it, so say what will.
+    return (
+      <div className="flex h-full w-full items-center overflow-hidden">
+        <Text size="small" className="text-ui-fg-error truncate">
+          {t("orders.readyToShip.noShipFromLocation")}
+        </Text>
+      </div>
+    )
+  }
 
   if (isError) {
     return (

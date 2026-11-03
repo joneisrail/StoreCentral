@@ -253,8 +253,20 @@ export const useCreateOrderFulfillment = (
  */
 export type BulkFulfillOrdersResult = {
   succeeded: string[]
-  failed: { order_id: string; error: string }[]
+  failed: BulkFulfillOrderFailure[]
   label_pdf_url?: string
+}
+
+/**
+ * One order the batch route couldn't fulfill. `easypost_shipment_id` is set
+ * only when a real label was already bought for the order before its
+ * fulfillment failed to be recorded - the id the admin needs to recover (or
+ * refund) that purchase instead of it being silently orphaned.
+ */
+export type BulkFulfillOrderFailure = {
+  order_id: string
+  error: string
+  easypost_shipment_id?: string
 }
 
 /**
@@ -285,6 +297,13 @@ export type BulkFulfillOrdersPayload = {
  * creation) applied to one or many orders at once - including
  * `ordersQueryKeys.all` broadly, since a successful batch likely moves
  * some orders out of the Ready to Ship view entirely.
+ *
+ * Carrier-rate quotes live under their own `carrierRatesQueryKeys` root, so
+ * that broad `ordersQueryKeys.all` invalidation doesn't re-quote every
+ * visible row (which would replace every row's quote data and reset any
+ * manually picked rate back to the cheapest). Only the quotes of the orders
+ * that were part of THIS fulfill are invalidated - their quoted shipments
+ * were bought, or failed to be.
  */
 export const useBulkFulfillOrders = (
   options?: UseMutationOptions<
@@ -309,6 +328,12 @@ export const useBulkFulfillOrders = (
       queryClient.invalidateQueries({
         queryKey: inventoryItemsQueryKeys.details(),
       })
+
+      for (const { order_id } of variables.fulfillments) {
+        queryClient.invalidateQueries({
+          queryKey: carrierRatesQueryKeys.order(order_id),
+        })
+      }
 
       options?.onSuccess?.(data, variables, context)
     },
@@ -601,6 +626,24 @@ export const useExportOrders = (
   })
 }
 
+/**
+ * Carrier-rate quotes are keyed under their own root, deliberately NOT
+ * nested under `ordersQueryKeys` (`["orders", ...]`): every order mutation
+ * invalidates `ordersQueryKeys.all` by prefix, and a quote nested under it
+ * would be re-fetched each time - a brand new EasyPost shipment with new
+ * rate ids for every visible row, which resets each row's manually picked
+ * rate back to the cheapest. A quote still re-fetches whenever its own
+ * `location_id`/`parcel` change, since both are part of its key.
+ */
+export const carrierRatesQueryKeys = {
+  all: ["carrier-rates"] as const,
+  order: (orderId: string) => ["carrier-rates", orderId] as const,
+  quote: (
+    orderId: string,
+    params: { location_id: string | null; parcel: PackageSelection }
+  ) => ["carrier-rates", orderId, params] as const,
+}
+
 export type QuotedCarrierRate = {
   carrier: string
   service: string
@@ -650,10 +693,14 @@ const toCarrierRatesParcel = (parcel: PackageSelection) => ({
  */
 export const useOrderCarrierRates = (
   orderId: string,
-  params: { location_id: string; parcel: PackageSelection },
+  params: { location_id: string | null; parcel: PackageSelection },
   options?: { enabled?: boolean }
 ) => {
   return useQuery({
+    // No location means nothing to quote from - never send a request that
+    // can only fail (`ShippingRateSelect` renders an actionable message for
+    // this case instead).
+    enabled: !!params.location_id && (options?.enabled ?? true),
     queryFn: async () =>
       sdk.client.fetch<OrderCarrierRatesResponse>(
         `/admin/orders/${orderId}/carrier-rates`,
@@ -665,7 +712,6 @@ export const useOrderCarrierRates = (
           },
         }
       ),
-    queryKey: ["orders", orderId, "carrier-rates", params],
-    ...options,
+    queryKey: carrierRatesQueryKeys.quote(orderId, params),
   })
 }

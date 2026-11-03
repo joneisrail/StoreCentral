@@ -25,7 +25,20 @@ export type PackageSelection = {
 }
 
 type PackagePopoverProps = {
+  /**
+   * The parcel computed from the order's own items - what the row ships in
+   * until a package is confirmed, and where a preset's weight comes from.
+   */
   initialParcel: OrderParcel
+  /**
+   * The row's currently confirmed package (`ReadyToShipTable`'s
+   * `rowPackages[orderId]`), or undefined if none has been confirmed yet.
+   * The popover is controlled by this: it holds no confirmed state of its
+   * own, so what the trigger shows is always the package the row will
+   * actually be quoted and bought with - including after the row remounts
+   * (e.g. paging away and back) or the order's items are refetched.
+   */
+  selection?: PackageSelection
   onChange: (parcel: PackageSelection) => void
 }
 
@@ -34,6 +47,32 @@ const CUSTOM_VALUE = "__custom__"
 const CARRIERS: EasyPostPackagePreset["carrier"][] = ["USPS", "FedEx"]
 
 const toInputValue = (value: number | null) => (value === null ? "" : String(value))
+
+/**
+ * The confirmed parcel to display/reopen with: the confirmed `selection`'s
+ * own values (a preset's box dimensions are fixed by the preset, so only its
+ * weight applies), or the order's computed `initialParcel` when nothing has
+ * been confirmed yet.
+ */
+const toConfirmedParcel = (
+  selection: PackageSelection | undefined,
+  initialParcel: OrderParcel
+): OrderParcel => {
+  if (!selection) {
+    return initialParcel
+  }
+
+  if (selection.predefinedPackage) {
+    return { weight: selection.weight, length: null, width: null, height: null }
+  }
+
+  return {
+    weight: selection.weight,
+    length: selection.length ?? null,
+    width: selection.width ?? null,
+    height: selection.height ?? null,
+  }
+}
 
 const parseOptionalNumber = (value: string): number | undefined => {
   if (value.trim() === "") {
@@ -49,16 +88,18 @@ const parseOptionalNumber = (value: string): number | undefined => {
  * weight and (optional) dimensions directly - the same nullable
  * weight/length/width/height shape `computeOrderParcel` produces.
  *
- * The trigger shows the last *confirmed* selection: a preset's label, or, for
- * Custom (the default - nothing is preset-selected until the admin picks
- * one), `Custom — LxWxH, weight` using `initialParcel`'s own values, with
- * `formatPackageField`'s "Not set" convention (shared with `PackageCell`) for
- * any missing field. Opening the popover always starts from that last
- * confirmed state, so Cancel - or just dismissing it - never leaks
+ * The trigger shows the confirmed `selection` (controlled by the parent): a
+ * preset's label, or, for Custom (the default - nothing is preset-selected
+ * until the admin picks one), `Custom — LxWxH, weight` using the confirmed
+ * custom values, or `initialParcel`'s own values when nothing is confirmed
+ * yet, with `formatPackageField`'s "Not set" convention (shared with
+ * `PackageCell`) for any missing field. Opening the popover always starts
+ * from that confirmed state, so Cancel - or just dismissing it - never leaks
  * in-progress edits into the trigger.
  */
 export const PackagePopover = ({
   initialParcel,
+  selection,
   onChange,
 }: PackagePopoverProps) => {
   const { t } = useTranslation()
@@ -71,17 +112,20 @@ export const PackagePopover = ({
 
   const [open, setOpen] = useState(false)
 
-  // Last confirmed selection - drives the trigger label and what a newly
-  // opened popover resets its in-progress fields to.
-  const [confirmedPreset, setConfirmedPreset] = useState<string>(CUSTOM_VALUE)
-  const [confirmedParcel, setConfirmedParcel] = useState<OrderParcel>(initialParcel)
+  // The confirmed selection - derived from the `selection` prop on every
+  // render (never snapshotted into state), so it can't drift from the
+  // package the parent actually quotes and fulfills with. Drives the trigger
+  // label and what a newly opened popover resets its in-progress fields to.
+  const confirmedPreset = selection?.predefinedPackage ?? CUSTOM_VALUE
+  const confirmedParcel = toConfirmedParcel(selection, initialParcel)
 
-  // In-progress fields, only meaningful while the popover is open.
-  const [selectedPreset, setSelectedPreset] = useState<string>(CUSTOM_VALUE)
-  const [weight, setWeight] = useState(toInputValue(initialParcel.weight))
-  const [length, setLength] = useState(toInputValue(initialParcel.length))
-  const [width, setWidth] = useState(toInputValue(initialParcel.width))
-  const [height, setHeight] = useState(toInputValue(initialParcel.height))
+  // In-progress fields, only meaningful while the popover is open (reset
+  // from the confirmed state above every time it opens).
+  const [selectedPreset, setSelectedPreset] = useState<string>(confirmedPreset)
+  const [weight, setWeight] = useState(toInputValue(confirmedParcel.weight))
+  const [length, setLength] = useState(toInputValue(confirmedParcel.length))
+  const [width, setWidth] = useState(toInputValue(confirmedParcel.width))
+  const [height, setHeight] = useState(toInputValue(confirmedParcel.height))
   const [weightError, setWeightError] = useState(false)
 
   const handleOpenChange = (next: boolean) => {
@@ -108,13 +152,6 @@ export const PackagePopover = ({
     const widthValue = parseOptionalNumber(width)
     const heightValue = parseOptionalNumber(height)
 
-    setConfirmedPreset(CUSTOM_VALUE)
-    setConfirmedParcel({
-      weight: weightValue,
-      length: lengthValue ?? null,
-      width: widthValue ?? null,
-      height: heightValue ?? null,
-    })
     onChange({
       weight: weightValue,
       length: lengthValue,
@@ -141,8 +178,6 @@ export const PackagePopover = ({
     }
 
     setWeightError(false)
-    setConfirmedPreset(preset.code)
-    setConfirmedParcel({ weight: weightValue, length: null, width: null, height: null })
     onChange({ predefinedPackage: preset.code, weight: weightValue })
     setOpen(false)
   }

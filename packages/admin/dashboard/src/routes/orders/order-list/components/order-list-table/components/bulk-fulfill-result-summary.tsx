@@ -3,6 +3,23 @@ import { useTranslation } from "react-i18next"
 
 import { BulkFulfillOrdersResult } from "../../../../../../hooks/api/orders"
 
+/**
+ * Shown under a failed order whose label was already bought before its
+ * fulfillment failed to be recorded (`easypost_shipment_id` on the failure
+ * entry), so the purchase is recoverable rather than silently orphaned:
+ * the admin gets the exact EasyPost shipment id to resolve it with. Shared
+ * by this summary and `FulfillConfirmPopover`'s single-row error display.
+ */
+export const OrphanedLabelNotice = ({ shipmentId }: { shipmentId: string }) => {
+  const { t } = useTranslation()
+
+  return (
+    <Text size="small" weight="plus" className="text-ui-fg-error">
+      {t("orders.readyToShip.orphanedLabel", { shipmentId })}
+    </Text>
+  )
+}
+
 type BulkFulfillResultSummaryProps = {
   result: BulkFulfillOrdersResult
   onDismiss: () => void
@@ -21,11 +38,15 @@ type BulkFulfillResultSummaryProps = {
  * prop, since that prop only toggles the alert's internal visibility - it
  * wouldn't let a later bulk action's result replace this one reliably.
  *
- * When the batch's response includes `label_pdf_url` (every successfully
- * bought label combined into one PDF by the provider), a "Print N labels"
- * link to it is rendered too - absent for a batch where every fulfillment
- * failed, or whenever the provider doesn't support combining labels this
- * way.
+ * When the batch's response includes `label_pdf_url` (the labels of every
+ * successfully FULFILLED order combined into one PDF by the provider - a
+ * label bought for an order whose fulfillment then failed is deliberately
+ * left out, so it can't be printed and shipped by mistake), a "Print N
+ * labels" link to it is rendered too, N being exactly the succeeded count
+ * that PDF contains - absent for a batch where every fulfillment failed, or
+ * whenever the provider doesn't support combining labels this way. A failed
+ * order whose label was already bought shows `OrphanedLabelNotice` with the
+ * bought shipment's id.
  */
 export const BulkFulfillResultSummary = ({
   result,
@@ -68,15 +89,18 @@ export const BulkFulfillResultSummary = ({
           </a>
         )}
         {hasFailures && (
-          <div className="flex flex-col gap-y-1">
+          <div className="flex flex-col gap-y-2">
             {failed.map((failure) => (
-              <Text
-                key={failure.order_id}
-                size="small"
-                className="text-ui-fg-subtle"
-              >
-                {failure.order_id}: {failure.error}
-              </Text>
+              <div key={failure.order_id} className="flex flex-col gap-y-0.5">
+                <Text size="small" className="text-ui-fg-subtle">
+                  {failure.order_id}: {failure.error}
+                </Text>
+                {failure.easypost_shipment_id && (
+                  <OrphanedLabelNotice
+                    shipmentId={failure.easypost_shipment_id}
+                  />
+                )}
+              </div>
             ))}
           </div>
         )}
