@@ -1,6 +1,6 @@
 import { medusaIntegrationTestRunner } from "@medusajs/test-utils"
-import { asFunction } from "@medusajs/framework/awilix"
 import { ContainerRegistrationKeys } from "@medusajs/framework/utils"
+import { resolveEasyPostFulfillmentProvider } from "@medusajs/core-flows"
 import {
   adminHeaders,
   createAdminUser,
@@ -10,7 +10,12 @@ import { createOrderSeeder } from "../fixtures/order"
 jest.setTimeout(100000)
 
 medusaIntegrationTestRunner({
-  testSuite: ({ dbConnection, getContainer, api }) => {
+  env: {
+    // A fake key: any call that slips past the stubbed client fails loudly
+    // instead of reaching the real EasyPost API.
+    EASYPOST_API_KEY: "EZTKtest_00000000000000000000000000000000",
+  },
+  testSuite:({ dbConnection, getContainer, api }) => {
     let container
 
     beforeAll(async () => {
@@ -18,43 +23,47 @@ medusaIntegrationTestRunner({
       await createAdminUser(dbConnection, adminHeaders, container)
     })
 
-    // Same container-key pattern documented in
-    // apps/backend/integration-tests/http/bulk-fulfill-orders.spec.ts -- the
-    // fulfillment module's provider loader registers this provider as
-    // "fp_easypost_easypost", not "fp_easypost". Registering a stub under
-    // that exact key intercepts quoteAllRates so this route's tests never
-    // reach the real EasyPost API.
-    const mockEasyPost = (overrides?: {
-      quoteAllRates?: (...args: unknown[]) => Promise<unknown>
-    }) => {
-      const quoteAllRates =
-        overrides?.quoteAllRates ??
-        (async () => ({
-          shipmentId: "shp_test",
-          rates: [
-            {
-              carrier: "USPS",
-              service: "Priority",
-              name: "USPS Priority",
-              rateId: "rate_cheap",
-              amount: "5.00",
-              currency: "USD",
-            },
-            {
-              carrier: "UPS",
-              service: "Ground",
-              name: "UPS Ground",
-              rateId: "rate_expensive",
-              amount: "12.00",
-              currency: "USD",
-            },
-          ],
-        }))
+    // The route reaches the REAL EasyPost provider service through the
+    // Fulfillment Module (providers aren't in the app container, so a stub
+    // registered there would never be used by the real app - which is how
+    // an unresolvable "fp_easypost_easypost" lookup went unnoticed). Only the
+    // provider's `EasyPostClient` (the thin SDK wrapper) is replaced, so
+    // these tests never reach the real EasyPost API while still exercising
+    // the provider's own rate filtering/sorting.
+    const mockEasyPost = () => {
+      const createShipment = jest.fn(async () => ({
+        id: "shp_test",
+        rates: [
+          {
+            id: "rate_expensive",
+            carrier: "USPS",
+            service: "Express",
+            rate: "12.00",
+            currency: "USD",
+            deliveryDays: 1,
+          },
+          {
+            id: "rate_unmapped",
+            carrier: "SomeUnmappedCarrier",
+            service: "Ground",
+            rate: "1.00",
+            currency: "USD",
+            deliveryDays: 5,
+          },
+          {
+            id: "rate_cheap",
+            carrier: "USPS",
+            service: "Priority",
+            rate: "5.00",
+            currency: "USD",
+            deliveryDays: 2,
+          },
+        ],
+      }))
 
-      container.register(
-        "fp_easypost_easypost",
-        asFunction(() => ({ quoteAllRates }))
-      )
+      const provider = resolveEasyPostFulfillmentProvider<any>(container)
+      provider.client_ = { createShipment }
+      return { createShipment }
     }
 
     // createOrderSeeder's default stock location has no address, which
@@ -103,15 +112,25 @@ medusaIntegrationTestRunner({
 
         expect(response.status).toBe(200)
         expect(response.data.shipment_id).toBe("shp_test")
-        expect(response.data.rates.length).toBeGreaterThan(0)
-        expect(response.data.rates[0]).toEqual({
-          carrier: "USPS",
-          service: "Priority",
-          name: "USPS Priority",
-          rate_id: "rate_cheap",
-          amount: "5.00",
-          currency: "USD",
-        })
+        // Unmapped carriers filtered out, cheapest first.
+        expect(response.data.rates).toEqual([
+          {
+            carrier: "USPS",
+            service: "Priority",
+            name: "USPS Priority",
+            rate_id: "rate_cheap",
+            amount: "5.00",
+            currency: "USD",
+          },
+          {
+            carrier: "USPS",
+            service: "Express",
+            name: "USPS Express",
+            rate_id: "rate_expensive",
+            amount: "12.00",
+            currency: "USD",
+          },
+        ])
       })
 
       it("returns a 400 when the order's shipping address is incomplete", async () => {
@@ -154,25 +173,7 @@ medusaIntegrationTestRunner({
       })
 
       it("maps the request's parcel.predefined_package to the provider's predefinedPackage", async () => {
-        let receivedParcel: unknown
-        mockEasyPost({
-          quoteAllRates: async (parcel) => {
-            receivedParcel = parcel
-            return {
-              shipmentId: "shp_test",
-              rates: [
-                {
-                  carrier: "USPS",
-                  service: "Priority",
-                  name: "USPS Priority",
-                  rateId: "rate_cheap",
-                  amount: "5.00",
-                  currency: "USD",
-                },
-              ],
-            }
-          },
-        })
+        const { createShipment } = mockEasyPost()
 
         const stockLocation = await createStockLocationWithAddress(
           "carrier-rates predefined-package test location"
@@ -194,6 +195,8 @@ medusaIntegrationTestRunner({
         )
 
         expect(response.status).toBe(200)
+        const receivedParcel = (createShipment.mock.calls[0] as any[])[0]
+          .parcel
         expect(receivedParcel).toEqual(
           expect.objectContaining({
             weight: 16,

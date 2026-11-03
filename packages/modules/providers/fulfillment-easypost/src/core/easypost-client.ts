@@ -70,13 +70,19 @@ import crypto from "crypto"
  *   `"rejected"`.
  *
  * - Batches (read from the SDK's `src/services/batch_service.js` and
- *   `types/Batch`, not yet exercised against the live API):
+ *   `types/Batch`, and exercised against the real test-mode API with two
+ *   bought shipments):
  *   `client.Batch.create({ shipments: [{ id }] })` hits `POST /batches`,
- *   wrapping params as `{ batch: params }` internally, and returns a `Batch`
- *   with `id`. `client.Batch.generateLabel(batchId, fileFormat)` hits
+ *   wrapping params as `{ batch: params }` internally, and answers with
+ *   `state: "creating"`; about a second later a `GET /batches/:id` shows it
+ *   settled - to `"purchased"` (NOT `"created"`) when every shipment was
+ *   already bought. `client.Batch.generateLabel(batchId, fileFormat)` hits
  *   `POST /batches/:id/label` with `{ file_format }` (format defaults to
- *   `"pdf"`) and returns a `Batch` whose `label_url` is the consolidated
- *   label, or null/undefined until EasyPost has rendered it.
+ *   `"pdf"`; lowercase is accepted) and answers with
+ *   `state: "label_generating"` and a null `label_url`; the url shows up on
+ *   `client.Batch.retrieve(batchId)` a second or two later, with
+ *   `state: "label_generated"`, pointing at a real `application/pdf` file.
+ *   Both steps must therefore be polled, not read synchronously.
  *
  * - Buying a shipment TWICE: confirmed empirically against the real
  *   EasyPost test-mode API (while building Task 5's `createFulfillment`)
@@ -210,6 +216,11 @@ export type EasyPostShipmentDetails = EasyPostShipment & {
    * rejected with HTTP 422 `SHIPMENT.POSTAGE.EXISTS`.
    */
   purchased: boolean
+  /**
+   * The id of the rate postage was bought at (`selected_rate.id`).
+   * Undefined until the shipment is purchased.
+   */
+  selectedRateId?: string
 }
 
 /**
@@ -228,6 +239,18 @@ export type EasyPostStoredAddress = {
   country?: string | null
   phone?: string | null
   email?: string | null
+}
+
+/**
+ * An EasyPost `Batch` as this wrapper reports it. `state` is EasyPost's own
+ * batch state ("creating", "creation_failed", "created", "purchasing",
+ * "purchase_failed", "purchased", "label_generating", "label_generated").
+ * `labelUrl` is undefined until the consolidated label has been rendered.
+ */
+export type EasyPostBatch = {
+  id: string
+  state?: string
+  labelUrl?: string
 }
 
 type BatchLabelFormat = Parameters<
@@ -318,33 +341,51 @@ export class EasyPostClient {
    * Groups already-bought shipments into one EasyPost `Batch`
    * (`POST /batches`). The batch id is then used to generate a single
    * consolidated manifest label with `generateBatchLabel`.
+   *
+   * Batch creation is ASYNCHRONOUS on EasyPost's side (confirmed against the
+   * real test-mode API): the create call answers with `state: "creating"`,
+   * and the batch only settles a beat later - for already-purchased
+   * shipments it settles straight to `"purchased"`, not `"created"`. Poll
+   * `retrieveBatch` for the state to leave `"creating"`.
    */
-  async createBatch(shipmentIds: string[]): Promise<{ id: string }> {
+  async createBatch(shipmentIds: string[]): Promise<EasyPostBatch> {
     const batch = await this.client.Batch.create({
       shipments: shipmentIds.map((id) => ({ id })),
     })
 
-    return { id: batch.id }
+    return { id: batch.id, state: batch.state }
   }
 
   /**
-   * Generates the consolidated label for a batch (`POST /batches/:id/label`)
-   * in the requested format. `labelUrl` is undefined until EasyPost has
-   * finished rendering it.
+   * Reads a batch's current state and consolidated label url
+   * (`GET /batches/:id`).
+   */
+  async retrieveBatch(batchId: string): Promise<EasyPostBatch> {
+    return toEasyPostBatch(await this.client.Batch.retrieve(batchId))
+  }
+
+  /**
+   * Requests the consolidated label for a batch (`POST /batches/:id/label`)
+   * in the requested format. Label rendering is ASYNCHRONOUS too (confirmed
+   * against the real test-mode API): this call answers with
+   * `state: "label_generating"` and no `label_url`; the url appears on the
+   * batch (via `retrieveBatch`) a second or two later, once the state is
+   * `"label_generated"`.
    */
   async generateBatchLabel(
     batchId: string,
     format: "pdf" | "zpl" | "epl2"
-  ): Promise<{ labelUrl?: string }> {
+  ): Promise<EasyPostBatch> {
     // The SDK types this parameter as uppercase `LabelFormat`, but its own
-    // default (`'pdf'`) and the EasyPost batch-label docs use lowercase, so
+    // default (`'pdf'`) and the EasyPost batch-label docs use lowercase - and
+    // the real test-mode API accepts lowercase `"pdf"` (confirmed live), so
     // the lowercase format is passed through as-is.
     const batch = await this.client.Batch.generateLabel(
       batchId,
       format as unknown as BatchLabelFormat
     )
 
-    return { labelUrl: batch.label_url ?? undefined }
+    return toEasyPostBatch(batch)
   }
 
   /**
@@ -408,6 +449,18 @@ function toEasyPostParcel(parcel: EasyPostParcelInput) {
   }
 }
 
+function toEasyPostBatch(batch: {
+  id: string
+  state?: string | null
+  label_url?: string | null
+}): EasyPostBatch {
+  return {
+    id: batch.id,
+    state: batch.state ?? undefined,
+    labelUrl: batch.label_url ?? undefined,
+  }
+}
+
 function toRate(rate: {
   id: string
   carrier: string
@@ -455,7 +508,7 @@ function toEasyPostShipmentDetails(
       width?: number | null
       height?: number | null
     } | null
-    selected_rate?: unknown
+    selected_rate?: { id?: string | null } | null
   }
 ): EasyPostShipmentDetails {
   const parcel =
@@ -474,5 +527,6 @@ function toEasyPostShipmentDetails(
     fromAddress: shipment.from_address ?? undefined,
     parcel,
     purchased: !!shipment.selected_rate || !!shipment.postage_label,
+    selectedRateId: shipment.selected_rate?.id ?? undefined,
   }
 }

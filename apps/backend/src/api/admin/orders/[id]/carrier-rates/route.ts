@@ -3,6 +3,7 @@ import {
   ContainerRegistrationKeys,
   MedusaError,
 } from "@medusajs/framework/utils"
+import { resolveEasyPostFulfillmentProvider } from "@medusajs/medusa/core-flows"
 import { toEasyPostAddress } from "@dtc/fulfillment-easypost"
 
 type CarrierRatesRequestBody = {
@@ -26,10 +27,12 @@ type QuotedRate = {
 }
 
 // A narrow local type for the two things this route needs off the EasyPost
-// provider service, mirroring the same pattern (and the same
-// "fp_easypost_easypost" container key -- see that file's top comment for
-// why it's not "fp_easypost") used by bulkFulfillOrdersStep
+// provider service, mirroring the same pattern used by bulkFulfillOrdersStep
 // (packages/core/core-flows/src/order/steps/bulk-fulfill-orders.ts). The
+// provider is reached through `resolveEasyPostFulfillmentProvider`, NOT
+// `req.scope.resolve("fp_easypost_easypost")`: fulfillment providers are
+// registered only in the Fulfillment Module's own isolated container, so
+// that key does not resolve from the request/app container. The
 // provider's own `EasyPostAddressInput`/`EasyPostParcelInput` types aren't
 // exported from @dtc/fulfillment-easypost, so `toEasyPostAddress`'s return
 // type stands in for the address shape instead of re-declaring it.
@@ -91,9 +94,9 @@ export const POST = async (
     throw error
   }
 
-  const provider = req.scope.resolve(
-    "fp_easypost_easypost"
-  ) as EasyPostProviderService
+  const provider = resolveEasyPostFulfillmentProvider<EasyPostProviderService>(
+    req.scope
+  )
 
   const result = await provider.quoteAllRates(
     {

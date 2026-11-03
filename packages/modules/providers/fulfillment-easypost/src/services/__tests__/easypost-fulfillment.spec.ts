@@ -44,7 +44,15 @@ const defaultParcel = { weight: 16, length: 10, width: 8, height: 4 }
  * shape EasyPost stores them (country upper-cased, missing fields `null`).
  */
 function persistedShipment(
-  overrides: Partial<{ id: string; purchased: boolean }> = {}
+  overrides: Partial<{
+    id: string
+    purchased: boolean
+    selectedRateId: string
+    trackingCode: string
+    labelUrl: string
+    trackerId: string
+    trackingUrl: string
+  }> = {}
 ) {
   return {
     id: "shp_persisted",
@@ -881,6 +889,129 @@ describe("EasyPostFulfillmentService", () => {
         expect(result.data.easypost_rate_id).toBe("rate_persisted")
       })
 
+      describe("a shipment the caller already bought (admin bulk-fulfill)", () => {
+        const alreadyBought = () =>
+          persistedShipment({
+            id: "shp_admin",
+            purchased: true,
+            selectedRateId: "rate_admin",
+            trackingCode: "EZ_ADMIN_TRACKING",
+            labelUrl: "https://example.com/admin-label.png",
+            trackerId: "trk_admin",
+            trackingUrl: "https://example.com/track/admin",
+          })
+
+        // The exact data bulkFulfillOrdersStep passes as provider data after
+        // its own buyRate call.
+        const adminBoughtData = {
+          easypost_shipment_id: "shp_admin",
+          easypost_rate_id: "rate_admin",
+          easypost_tracking_code: "EZ_ADMIN_TRACKING",
+          easypost_label_url: "https://example.com/admin-label.png",
+          easypost_tracker_id: "trk_admin",
+        }
+
+        test("adopts the already-purchased shipment instead of buying a second label", async () => {
+          const fakeClient = buildFakeClient(alreadyBought())
+          const service = new EasyPostFulfillmentService(
+            { logger: fakeLogger },
+            { apiKey: "unused", defaultParcel, client: fakeClient }
+          )
+
+          const result = await service.createFulfillment(
+            adminBoughtData,
+            [],
+            undefined,
+            // A delivery address that wouldn't match the stored one: adoption
+            // must not be overridden by staleness checks - the label is
+            // already paid for.
+            {
+              delivery_address: {
+                ...unchangedDeliveryAddress,
+                address_1: "somewhere else",
+              },
+            } as any
+          )
+
+          expect(fakeClient.retrieveShipment).toHaveBeenCalledWith("shp_admin")
+          expect(fakeClient.buyShipment).not.toHaveBeenCalled()
+          expect(fakeClient.createShipment).not.toHaveBeenCalled()
+          expect(result).toEqual({
+            data: {
+              ...adminBoughtData,
+              easypost_tracking_code: "EZ_ADMIN_TRACKING",
+              easypost_label_url: "https://example.com/admin-label.png",
+              easypost_tracker_id: "trk_admin",
+            },
+            labels: [
+              {
+                tracking_number: "EZ_ADMIN_TRACKING",
+                tracking_url: "https://example.com/track/admin",
+                label_url: "https://example.com/admin-label.png",
+              },
+            ],
+          })
+        })
+
+        test("refuses, without buying anything, when the claimed purchase doesn't match what EasyPost reports", async () => {
+          for (const retrieved of [
+            // Not actually purchased.
+            persistedShipment({ id: "shp_admin" }),
+            // Purchased at a different rate.
+            { ...alreadyBought(), selectedRateId: "rate_other" },
+            // Purchased, but carrying a different tracking code.
+            { ...alreadyBought(), trackingCode: "EZ_SOMEONE_ELSE" },
+          ]) {
+            const fakeClient = buildFakeClient(retrieved)
+            const service = new EasyPostFulfillmentService(
+              { logger: fakeLogger },
+              { apiKey: "unused", defaultParcel, client: fakeClient }
+            )
+
+            await expect(
+              service.createFulfillment(adminBoughtData, [], undefined, {
+                delivery_address: unchangedDeliveryAddress,
+              } as any)
+            ).rejects.toThrow(/shp_admin/)
+            expect(fakeClient.buyShipment).not.toHaveBeenCalled()
+            expect(fakeClient.createShipment).not.toHaveBeenCalled()
+          }
+        })
+
+        test("still re-shops a checkout-persisted shipment that was bought by an earlier fulfillment (no tracking code in the data) - regression", async () => {
+          // A split order's second fulfillment reuses the same checkout
+          // shipping-method data, whose shipment the FIRST fulfillment
+          // already bought at that same rate. That data never carries a
+          // tracking code, so it must not be mistaken for an adoptable
+          // admin-bought shipment.
+          const fakeClient = buildFakeClient(
+            persistedShipment({
+              purchased: true,
+              selectedRateId: "rate_persisted",
+              trackingCode: "EZ_FIRST_FULFILLMENT",
+            })
+          )
+          const service = new EasyPostFulfillmentService(
+            { logger: fakeLogger },
+            { apiKey: "unused", defaultParcel, client: fakeClient }
+          )
+
+          const result = await service.createFulfillment(
+            persistedData,
+            [],
+            undefined,
+            { delivery_address: unchangedDeliveryAddress } as any
+          )
+
+          expect(fakeClient.buyShipment).toHaveBeenCalledTimes(1)
+          expect(fakeClient.buyShipment).toHaveBeenCalledWith(
+            "shp_fresh",
+            "rate_fresh"
+          )
+          expect(result.data.easypost_tracking_code).toBe("tracking-shp_fresh")
+        })
+      })
+
       test("(b) re-shops and buys a fresh shipment for the same carrier+service when the persisted one was already bought", async () => {
         const fakeClient = buildFakeClient(
           persistedShipment({ purchased: true })
@@ -1587,25 +1718,148 @@ describe("EasyPostFulfillmentService", () => {
   })
 
   describe("createLabelBatch", () => {
-    test("creates a batch from the given shipment ids and generates a label in the requested format", async () => {
-      const createBatch = jest.fn(async () => ({ id: "batch_1" }))
-      const generateBatchLabel = jest.fn(async () => ({
-        labelUrl: "https://easypost.test/batch.pdf",
-      }))
-      const fakeClient = {
-        createBatch,
-        generateBatchLabel,
-      } as unknown as EasyPostClient
+    const fastPolling = { intervalMs: 0, timeoutMs: 1_000 }
+
+    // Mirrors the real test-mode API's observed sequence: create answers
+    // "creating", the batch settles to "purchased", the label call answers
+    // "label_generating" with no url, and the url shows up on a later read.
+    const buildBatchClient = (
+      retrieveStates: { state: string; labelUrl?: string }[]
+    ) => {
+      const events: string[] = []
+      let reads = 0
+      const client = {
+        createBatch: jest.fn(async () => {
+          events.push("create")
+          return { id: "batch_1", state: "creating" }
+        }),
+        retrieveBatch: jest.fn(async () => {
+          const next =
+            retrieveStates[Math.min(reads, retrieveStates.length - 1)]
+          reads++
+          events.push(`retrieve:${next.state}`)
+          return { id: "batch_1", ...next }
+        }),
+        generateBatchLabel: jest.fn(async () => {
+          events.push("generate")
+          return { id: "batch_1", state: "label_generating" }
+        }),
+      }
+      return { client, events }
+    }
+
+    test("waits for the batch to finish creating, requests the label, then waits for the label url", async () => {
+      const { client, events } = buildBatchClient([
+        { state: "creating" },
+        { state: "purchased" },
+        { state: "label_generating" },
+        {
+          state: "label_generated",
+          labelUrl: "https://easypost.test/batch.pdf",
+        },
+      ])
       const service = new EasyPostFulfillmentService(
         { logger: fakeLogger },
-        { apiKey: "unused", defaultParcel, client: fakeClient }
+        {
+          apiKey: "unused",
+          defaultParcel,
+          client: client as unknown as EasyPostClient,
+          batchPolling: fastPolling,
+        }
       )
 
       const result = await service.createLabelBatch(["shp_1", "shp_2"], "pdf")
 
-      expect(createBatch).toHaveBeenCalledWith(["shp_1", "shp_2"])
-      expect(generateBatchLabel).toHaveBeenCalledWith("batch_1", "pdf")
+      expect(client.createBatch).toHaveBeenCalledWith(["shp_1", "shp_2"])
+      expect(client.generateBatchLabel).toHaveBeenCalledWith("batch_1", "pdf")
+      expect(events).toEqual([
+        "create",
+        "retrieve:creating",
+        "retrieve:purchased",
+        "generate",
+        "retrieve:label_generating",
+        "retrieve:label_generated",
+      ])
       expect(result.labelUrl).toBe("https://easypost.test/batch.pdf")
     })
+
+    test("throws when EasyPost reports the batch failed to create, without requesting a label", async () => {
+      const { client } = buildBatchClient([{ state: "creation_failed" }])
+      const service = new EasyPostFulfillmentService(
+        { logger: fakeLogger },
+        {
+          apiKey: "unused",
+          defaultParcel,
+          client: client as unknown as EasyPostClient,
+          batchPolling: fastPolling,
+        }
+      )
+
+      await expect(
+        service.createLabelBatch(["shp_1"], "pdf")
+      ).rejects.toThrow(/creation_failed/)
+      expect(client.generateBatchLabel).not.toHaveBeenCalled()
+    })
+
+    test("gives up with a clear error when the label url never appears within the timeout", async () => {
+      const { client } = buildBatchClient([
+        { state: "purchased" },
+        { state: "label_generating" },
+      ])
+      const service = new EasyPostFulfillmentService(
+        { logger: fakeLogger },
+        {
+          apiKey: "unused",
+          defaultParcel,
+          client: client as unknown as EasyPostClient,
+          batchPolling: { intervalMs: 1, timeoutMs: 20 },
+        }
+      )
+
+      await expect(
+        service.createLabelBatch(["shp_1"], "pdf")
+      ).rejects.toThrow(/batch_1/)
+    })
+
+    realApiTest(
+      "produces a real consolidated PDF label url for two shipments bought in test mode",
+      async () => {
+        const service = new EasyPostFulfillmentService(
+          { logger: fakeLogger },
+          { apiKey: process.env.EASYPOST_API_KEY!, defaultParcel }
+        )
+        const from = {
+          name: "Test Seller",
+          street1: "118 2nd street",
+          city: "San Francisco",
+          state: "CA",
+          zip: "94105",
+          country: "US",
+        }
+        const to = {
+          name: "Test Buyer",
+          street1: "417 montgomery st",
+          city: "San Francisco",
+          state: "CA",
+          zip: "94104",
+          country: "US",
+        }
+
+        const shipmentIds: string[] = []
+        for (let i = 0; i < 2; i++) {
+          const quoted = await service.quoteAllRates(defaultParcel, from, to)
+          const bought = await service.buyRate(
+            quoted.shipmentId,
+            quoted.rates[0].rateId
+          )
+          shipmentIds.push(bought.id)
+        }
+
+        const result = await service.createLabelBatch(shipmentIds, "pdf")
+
+        expect(result.labelUrl).toMatch(/^https:\/\/.+\.pdf$/)
+      },
+      REAL_API_TEST_TIMEOUT_MS * 3
+    )
   })
 })

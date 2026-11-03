@@ -124,6 +124,28 @@ export const createFulfillmentValidateOrder = createStep(
   }
 )
 
+/**
+ * Optional overrides for callers that have already chosen (and possibly
+ * already paid for) the fulfillment provider's shipment themselves, instead
+ * of relying on the checkout-selected shipping method.
+ */
+type ProviderOverrideInput = {
+  /**
+   * Used as the fulfillment provider's `data` instead of the order's
+   * shipping method's `data`.
+   */
+  provider_data_override?: Record<string, unknown>
+  /**
+   * The fulfillment provider to create the fulfillment with, instead of the
+   * shipping option's own provider. Pass it together with
+   * `provider_data_override` whenever that data belongs to a different
+   * provider than the shipping option's (for example, an EasyPost label
+   * bought for an order whose checkout shipping option uses the manual
+   * provider).
+   */
+  provider_id?: string
+}
+
 function prepareRegisterOrderFulfillmentData({
   order,
   fulfillment,
@@ -156,7 +178,8 @@ export function prepareFulfillmentData({
 }: {
   order: OrderDTO
   input: OrderWorkflow.CreateOrderFulfillmentWorkflowInput &
-    AdditionalData & { provider_data_override?: Record<string, unknown> }
+    AdditionalData &
+    ProviderOverrideInput
   shippingOption: {
     id: string
     provider_id: string
@@ -265,7 +288,13 @@ export function prepareFulfillmentData({
   return {
     input: {
       location_id: locationId,
-      provider_id: shippingOption.provider_id,
+      // A caller that already bought the label through a specific provider
+      // (the admin bulk-fulfill flow buys through EasyPost regardless of
+      // which shipping option the customer chose at checkout) must have the
+      // fulfillment created under THAT provider - otherwise the shipping
+      // option's own provider (e.g. `manual_manual`) is asked to create it
+      // and drops the bought label's data entirely.
+      provider_id: input.provider_id ?? shippingOption.provider_id,
       shipping_option_id: shippingOption.id,
       order: order,
       data: input.provider_data_override ?? shippingMethod.data,
@@ -377,7 +406,8 @@ function prepareInventoryUpdate({
  */
 export type CreateOrderFulfillmentWorkflowInput =
   OrderWorkflow.CreateOrderFulfillmentWorkflowInput &
-    AdditionalData & { provider_data_override?: Record<string, unknown> }
+    AdditionalData &
+    ProviderOverrideInput
 
 export const createOrderFulfillmentWorkflowId = "create-order-fulfillment"
 /**

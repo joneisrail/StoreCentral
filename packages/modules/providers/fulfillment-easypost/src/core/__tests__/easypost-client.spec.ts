@@ -66,8 +66,10 @@ describe("EasyPostClient", () => {
     )
   })
 
-  test("createBatch wraps shipment ids as { shipments: [{ id }] } and returns the batch id", async () => {
-    const fakeBatchCreate = jest.fn().mockResolvedValue({ id: "batch_1" })
+  test("createBatch wraps shipment ids as { shipments: [{ id }] } and returns the batch id and state", async () => {
+    const fakeBatchCreate = jest
+      .fn()
+      .mockResolvedValue({ id: "batch_1", state: "creating", label_url: null })
     const client = clientWithStubbedSdk({
       Batch: { create: fakeBatchCreate },
     })
@@ -77,13 +79,15 @@ describe("EasyPostClient", () => {
     expect(fakeBatchCreate).toHaveBeenCalledWith({
       shipments: [{ id: "shp_1" }, { id: "shp_2" }],
     })
-    expect(result).toEqual({ id: "batch_1" })
+    expect(result).toEqual({ id: "batch_1", state: "creating" })
   })
 
-  test("generateBatchLabel returns the consolidated label url", async () => {
-    const fakeGenerateLabel = jest
-      .fn()
-      .mockResolvedValue({ label_url: "https://easypost.test/batch.pdf" })
+  test("generateBatchLabel returns the batch's state and its label url once rendered", async () => {
+    const fakeGenerateLabel = jest.fn().mockResolvedValue({
+      id: "batch_1",
+      state: "label_generated",
+      label_url: "https://easypost.test/batch.pdf",
+    })
     const client = clientWithStubbedSdk({
       Batch: { generateLabel: fakeGenerateLabel },
     })
@@ -91,7 +95,53 @@ describe("EasyPostClient", () => {
     const result = await client.generateBatchLabel("batch_1", "pdf")
 
     expect(fakeGenerateLabel).toHaveBeenCalledWith("batch_1", "pdf")
-    expect(result).toEqual({ labelUrl: "https://easypost.test/batch.pdf" })
+    expect(result).toEqual({
+      id: "batch_1",
+      state: "label_generated",
+      labelUrl: "https://easypost.test/batch.pdf",
+    })
+  })
+
+  test("generateBatchLabel reports an undefined label url while EasyPost is still rendering it", async () => {
+    // Confirmed against the real test-mode API: the label call itself
+    // answers with state "label_generating" and a null label_url.
+    const client = clientWithStubbedSdk({
+      Batch: {
+        generateLabel: jest.fn().mockResolvedValue({
+          id: "batch_1",
+          state: "label_generating",
+          label_url: null,
+        }),
+      },
+    })
+
+    const result = await client.generateBatchLabel("batch_1", "pdf")
+
+    expect(result).toEqual({
+      id: "batch_1",
+      state: "label_generating",
+      labelUrl: undefined,
+    })
+  })
+
+  test("retrieveBatch reads a batch's current state and label url", async () => {
+    const fakeRetrieve = jest.fn().mockResolvedValue({
+      id: "batch_1",
+      state: "label_generated",
+      label_url: "https://easypost.test/batch.pdf",
+    })
+    const client = clientWithStubbedSdk({
+      Batch: { retrieve: fakeRetrieve },
+    })
+
+    const result = await client.retrieveBatch("batch_1")
+
+    expect(fakeRetrieve).toHaveBeenCalledWith("batch_1")
+    expect(result).toEqual({
+      id: "batch_1",
+      state: "label_generated",
+      labelUrl: "https://easypost.test/batch.pdf",
+    })
   })
 
   realApiTest(

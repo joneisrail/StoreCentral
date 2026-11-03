@@ -18,6 +18,7 @@ import {
 import { CARRIER_SERVICE_MAP } from "../core/carrier-services"
 import {
   EasyPostAddressInput,
+  EasyPostBatch,
   EasyPostClient,
   EasyPostParcelInput,
   EasyPostShipment,
@@ -56,7 +57,27 @@ export type EasyPostFulfillmentServiceOptions = {
    * real one from `apiKey`. Not meant to be set outside of tests.
    */
   client?: EasyPostClient
+  /**
+   * How `createLabelBatch` polls EasyPost's asynchronous batch endpoints.
+   * Defaults to `DEFAULT_BATCH_POLL_INTERVAL_MS`/`DEFAULT_BATCH_POLL_TIMEOUT_MS`;
+   * only tests need to change it.
+   */
+  batchPolling?: { intervalMs?: number; timeoutMs?: number }
 }
+
+/**
+ * Batch label generation is an explicit, admin-triggered action (not a hot
+ * path), so blocking briefly is acceptable. Against the real test-mode API a
+ * two-shipment batch settled in ~1s and rendered its label ~2s later; the
+ * timeout (per polled phase) leaves generous headroom over that.
+ */
+const DEFAULT_BATCH_POLL_INTERVAL_MS = 500
+const DEFAULT_BATCH_POLL_TIMEOUT_MS = 20_000
+
+/**
+ * Batch states after which no consolidated label can be generated.
+ */
+const BATCH_FAILURE_STATES = new Set(["creation_failed", "purchase_failed"])
 
 /**
  * Deliberately high, deliberately unattractive price used by `calculatePrice`
@@ -426,6 +447,11 @@ export class EasyPostFulfillmentService extends AbstractFulfillmentProviderServi
    * checkout quote; that is logged, since buying a correct label beats
    * buying a stale one.
    *
+   * **A shipment the caller already bought is adopted, not re-bought.** When
+   * `data` carries `easypost_tracking_code` (the admin bulk-fulfill flow
+   * passes its just-bought shipment this way), the shipment is verified
+   * against EasyPost and recorded as-is - see `adoptPurchasedShipment`.
+   *
    * Unlike `calculatePrice`/`validateFulfillmentData`, Medusa core invokes
    * `createFulfillment` ONE AT A TIME per fulfillment (`createFulfillmentStep`
    * takes a single `CreateFulfillmentDTO`, not a batch) -- there's no
@@ -455,6 +481,16 @@ export class EasyPostFulfillmentService extends AbstractFulfillmentProviderServi
     }
 
     const persisted = await this.client_.retrieveShipment(shipmentId)
+
+    // The caller already bought this shipment itself (the admin bulk-fulfill
+    // flow buys the admin's chosen rate before creating the fulfillment, and
+    // passes the bought shipment's tracking code along). Checkout-persisted
+    // shipping-method data never carries a tracking code, so this can't be
+    // confused with a split order reusing a shipment an earlier fulfillment
+    // bought - that case still goes through the re-shop logic below.
+    if (data.easypost_tracking_code !== undefined) {
+      return this.adoptPurchasedShipment(data, persisted, rateId)
+    }
 
     // Throws on an incomplete current delivery address, same as at checkout.
     const currentToAddress = fulfillment?.delivery_address
@@ -506,6 +542,46 @@ export class EasyPostFulfillmentService extends AbstractFulfillmentProviderServi
     }
 
     return buildCreateFulfillmentResult(data, bought)
+  }
+
+  /**
+   * Records a shipment the caller has ALREADY bought as this fulfillment's
+   * label, without buying anything. Only done when EasyPost itself confirms
+   * the claim: the shipment is purchased, at the rate the data names, with
+   * the tracking code the data carries. Anything else throws rather than
+   * falling back to a re-shop - the caller believes a label is already paid
+   * for, so silently buying another one would charge twice.
+   *
+   * Address/parcel staleness checks are deliberately skipped: the caller
+   * bought this label moments ago against the addresses/parcel it chose, and
+   * it is already paid for.
+   */
+  private adoptPurchasedShipment(
+    data: Record<string, unknown>,
+    persisted: EasyPostShipmentDetails,
+    rateId: string
+  ): CreateFulfillmentResult {
+    const claimedTrackingCode = data.easypost_tracking_code
+
+    const mismatch = !persisted.purchased
+      ? "EasyPost reports it has not been purchased"
+      : persisted.selectedRateId !== rateId
+      ? `EasyPost reports it was purchased at rate "${persisted.selectedRateId}", not "${rateId}"`
+      : !persisted.trackingCode ||
+        persisted.trackingCode !== claimedTrackingCode
+      ? `EasyPost reports tracking code "${persisted.trackingCode}", not "${String(
+          claimedTrackingCode
+        )}"`
+      : undefined
+
+    if (mismatch) {
+      throw new MedusaError(
+        MedusaError.Types.INVALID_DATA,
+        `EasyPost fulfillment provider: the fulfillment data says shipment "${persisted.id}" was already bought, but ${mismatch}. Refusing to buy another label for it.`
+      )
+    }
+
+    return buildCreateFulfillmentResult(data, persisted)
   }
 
   /**
@@ -783,9 +859,69 @@ export class EasyPostFulfillmentService extends AbstractFulfillmentProviderServi
     shipmentIds: string[],
     format: "pdf" | "zpl" | "epl2"
   ): Promise<{ labelUrl?: string }> {
-    const batch = await this.client_.createBatch(shipmentIds)
+    // Both EasyPost batch steps are asynchronous (see the batch notes in
+    // ../core/easypost-client.ts, confirmed against the real test-mode API):
+    // the batch must leave "creating" before its label is requested, and the
+    // label url only appears on a later read.
+    const created = await this.client_.createBatch(shipmentIds)
 
-    return this.client_.generateBatchLabel(batch.id, format)
+    const settled = await this.pollBatch(
+      created,
+      (batch) => batch.state !== "creating",
+      "finish creating"
+    )
+    if (settled.state && BATCH_FAILURE_STATES.has(settled.state)) {
+      throw new MedusaError(
+        MedusaError.Types.UNEXPECTED_STATE,
+        `EasyPost fulfillment provider: batch "${settled.id}" for shipments [${shipmentIds.join(
+          ", "
+        )}] ended in state "${settled.state}", so no consolidated label can be generated.`
+      )
+    }
+
+    const requested = await this.client_.generateBatchLabel(created.id, format)
+
+    const generated = await this.pollBatch(
+      requested,
+      (batch) => !!batch.labelUrl,
+      "render its consolidated label"
+    )
+
+    return { labelUrl: generated.labelUrl }
+  }
+
+  /**
+   * Re-reads a batch until `done` holds for it, waiting
+   * `batchPolling.intervalMs` between reads, and throws once
+   * `batchPolling.timeoutMs` has passed. `initial` is checked first, so no
+   * read happens when the batch is already there.
+   */
+  private async pollBatch(
+    initial: EasyPostBatch,
+    done: (batch: EasyPostBatch) => boolean,
+    waitingFor: string
+  ): Promise<EasyPostBatch> {
+    const intervalMs =
+      this.options_.batchPolling?.intervalMs ?? DEFAULT_BATCH_POLL_INTERVAL_MS
+    const timeoutMs =
+      this.options_.batchPolling?.timeoutMs ?? DEFAULT_BATCH_POLL_TIMEOUT_MS
+    const deadline = Date.now() + timeoutMs
+
+    let batch = initial
+    while (!done(batch)) {
+      if (Date.now() >= deadline) {
+        throw new MedusaError(
+          MedusaError.Types.UNEXPECTED_STATE,
+          `EasyPost fulfillment provider: timed out after ${timeoutMs}ms waiting for batch "${
+            initial.id
+          }" to ${waitingFor} (last state "${batch.state ?? "unknown"}").`
+        )
+      }
+      await new Promise((resolve) => setTimeout(resolve, intervalMs))
+      batch = await this.client_.retrieveBatch(initial.id)
+    }
+
+    return batch
   }
 
   /**

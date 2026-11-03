@@ -1,16 +1,21 @@
 import { medusaIntegrationTestRunner } from "@medusajs/test-utils"
 import { ProductStatus } from "@medusajs/framework/utils"
-import { asFunction } from "@medusajs/framework/awilix"
 import {
   adminHeaders,
   createAdminUser,
 } from "../fixtures/create-admin-user"
+import { installFakeEasyPost } from "../fixtures/fake-easypost"
 import { createOrderSeeder } from "../fixtures/order"
 
 jest.setTimeout(100000)
 
 medusaIntegrationTestRunner({
-  testSuite: ({ dbConnection, getContainer, api }) => {
+  env: {
+    // A fake key: any call that slips past the stubbed client fails loudly
+    // instead of reaching the real EasyPost API.
+    EASYPOST_API_KEY: "EZTKtest_00000000000000000000000000000000",
+  },
+  testSuite:({ dbConnection, getContainer, api }) => {
     let container
     let skuCounter = 0
 
@@ -19,35 +24,14 @@ medusaIntegrationTestRunner({
       await createAdminUser(dbConnection, adminHeaders, container)
     })
 
-    // The step this route delegates to (bulkFulfillOrdersStep) resolves the
-    // EasyPost provider service from the container as `container.resolve(
-    // "fp_easypost_easypost")` -- the fulfillment module's provider loader
-    // combines the provider class's static `identifier` ("easypost") with
-    // the configured option `id` ("easypost") to build that key. Registering
-    // a stub under that exact key here -- the same pattern this app's own
-    // packages/core/core-flows/src/order/steps/__tests__/bulk-fulfill-orders.unit.spec.ts
-    // uses -- intercepts every buyRate/createLabelBatch call so these HTTP
-    // tests never reach the real EasyPost API.
-    const mockEasyPost = (overrides?: {
-      buyRate?: (shipmentId: string, rateId: string) => Promise<any>
-      createLabelBatch?: (shipmentIds: string[], format: string) => Promise<any>
-    }) => {
-      const buyRate =
-        overrides?.buyRate ??
-        (async (shipmentId: string) => ({
-          id: `bought_${shipmentId}`,
-          trackingCode: `trk_${shipmentId}`,
-          labelUrl: `https://easypost.test/label/${shipmentId}.pdf`,
-        }))
-      const createLabelBatch =
-        overrides?.createLabelBatch ??
-        (async () => ({ labelUrl: "https://easypost.test/batch.pdf" }))
-
-      container.register(
-        "fp_easypost_easypost",
-        asFunction(() => ({ buyRate, createLabelBatch }))
-      )
-    }
+    // The step this route delegates to (bulkFulfillOrdersStep) reaches the
+    // REAL EasyPost provider service through the Fulfillment Module, and the
+    // fulfillment is then created through that same real provider. Only the
+    // provider's `EasyPostClient` (the thin SDK wrapper) is swapped for an
+    // in-memory fake (../fixtures/fake-easypost.ts), so these HTTP tests
+    // never reach the real EasyPost API. Each test registers the shipments
+    // it "quoted" with `fake.quote(id)` before fulfilling with them.
+    const mockEasyPost = () => installFakeEasyPost(container)
 
     // `createOrderSeeder`'s default product/inventory-item creation uses
     // hardcoded skus ("test-variant" for both the inventory item and the
@@ -115,7 +99,8 @@ medusaIntegrationTestRunner({
 
     describe("POST /admin/orders/fulfillments/batch", () => {
       it("fulfills each order with its chosen rate and returns a consolidated label url", async () => {
-        mockEasyPost()
+        const fake = mockEasyPost()
+        fake.quote("shp_1")
 
         const seeder = await createFulfillableOrder()
         const order = seeder.order
@@ -138,7 +123,8 @@ medusaIntegrationTestRunner({
         expect(response.status).toBe(200)
         expect(response.data.succeeded).toEqual([order.id])
         expect(response.data.failed).toEqual([])
-        expect(response.data.label_pdf_url).toBeDefined()
+        expect(response.data.label_pdf_url).toMatch(/\.pdf$/)
+        expect(fake.client.createBatch).toHaveBeenCalledWith(["shp_1"])
       })
 
       it("rejects a request with the old order_ids shape", async () => {
@@ -177,8 +163,10 @@ medusaIntegrationTestRunner({
         expect(response.status).toBe(400)
       })
 
-      it("fulfills each order independently, one order's failure doesn't block the others", async () => {
-        mockEasyPost()
+      it("fulfills each order independently, and never buys a label for an order that would predictably fail to fulfill", async () => {
+        const fake = mockEasyPost()
+        fake.quote("shp_a")
+        fake.quote("shp_b")
 
         const seederA = await createFulfillableOrder()
         const orderA = seederA.order
@@ -186,11 +174,9 @@ medusaIntegrationTestRunner({
         const seederB = await createFulfillableOrder()
         const orderB = seederB.order
 
-        // Remove orderB's stock reservation so createOrderFulfillmentWorkflow
-        // throws a real validation error for it ("No stock reservation
-        // found...") after the (mocked) EasyPost rate has already been
-        // "bought" - this exercises the orphaned-purchase path where
-        // easypost_shipment_id is reported on the failure entry.
+        // Remove orderB's stock reservation: createOrderFulfillmentWorkflow
+        // would reject it ("No stock reservation found..."), and the
+        // pre-buy validation must catch that BEFORE any money is spent.
         const orderBItemId = orderB.items[0].id
         const orderBReservations = (
           await api.get(
@@ -231,12 +217,11 @@ medusaIntegrationTestRunner({
         expect(response.data.failed).toHaveLength(1)
         expect(response.data.failed[0].order_id).toEqual(orderB.id)
         expect(response.data.failed[0].error).toMatch(/stock reservation/i)
-        // The EasyPost rate was already bought for orderB before the
-        // fulfillment creation failed, so the orphaned purchase's shipment
-        // id must round-trip all the way out through the HTTP response.
-        expect(response.data.failed[0].easypost_shipment_id).toEqual(
-          "bought_shp_b"
-        )
+        // Nothing was bought for orderB.
+        expect(response.data.failed[0].easypost_shipment_id).toBeUndefined()
+        expect(fake.client.buyShipment).toHaveBeenCalledTimes(1)
+        expect(fake.client.buyShipment).toHaveBeenCalledWith("shp_a", "rate_a")
+        expect(fake.shipments.get("shp_b")!.purchased).toBe(false)
         expect(response.data.label_pdf_url).toBeDefined()
 
         const afterA = (
@@ -256,8 +241,120 @@ medusaIntegrationTestRunner({
         expect(afterB.fulfillments ?? []).toHaveLength(0)
       })
 
+      it("never buys a label when the chosen Ship From location doesn't stock the order's items", async () => {
+        const fake = mockEasyPost()
+        fake.quote("shp_unstocked")
+
+        const seeder = await createFulfillableOrder()
+        const elsewhere = (
+          await api.post(
+            `/admin/stock-locations`,
+            { name: "location that stocks nothing" },
+            adminHeaders
+          )
+        ).data.stock_location
+
+        const response = await api.post(
+          "/admin/orders/fulfillments/batch",
+          {
+            fulfillments: [
+              {
+                order_id: seeder.order.id,
+                location_id: elsewhere.id,
+                shipment_id: "shp_unstocked",
+                rate_id: "rate_unstocked",
+              },
+            ],
+          },
+          adminHeaders
+        )
+
+        expect(response.status).toEqual(200)
+        expect(response.data.succeeded).toEqual([])
+        expect(response.data.failed).toEqual([
+          {
+            order_id: seeder.order.id,
+            error: expect.stringMatching(
+              new RegExp(`${elsewhere.id} doesn't stock`)
+            ),
+          },
+        ])
+        expect(fake.client.buyShipment).not.toHaveBeenCalled()
+        expect(fake.client.createBatch).not.toHaveBeenCalled()
+        expect(response.data.label_pdf_url).toBeUndefined()
+      })
+
+      it("reports the bought shipment id when fulfillment creation fails after the label was bought, and leaves that label out of the printable batch", async () => {
+        const fake = mockEasyPost()
+        fake.quote("shp_ok")
+        fake.quote("shp_orphan")
+
+        // The EasyPost provider's createFulfillment verifies the bought
+        // shipment with EasyPost before recording it; make that read fail
+        // for one order only, AFTER its label was bought.
+        const realRetrieve = fake.client.retrieveShipment.getMockImplementation()!
+        fake.client.retrieveShipment.mockImplementation(async (id: string) => {
+          if (id === "shp_orphan") {
+            throw new Error("EasyPost is unreachable")
+          }
+          return realRetrieve(id)
+        })
+
+        const seederOk = await createFulfillableOrder()
+        const seederOrphan = await createFulfillableOrder()
+
+        const response = await api.post(
+          "/admin/orders/fulfillments/batch",
+          {
+            fulfillments: [
+              {
+                order_id: seederOk.order.id,
+                location_id: seederOk.stockLocation.id,
+                shipment_id: "shp_ok",
+                rate_id: "rate_ok",
+              },
+              {
+                order_id: seederOrphan.order.id,
+                location_id: seederOrphan.stockLocation.id,
+                shipment_id: "shp_orphan",
+                rate_id: "rate_orphan",
+              },
+            ],
+          },
+          adminHeaders
+        )
+
+        expect(response.status).toEqual(200)
+        expect(response.data.succeeded).toEqual([seederOk.order.id])
+        expect(response.data.failed).toEqual([
+          {
+            order_id: seederOrphan.order.id,
+            error: expect.stringMatching(/EasyPost is unreachable/),
+            // The orphaned purchase's shipment id round-trips all the way
+            // out through the HTTP response.
+            easypost_shipment_id: "shp_orphan",
+          },
+        ])
+        expect(fake.shipments.get("shp_orphan")!.purchased).toBe(true)
+
+        // Only the fulfilled order's label is printable.
+        expect(fake.client.createBatch).toHaveBeenCalledTimes(1)
+        expect(fake.client.createBatch).toHaveBeenCalledWith(["shp_ok"])
+        expect(response.data.label_pdf_url).toBeDefined()
+
+        const afterOrphan = (
+          await api.get(
+            `/admin/orders/${seederOrphan.order.id}?fields=id,*fulfillments`,
+            adminHeaders
+          )
+        ).data.order
+        expect(afterOrphan.fulfillments ?? []).toHaveLength(0)
+      })
+
       it("only fulfills an order's own remaining unfulfilled items when it's already partially fulfilled, in a batch with a fresh order", async () => {
-        mockEasyPost()
+        const fake = mockEasyPost()
+        fake.quote("shp_c")
+        fake.quote("shp_d")
 
         // Build an order with two distinct line items so one can be
         // fulfilled ahead of time (simulating a previously-shipped item)

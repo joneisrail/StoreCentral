@@ -60,4 +60,33 @@ describe("prepareFulfillmentData", () => {
     })
     expect(result.input.data).toEqual({ easypost_shipment_id: "shp_checkout" })
   })
+
+  it("creates the fulfillment under the overriding provider_id when one is given", () => {
+    const result = prepareFulfillmentData({
+      order,
+      input: {
+        ...baseInput,
+        provider_id: "easypost_easypost",
+        provider_data_override: { easypost_shipment_id: "shp_fresh" },
+      },
+      shippingOption,
+      shippingMethod: { data: {} },
+      reservations: [],
+    })
+    expect(result.input.provider_id).toBe("easypost_easypost")
+    // The shipping option itself is unchanged - only the provider that
+    // creates (and later cancels) the fulfillment differs.
+    expect(result.input.shipping_option_id).toBe("so_1")
+  })
+
+  it("keeps the shipping option's own provider when no provider_id override is given (regression)", () => {
+    const result = prepareFulfillmentData({
+      order,
+      input: baseInput,
+      shippingOption,
+      shippingMethod: { data: {} },
+      reservations: [],
+    })
+    expect(result.input.provider_id).toBe("provider_1")
+  })
 })
