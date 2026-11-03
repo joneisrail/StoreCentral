@@ -58,6 +58,22 @@ const FulfillmentSettingsPage = () => {
     channel: SalesChannel,
     rawValue: string
   ) => {
+    // A cleared input means "no SLA for this channel": the key is removed
+    // rather than saved as `Number("") === 0`, which would make every order
+    // on the channel instantly Overdue with no way to unset it. (The sales
+    // channel module replaces `metadata` wholesale on update, so omitting
+    // the key removes it.)
+    if (rawValue.trim() === "") {
+      if (channel.metadata?.handling_hours === undefined) {
+        return
+      }
+
+      const { handling_hours: _removed, ...rest } = channel.metadata ?? {}
+      await sdk.admin.salesChannel.update(channel.id, { metadata: rest })
+      refetchChannels()
+      return
+    }
+
     const handlingHours = Number(rawValue)
 
     if (Number.isNaN(handlingHours)) {

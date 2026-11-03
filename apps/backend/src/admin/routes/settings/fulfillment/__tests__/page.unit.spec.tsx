@@ -109,4 +109,41 @@ describe("FulfillmentSettingsPage", () => {
       )
     )
   })
+
+  it("clearing a channel's handling-hours input removes its SLA instead of saving 0", async () => {
+    mockSalesChannelList.mockResolvedValue({
+      sales_channels: [
+        {
+          id: "sc_amazon",
+          name: "Amazon",
+          metadata: { handling_hours: 12, other_key: "kept" },
+        },
+      ],
+      count: 1,
+      limit: 20,
+      offset: 0,
+    })
+    renderPage()
+
+    const input = await screen.findByLabelText(/Amazon/i)
+    fireEvent.change(input, { target: { value: "" } })
+    fireEvent.blur(input)
+
+    await waitFor(() =>
+      expect(mockSalesChannelUpdate).toHaveBeenCalledWith("sc_amazon", {
+        metadata: { other_key: "kept" },
+      })
+    )
+  })
+
+  it("leaving an already-empty handling-hours input empty saves nothing", async () => {
+    renderPage()
+
+    const input = await screen.findByLabelText(/Storefront/i)
+    fireEvent.blur(input)
+
+    // Give a (wrong) save a chance to happen.
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(mockSalesChannelUpdate).not.toHaveBeenCalled()
+  })
 })
