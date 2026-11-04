@@ -147,7 +147,7 @@ describe("ReviewsPage", () => {
 
     renderPage()
 
-    expect(await screen.findByText(/no reviews/i)).toBeInTheDocument()
+    expect(await screen.findByText("No pending reviews.")).toBeInTheDocument()
   })
 
   it("shows an inline error with a Retry button when the request fails", async () => {
@@ -162,5 +162,124 @@ describe("ReviewsPage", () => {
     fireEvent.click(retryButton)
 
     expect(await screen.findByText("Midnight Oud")).toBeInTheDocument()
+  })
+
+  // Task 4c: the empty-state copy names the tab instead of using one
+  // generic string for every filter.
+  it("uses tab-specific empty-state copy for pending, approved, and rejected", async () => {
+    mockFetch.mockResolvedValue(listResponse([], 0))
+    renderPage()
+
+    expect(await screen.findByText("No pending reviews.")).toBeInTheDocument()
+
+    const approvedTab = screen.getByRole("tab", { name: "Approved" })
+    fireEvent.mouseDown(approvedTab)
+    expect(await screen.findByText("No approved reviews.")).toBeInTheDocument()
+
+    const rejectedTab = screen.getByRole("tab", { name: "Rejected" })
+    fireEvent.mouseDown(rejectedTab)
+    expect(await screen.findByText("No rejected reviews.")).toBeInTheDocument()
+
+    const allTab = screen.getByRole("tab", { name: "All" })
+    fireEvent.mouseDown(allTab)
+    expect(await screen.findByText("No reviews found.")).toBeInTheDocument()
+  })
+
+  // Task 4d: a long comment must be truncated in the table but keep the
+  // full text available via a `title` attribute, instead of rendering the
+  // full, unbounded text and breaking the table layout.
+  it("truncates a long comment and exposes the full text via a title attribute", async () => {
+    const longComment =
+      "This fragrance is absolutely incredible and lasted the entire day " +
+      "through a long shift, several meetings, and a workout, and I would " +
+      "recommend it to anyone who loves a warm, woody scent that doesn't fade."
+    mockFetch.mockResolvedValue(
+      listResponse([{ ...pendingReview, comment: longComment }])
+    )
+
+    renderPage()
+
+    const commentNode = await screen.findByTitle(longComment)
+    expect(commentNode).toBeInTheDocument()
+    expect(commentNode.textContent).not.toBe(longComment)
+    expect(commentNode.textContent!.length).toBeLessThan(longComment.length)
+  })
+
+  // Task 4d: Reject should use the UI library's danger variant, not the
+  // default button styling.
+  it("renders the Reject button with the danger variant", async () => {
+    mockFetch.mockResolvedValue(listResponse([pendingReview]))
+
+    renderPage()
+
+    const rejectButton = await screen.findByRole("button", { name: "Reject" })
+    expect(rejectButton.className).toMatch(/danger/)
+  })
+
+  // Task 4b: a failed mutation (e.g. the review was already deleted by the
+  // customer, a 404) must surface feedback instead of failing silently.
+  it("shows an inline error when Approve fails", async () => {
+    mockFetch.mockImplementation((url: string) => {
+      if (typeof url === "string" && url.includes("/approve")) {
+        return Promise.reject(new Error("Review not found"))
+      }
+      return Promise.resolve(listResponse([pendingReview]))
+    })
+
+    renderPage()
+
+    const approveButton = await screen.findByRole("button", { name: "Approve" })
+    fireEvent.click(approveButton)
+
+    expect(await screen.findByText("Review not found")).toBeInTheDocument()
+  })
+
+  // Task 4b: disable both buttons on a row while either of its mutations is
+  // in flight, so a fast double-click or an Approve-then-Reject race can't
+  // leave a non-deterministic final state.
+  it("disables Approve and Reject on a row while a mutation for that row is in flight", async () => {
+    let resolveApprove: (() => void) | undefined
+    mockFetch.mockImplementation((url: string) => {
+      if (typeof url === "string" && url.includes("/approve")) {
+        return new Promise<void>((resolve) => {
+          resolveApprove = resolve
+        })
+      }
+      return Promise.resolve(listResponse([pendingReview]))
+    })
+
+    renderPage()
+
+    const approveButton = await screen.findByRole("button", { name: "Approve" })
+    const rejectButton = screen.getByRole("button", { name: "Reject" })
+    fireEvent.click(approveButton)
+
+    await waitFor(() => expect(approveButton).toBeDisabled())
+    expect(rejectButton).toBeDisabled()
+
+    resolveApprove?.()
+  })
+
+  // Task 4a: approving/rejecting the last review(s) on page 2+ must not
+  // strand the moderator -- Previous stays available even though the
+  // now-current page has no rows.
+  it("keeps the Previous button available on an empty page beyond the first", async () => {
+    mockFetch.mockResolvedValue(listResponse([pendingReview], 25))
+    renderPage()
+
+    const nextButton = await screen.findByRole("button", { name: "Next" })
+    fireEvent.click(nextButton)
+
+    mockFetch.mockResolvedValue(listResponse([], 25))
+
+    await waitFor(() => {
+      const lastCall = mockFetch.mock.calls[mockFetch.mock.calls.length - 1]
+      expect(lastCall[1].query).toMatchObject({ offset: 20 })
+    })
+
+    const previousButton = await screen.findByRole("button", {
+      name: "Previous",
+    })
+    expect(previousButton).toBeEnabled()
   })
 })
