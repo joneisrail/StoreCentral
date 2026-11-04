@@ -2,6 +2,7 @@ import {
   createStep,
   StepResponse,
 } from "@medusajs/framework/workflows-sdk"
+import { MedusaError } from "@medusajs/framework/utils"
 import { REVIEW_MODULE } from "../../modules/review"
 import ReviewModuleService from "../../modules/review/service"
 
@@ -49,6 +50,21 @@ export function buildReviewUpsertInput(
     : { mode: "create", data }
 }
 
+// The (customer_id, product_id) unique index means a lost create-vs-create
+// race surfaces here as a DB unique-constraint violation rather than a
+// silent duplicate row. Medusa's mikro-orm error mapper turns that Postgres
+// 23505 into a MedusaError(INVALID_DATA, "<Table> with <cols>, already
+// exists.") before it reaches the module service, so that's the shape to
+// detect -- not a raw Postgres error code.
+export function isDuplicateReviewError(error: unknown): boolean {
+  return (
+    error != null &&
+    MedusaError.isMedusaError(error) &&
+    error.type === MedusaError.Types.INVALID_DATA &&
+    /already exists/i.test(error.message)
+  )
+}
+
 export const upsertReviewStep = createStep(
   "upsert-review",
   async (
@@ -68,15 +84,45 @@ export const upsertReviewStep = createStep(
       input.orderId
     )
 
-    const review: Review =
-      upsertInput.mode === "create"
-        ? await reviewModule.createReviews(upsertInput.data)
-        : await reviewModule.updateReviews({
-            id: upsertInput.id,
-            ...upsertInput.data,
-          })
+    let review: Review
+    let wasCreated: boolean
 
-    const wasCreated = upsertInput.mode === "create"
+    if (upsertInput.mode === "update") {
+      review = await reviewModule.updateReviews({
+        id: upsertInput.id,
+        ...upsertInput.data,
+      })
+      wasCreated = false
+    } else {
+      try {
+        review = await reviewModule.createReviews(upsertInput.data)
+        wasCreated = true
+      } catch (error) {
+        if (!isDuplicateReviewError(error)) {
+          throw error
+        }
+
+        // Lost the create-vs-create race: another request's createReviews
+        // landed first. The row now exists -- re-fetch it and fall back to
+        // updating it instead of letting the DB error bubble up as a 500.
+        const [raceWinner]: { id: string }[] = await reviewModule.listReviews(
+          {
+            customer_id: input.customer_id,
+            product_id: input.product_id,
+          }
+        )
+
+        if (!raceWinner) {
+          throw error
+        }
+
+        review = await reviewModule.updateReviews({
+          id: raceWinner.id,
+          ...upsertInput.data,
+        })
+        wasCreated = false
+      }
+    }
 
     return new StepResponse(
       { review, wasCreated },

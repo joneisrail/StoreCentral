@@ -1,6 +1,7 @@
 import { medusaIntegrationTestRunner } from "@medusajs/test-utils"
 import { ContainerRegistrationKeys, Modules } from "@medusajs/utils"
 import upsertReviewWorkflow from "../../src/workflows/upsert-review"
+import { REVIEW_MODULE } from "../../src/modules/review"
 
 jest.setTimeout(60000)
 
@@ -131,6 +132,69 @@ medusaIntegrationTestRunner({
         )
         expect(countsAfterSecond.productLinkCount).toBe(1)
         expect(countsAfterSecond.customerLinkCount).toBe(1)
+      })
+
+      it("resolves two concurrent submissions for the same (customer_id, product_id) to exactly one review row, without either call throwing", async () => {
+        const container = getContainer()
+
+        const customerModule = container.resolve(Modules.CUSTOMER)
+        const productModule = container.resolve(Modules.PRODUCT)
+        const orderModule = container.resolve(Modules.ORDER)
+        const reviewModule = container.resolve(REVIEW_MODULE)
+
+        const suffix = `${Date.now()}-concurrent`
+
+        const customer = await customerModule.createCustomers({
+          email: `reviewer-${suffix}@example.com`,
+        })
+
+        const product = await productModule.createProducts({
+          title: "Concurrent workflow test product",
+          handle: `concurrent-workflow-test-product-${suffix}`,
+        })
+
+        await orderModule.createOrders({
+          customer_id: customer.id,
+          currency_code: "usd",
+          items: [
+            {
+              title: "Test item",
+              quantity: 1,
+              unit_price: 100,
+              product_id: product.id,
+            },
+          ],
+        })
+
+        const submission = (rating: number, title: string) =>
+          upsertReviewWorkflow(container).run({
+            input: {
+              product_id: product.id,
+              customer_id: customer.id,
+              rating,
+              title,
+              comment: "Submitted concurrently",
+            },
+          })
+
+        const results = await Promise.all([
+          submission(4, "First concurrent submission"),
+          submission(5, "Second concurrent submission"),
+        ])
+
+        for (const { result } of results) {
+          expect(result.review.product_id).toBe(product.id)
+          expect(result.review.customer_id).toBe(customer.id)
+        }
+
+        const rows = await reviewModule.listReviews({
+          customer_id: customer.id,
+          product_id: product.id,
+        })
+
+        expect(rows).toHaveLength(1)
+        expect(results[0].result.review.id).toBe(results[1].result.review.id)
+        expect(results[0].result.review.id).toBe(rows[0].id)
       })
     })
   },
