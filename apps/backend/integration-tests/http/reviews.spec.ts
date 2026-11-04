@@ -8,6 +8,7 @@ import {
 import type { MedusaContainer } from "@medusajs/framework/types"
 import { REVIEW_MODULE } from "../../src/modules/review"
 import { generatePublishableKey } from "../fixtures/create-admin-user"
+import { createAdminUser } from "../helpers/create-admin-user"
 
 jest.setTimeout(60000)
 
@@ -443,6 +444,165 @@ medusaIntegrationTestRunner({
           .catch((e) => e.response)
 
         expect(response.status).toBe(404)
+      })
+    })
+
+    describe("POST /admin/reviews/:id/approve and /reject", () => {
+      // Creates a real pending review the long way (customer + order +
+      // POST /store/reviews) so these admin tests exercise the real
+      // review row, not a module-service shortcut. Returns the customer's
+      // auth headers and product too, since the "resets to pending" test
+      // below needs to resubmit as the same customer for the same product.
+      const createPendingReview = async (
+        container: MedusaContainer,
+        suffix: string | number
+      ) => {
+        const productModule = container.resolve(Modules.PRODUCT)
+        const orderModule = container.resolve(Modules.ORDER)
+
+        const { customer, headers } = await createCustomerWithAuthHeaders(
+          container,
+          `admin-moderation-${suffix}@example.com`
+        )
+        const product = await productModule.createProducts({
+          title: "Admin moderation product",
+          handle: `admin-moderation-product-${suffix}`,
+        })
+
+        await orderModule.createOrders({
+          customer_id: customer.id,
+          currency_code: "usd",
+          items: [
+            {
+              title: "Test item",
+              quantity: 1,
+              unit_price: 100,
+              product_id: product.id,
+            },
+          ],
+        })
+
+        const created = await api.post(
+          "/store/reviews",
+          {
+            product_id: product.id,
+            rating: 5,
+            title: "Great product",
+            comment: "Loved it",
+          },
+          headers
+        )
+
+        return { review: created.data.review, customer, product, headers }
+      }
+
+      it("approves a pending review", async () => {
+        const container = getContainer()
+        const adminHeaders = { headers: { authorization: "" } }
+        await createAdminUser(container, adminHeaders)
+
+        const { review } = await createPendingReview(container, Date.now())
+
+        const response = await api.post(
+          `/admin/reviews/${review.id}/approve`,
+          {},
+          adminHeaders
+        )
+
+        expect(response.status).toBe(200)
+        expect(response.data.review.id).toBe(review.id)
+        expect(response.data.review.status).toBe("approved")
+      })
+
+      it("rejects a pending review", async () => {
+        const container = getContainer()
+        const adminHeaders = { headers: { authorization: "" } }
+        await createAdminUser(container, adminHeaders)
+
+        const { review } = await createPendingReview(container, Date.now())
+
+        const response = await api.post(
+          `/admin/reviews/${review.id}/reject`,
+          {},
+          adminHeaders
+        )
+
+        expect(response.status).toBe(200)
+        expect(response.data.review.id).toBe(review.id)
+        expect(response.data.review.status).toBe("rejected")
+      })
+
+      it("is a no-op success when approving an already-approved review", async () => {
+        const container = getContainer()
+        const adminHeaders = { headers: { authorization: "" } }
+        await createAdminUser(container, adminHeaders)
+
+        const { review } = await createPendingReview(container, Date.now())
+
+        const first = await api.post(
+          `/admin/reviews/${review.id}/approve`,
+          {},
+          adminHeaders
+        )
+        expect(first.status).toBe(200)
+        expect(first.data.review.status).toBe("approved")
+
+        const second = await api.post(
+          `/admin/reviews/${review.id}/approve`,
+          {},
+          adminHeaders
+        )
+        expect(second.status).toBe(200)
+        expect(second.data.review.status).toBe("approved")
+      })
+
+      it("returns 404 when approving a review id that does not exist", async () => {
+        const container = getContainer()
+        const adminHeaders = { headers: { authorization: "" } }
+        await createAdminUser(container, adminHeaders)
+
+        const response = await api
+          .post(
+            "/admin/reviews/review_does_not_exist/approve",
+            {},
+            adminHeaders
+          )
+          .catch((e) => e.response)
+
+        expect(response.status).toBe(404)
+      })
+
+      it("resets an approved review back to pending when the customer edits it", async () => {
+        const container = getContainer()
+        const adminHeaders = { headers: { authorization: "" } }
+        await createAdminUser(container, adminHeaders)
+
+        const { review, product, headers } = await createPendingReview(
+          container,
+          Date.now()
+        )
+
+        const approved = await api.post(
+          `/admin/reviews/${review.id}/approve`,
+          {},
+          adminHeaders
+        )
+        expect(approved.data.review.status).toBe("approved")
+
+        const resubmitted = await api.post(
+          "/store/reviews",
+          {
+            product_id: product.id,
+            rating: 2,
+            title: "Changed my mind",
+            comment: "Not as good as I thought",
+          },
+          headers
+        )
+
+        expect(resubmitted.status).toBe(200)
+        expect(resubmitted.data.review.id).toBe(review.id)
+        expect(resubmitted.data.review.status).toBe("pending")
       })
     })
   },
