@@ -21,18 +21,18 @@ readable by anyone other than its author and admin users until approved
   fourth planned piece, which depends on this one).
 - Notifying the customer by email when their review is approved/rejected.
 - A customer-facing "my reviews" list endpoint.
-- A DB-level composite uniqueness constraint (see "Known tradeoff"
-  below).
 
 ## Decisions carried from brainstorming
 
 - **Verified purchase required.** A review may only be created for a
   product the reviewing customer has an order for. "Has an order for"
-  means: at least one of the customer's orders (`status != "canceled"`)
-  contains a line item with that `product_id`. Fulfillment/payment status
-  is *not* checked — an order only needs to exist and not be canceled.
-  This is a deliberate simplification: requiring delivery would block
-  legitimate early reviews and nothing in the request asked for it.
+  means: at least one of the customer's real, placed orders
+  (`status != "canceled"` and `is_draft_order: false`) contains a line
+  item with that `product_id`. Fulfillment/payment status is *not*
+  checked — an order only needs to exist, be placed (not a draft/quote),
+  and not be canceled. This is a deliberate simplification: requiring
+  delivery would block legitimate early reviews and nothing in the
+  request asked for it.
 - **One review per customer per product; editable/deletable.** Submitting
   a review for a product the customer already reviewed updates the
   existing row in place (same id) rather than creating a second one, and
@@ -44,15 +44,29 @@ readable by anyone other than its author and admin users until approved
 - **Default status:** `pending`. A review is invisible to everyone but
   its author and admin users until an admin approves it.
 
-## Known tradeoff
+## Corrections made after implementation
 
-"One review per customer per product" is enforced in the workflow (look
-up the existing review for `(customer_id, product_id)`, then create or
-update) rather than a database-level composite unique constraint —
-Medusa's model DML only documents a single-column `.unique()`. A
-near-simultaneous double-submit from the same customer for the same
-product could theoretically race into two rows. This is accepted as a
-low-probability edge case for a review-submission form, not fixed here.
+Two assumptions in this spec turned out to be factually wrong once
+checked against the installed Medusa version's actual code, and were
+corrected rather than left standing:
+
+- **"One review per customer per product" IS enforced at the database
+  level.** The original draft of this spec assumed Medusa's model DML
+  only supports a single-column `.unique()` and accepted an in-workflow
+  check-then-write as a "low-probability" race. That assumption was
+  wrong: this version's DML supports a composite unique index via
+  `.indexes([...])` with a `where` clause, confirmed against
+  `packages/core/utils/dist/dml/entity.d.ts` and
+  `packages/core/types/dist/dml/index.d.ts`. The `review` model carries
+  a unique index on `(customer_id, product_id)` scoped to non-deleted
+  rows, and `upsertReviewStep` handles the resulting unique-constraint
+  violation by retrying as an update rather than surfacing a raw DB
+  error.
+- **`NOT_ALLOWED` maps to HTTP 400, not 403, in this installed Medusa
+  version** (confirmed against `packages/core/framework/src/http/middlewares/error-handler.ts`
+  — only `MedusaError.Types.FORBIDDEN` maps to 403). The status codes
+  below have been corrected to 400; the behavior itself (reject the
+  request) was never wrong, only the originally-assumed status code.
 
 ## Architecture
 
@@ -143,11 +157,11 @@ the review's `status`. Shared by both the approve and reject routes
 **`POST /store/reviews`**
 Body: `{ product_id: string, rating: number, title: string, comment: string }`
 `customer_id` comes from `req.auth_context.actor_id`, never the body.
-Response: `{ review: Review }`. 403 (`NOT_ALLOWED`) if no qualifying
+Response: `{ review: Review }`. 400 (`NOT_ALLOWED`) if no qualifying
 order exists for that product.
 
 **`DELETE /store/reviews/:id`**
-Response: `204`. 403 if the review isn't the caller's.
+Response: `204`. 400 if the review isn't the caller's.
 
 **`GET /admin/reviews?status=pending&product_id=&offset=0&limit=20`**
 `status` and `product_id` are both optional filters; omitting `status`
@@ -209,12 +223,12 @@ against a real running backend (no mocked DB):
 - `apps/backend/integration-tests/http/reviews.spec.ts`:
   - A customer with a non-canceled order containing the product can
     `POST /store/reviews` successfully; one without such an order gets
-    403.
+    400.
   - Submitting a second review for the same product by the same
     customer updates the existing row (same `id`, new content, status
     reset to `pending`) rather than creating a second row.
   - `DELETE /store/reviews/:id` by the owning customer succeeds; by a
-    different customer returns 403.
+    different customer returns 400.
   - `GET /admin/reviews` filters correctly by `status` and `product_id`,
     and paginates.
   - `POST /admin/reviews/:id/approve` and `.../reject` each flip
