@@ -308,5 +308,142 @@ medusaIntegrationTestRunner({
         expect(reviews).toHaveLength(0)
       })
     })
+
+    describe("DELETE /store/reviews/:id", () => {
+      it("deletes the caller's own review", async () => {
+        const container = getContainer()
+        const productModule = container.resolve(Modules.PRODUCT)
+        const orderModule = container.resolve(Modules.ORDER)
+        const reviewModule = container.resolve(REVIEW_MODULE)
+
+        const suffix = Date.now()
+        const { customer, headers } = await createCustomerWithAuthHeaders(
+          container,
+          `delete-owner-${suffix}@example.com`
+        )
+        const product = await productModule.createProducts({
+          title: "Delete test product",
+          handle: `delete-test-product-${suffix}`,
+        })
+
+        await orderModule.createOrders({
+          customer_id: customer.id,
+          currency_code: "usd",
+          items: [
+            {
+              title: "Test item",
+              quantity: 1,
+              unit_price: 100,
+              product_id: product.id,
+            },
+          ],
+        })
+
+        const created = await api.post(
+          "/store/reviews",
+          {
+            product_id: product.id,
+            rating: 5,
+            title: "Great product",
+            comment: "Loved it",
+          },
+          headers
+        )
+        const reviewId = created.data.review.id
+
+        const linkModule = container.resolve(ContainerRegistrationKeys.LINK)
+
+        const response = await api.delete(`/store/reviews/${reviewId}`, headers)
+
+        expect(response.status).toBe(204)
+
+        await expect(reviewModule.retrieveReview(reviewId)).rejects.toThrow()
+
+        const productLinks = await linkModule.list({
+          review: { review_id: reviewId },
+          [Modules.PRODUCT]: { product_id: product.id },
+        })
+        const customerLinks = await linkModule.list({
+          review: { review_id: reviewId },
+          [Modules.CUSTOMER]: { customer_id: customer.id },
+        })
+        expect(productLinks).toHaveLength(0)
+        expect(customerLinks).toHaveLength(0)
+      })
+
+      // validateReviewOwnershipStep throws MedusaError.Types.NOT_ALLOWED on an
+      // ownership mismatch. The brief describes this as mapping to HTTP 403,
+      // but as with task 4's analogous NOT_ALLOWED case, this repo's
+      // installed @medusajs/framework maps NOT_ALLOWED -> 400, not 403 (only
+      // MedusaError.Types.FORBIDDEN maps to 403 -- see
+      // packages/core/framework/src/http/middlewares/error-handler.ts:67-69,
+      // 77-79). This test asserts the real, verified behavior.
+      it("returns 400 when deleting another customer's review", async () => {
+        const container = getContainer()
+        const productModule = container.resolve(Modules.PRODUCT)
+        const orderModule = container.resolve(Modules.ORDER)
+
+        const suffix = Date.now()
+        const { customer: ownerCustomer, headers: ownerHeaders } =
+          await createCustomerWithAuthHeaders(
+            container,
+            `delete-owner-b-${suffix}@example.com`
+          )
+        const { headers: otherHeaders } = await createCustomerWithAuthHeaders(
+          container,
+          `delete-other-${suffix}@example.com`
+        )
+        const product = await productModule.createProducts({
+          title: "Delete mismatch product",
+          handle: `delete-mismatch-product-${suffix}`,
+        })
+
+        await orderModule.createOrders({
+          customer_id: ownerCustomer.id,
+          currency_code: "usd",
+          items: [
+            {
+              title: "Test item",
+              quantity: 1,
+              unit_price: 100,
+              product_id: product.id,
+            },
+          ],
+        })
+
+        const created = await api.post(
+          "/store/reviews",
+          {
+            product_id: product.id,
+            rating: 5,
+            title: "Great product",
+            comment: "Loved it",
+          },
+          ownerHeaders
+        )
+        const reviewId = created.data.review.id
+
+        const response = await api
+          .delete(`/store/reviews/${reviewId}`, otherHeaders)
+          .catch((e) => e.response)
+
+        expect(response.status).toBe(400)
+      })
+
+      it("returns 404 when the review id does not exist", async () => {
+        const container = getContainer()
+        const suffix = Date.now()
+        const { headers } = await createCustomerWithAuthHeaders(
+          container,
+          `delete-missing-${suffix}@example.com`
+        )
+
+        const response = await api
+          .delete("/store/reviews/review_does_not_exist", headers)
+          .catch((e) => e.response)
+
+        expect(response.status).toBe(404)
+      })
+    })
   },
 })
