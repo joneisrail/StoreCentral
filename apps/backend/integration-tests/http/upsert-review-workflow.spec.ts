@@ -14,6 +14,7 @@ medusaIntegrationTestRunner({
         const productModule = container.resolve(Modules.PRODUCT)
         const orderModule = container.resolve(Modules.ORDER)
         const query = container.resolve(ContainerRegistrationKeys.QUERY)
+        const linkModule = container.resolve(ContainerRegistrationKeys.LINK)
 
         const suffix = Date.now()
 
@@ -25,6 +26,30 @@ medusaIntegrationTestRunner({
           title: "Workflow test product",
           handle: `workflow-test-product-${suffix}`,
         })
+
+        // Counts the raw pivot rows for this review's product/customer links
+        // directly, rather than relying on a query.graph join, because
+        // Medusa's link duplicate-prevention (modules-sdk's Link.create())
+        // only rejects a link whose OTHER side differs from an existing row
+        // -- it does not reject a second, identical (review_id, product_id)
+        // pivot row. A joined query would still read back the correct
+        // product/customer even if `when(...).then(...)` silently ran
+        // createRemoteLinkStep twice, so only a direct row count can tell
+        // "the gate worked" apart from "the gate ran twice with identical data".
+        const countReviewLinks = async (reviewId: string) => {
+          const productLinks = await linkModule.list({
+            review: { review_id: reviewId },
+            [Modules.PRODUCT]: { product_id: product.id },
+          })
+          const customerLinks = await linkModule.list({
+            review: { review_id: reviewId },
+            [Modules.CUSTOMER]: { customer_id: customer.id },
+          })
+          return {
+            productLinkCount: productLinks.length,
+            customerLinkCount: customerLinks.length,
+          }
+        }
 
         await orderModule.createOrders({
           customer_id: customer.id,
@@ -65,6 +90,10 @@ medusaIntegrationTestRunner({
         expect(afterFirst[0].product?.id).toBe(product.id)
         expect(afterFirst[0].customer?.id).toBe(customer.id)
 
+        const countsAfterFirst = await countReviewLinks(firstResult.review.id)
+        expect(countsAfterFirst.productLinkCount).toBe(1)
+        expect(countsAfterFirst.customerLinkCount).toBe(1)
+
         const { result: secondResult } = await upsertReviewWorkflow(
           container
         ).run({
@@ -92,6 +121,16 @@ medusaIntegrationTestRunner({
         expect(afterSecond).toHaveLength(1)
         expect(afterSecond[0].product?.id).toBe(product.id)
         expect(afterSecond[0].customer?.id).toBe(customer.id)
+
+        // The assertion that actually catches a broken `when(...).then(...)`
+        // gate: if the update path silently re-ran createRemoteLinkStep, the
+        // joined query above would still pass (it reads the same product and
+        // customer back either way), but the pivot row count would be 2.
+        const countsAfterSecond = await countReviewLinks(
+          secondResult.review.id
+        )
+        expect(countsAfterSecond.productLinkCount).toBe(1)
+        expect(countsAfterSecond.customerLinkCount).toBe(1)
       })
     })
   },
