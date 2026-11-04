@@ -447,55 +447,56 @@ medusaIntegrationTestRunner({
       })
     })
 
-    describe("POST /admin/reviews/:id/approve and /reject", () => {
-      // Creates a real pending review the long way (customer + order +
-      // POST /store/reviews) so these admin tests exercise the real
-      // review row, not a module-service shortcut. Returns the customer's
-      // auth headers and product too, since the "resets to pending" test
-      // below needs to resubmit as the same customer for the same product.
-      const createPendingReview = async (
-        container: MedusaContainer,
-        suffix: string | number
-      ) => {
-        const productModule = container.resolve(Modules.PRODUCT)
-        const orderModule = container.resolve(Modules.ORDER)
+    // Creates a real pending review the long way (customer + order +
+    // POST /store/reviews) so admin-facing tests exercise the real review
+    // row, not a module-service shortcut. Returns the customer's auth
+    // headers and product too, since some callers need to resubmit as the
+    // same customer for the same product, or need the order id to cancel
+    // it later.
+    const createPendingReview = async (
+      container: MedusaContainer,
+      suffix: string | number
+    ) => {
+      const productModule = container.resolve(Modules.PRODUCT)
+      const orderModule = container.resolve(Modules.ORDER)
 
-        const { customer, headers } = await createCustomerWithAuthHeaders(
-          container,
-          `admin-moderation-${suffix}@example.com`
-        )
-        const product = await productModule.createProducts({
-          title: "Admin moderation product",
-          handle: `admin-moderation-product-${suffix}`,
-        })
+      const { customer, headers } = await createCustomerWithAuthHeaders(
+        container,
+        `admin-moderation-${suffix}@example.com`
+      )
+      const product = await productModule.createProducts({
+        title: "Admin moderation product",
+        handle: `admin-moderation-product-${suffix}`,
+      })
 
-        await orderModule.createOrders({
-          customer_id: customer.id,
-          currency_code: "usd",
-          items: [
-            {
-              title: "Test item",
-              quantity: 1,
-              unit_price: 100,
-              product_id: product.id,
-            },
-          ],
-        })
-
-        const created = await api.post(
-          "/store/reviews",
+      const order = await orderModule.createOrders({
+        customer_id: customer.id,
+        currency_code: "usd",
+        items: [
           {
+            title: "Test item",
+            quantity: 1,
+            unit_price: 100,
             product_id: product.id,
-            rating: 5,
-            title: "Great product",
-            comment: "Loved it",
           },
-          headers
-        )
+        ],
+      })
 
-        return { review: created.data.review, customer, product, headers }
-      }
+      const created = await api.post(
+        "/store/reviews",
+        {
+          product_id: product.id,
+          rating: 5,
+          title: "Great product",
+          comment: "Loved it",
+        },
+        headers
+      )
 
+      return { review: created.data.review, customer, product, order, headers }
+    }
+
+    describe("POST /admin/reviews/:id/approve and /reject", () => {
       it("approves a pending review", async () => {
         const container = getContainer()
         const adminHeaders = { headers: { authorization: "" } }
@@ -603,6 +604,188 @@ medusaIntegrationTestRunner({
         expect(resubmitted.status).toBe(200)
         expect(resubmitted.data.review.id).toBe(review.id)
         expect(resubmitted.data.review.status).toBe("pending")
+      })
+    })
+
+    describe("GET /admin/reviews", () => {
+      it("lists reviews with product and customer details", async () => {
+        const container = getContainer()
+        const adminHeaders = { headers: { authorization: "" } }
+        await createAdminUser(container, adminHeaders)
+
+        const { review, product, customer } = await createPendingReview(
+          container,
+          Date.now()
+        )
+
+        const response = await api.get(
+          `/admin/reviews?product_id=${product.id}&limit=100`,
+          adminHeaders
+        )
+
+        expect(response.status).toBe(200)
+        expect(response.data.count).toBe(1)
+
+        const found = response.data.reviews.find(
+          (r: any) => r.id === review.id
+        )
+        expect(found).toMatchObject({
+          id: review.id,
+          rating: 5,
+          title: "Great product",
+          comment: "Loved it",
+          status: "pending",
+          product: { id: product.id, title: product.title },
+          customer: { id: customer.id, email: customer.email },
+        })
+        expect(found.created_at).toBeDefined()
+      })
+
+      it("filters by status", async () => {
+        const container = getContainer()
+        const adminHeaders = { headers: { authorization: "" } }
+        await createAdminUser(container, adminHeaders)
+
+        const suffix = Date.now()
+        const pending = await createPendingReview(container, `${suffix}-a`)
+        const toApprove = await createPendingReview(container, `${suffix}-b`)
+
+        await api.post(
+          `/admin/reviews/${toApprove.review.id}/approve`,
+          {},
+          adminHeaders
+        )
+
+        const response = await api.get(
+          "/admin/reviews?status=approved&limit=200",
+          adminHeaders
+        )
+
+        expect(response.status).toBe(200)
+        const ids = response.data.reviews.map((r: any) => r.id)
+        expect(ids).toContain(toApprove.review.id)
+        expect(ids).not.toContain(pending.review.id)
+        expect(
+          response.data.reviews.every((r: any) => r.status === "approved")
+        ).toBe(true)
+      })
+
+      it("filters by product_id", async () => {
+        const container = getContainer()
+        const adminHeaders = { headers: { authorization: "" } }
+        await createAdminUser(container, adminHeaders)
+
+        const suffix = Date.now()
+        const forProductA = await createPendingReview(container, `${suffix}-a`)
+        await createPendingReview(container, `${suffix}-b`)
+
+        const response = await api.get(
+          `/admin/reviews?product_id=${forProductA.product.id}`,
+          adminHeaders
+        )
+
+        expect(response.status).toBe(200)
+        expect(response.data.count).toBe(1)
+        expect(response.data.reviews).toHaveLength(1)
+        expect(response.data.reviews[0].id).toBe(forProductA.review.id)
+        expect(response.data.reviews[0].product.id).toBe(
+          forProductA.product.id
+        )
+      })
+
+      it("paginates with offset/limit", async () => {
+        const container = getContainer()
+        const adminHeaders = { headers: { authorization: "" } }
+        await createAdminUser(container, adminHeaders)
+
+        const productModule = container.resolve(Modules.PRODUCT)
+        const orderModule = container.resolve(Modules.ORDER)
+
+        const suffix = Date.now()
+        const product = await productModule.createProducts({
+          title: "Pagination test product",
+          handle: `pagination-test-product-${suffix}`,
+        })
+
+        for (let i = 0; i < 3; i++) {
+          const { customer, headers } = await createCustomerWithAuthHeaders(
+            container,
+            `pagination-${suffix}-${i}@example.com`
+          )
+          await orderModule.createOrders({
+            customer_id: customer.id,
+            currency_code: "usd",
+            items: [
+              {
+                title: "Test item",
+                quantity: 1,
+                unit_price: 100,
+                product_id: product.id,
+              },
+            ],
+          })
+          await api.post(
+            "/store/reviews",
+            {
+              product_id: product.id,
+              rating: 5,
+              title: `Review ${i}`,
+              comment: "Loved it",
+            },
+            headers
+          )
+        }
+
+        const response = await api.get(
+          `/admin/reviews?product_id=${product.id}&limit=2&offset=1`,
+          adminHeaders
+        )
+
+        expect(response.status).toBe(200)
+        expect(response.data.reviews).toHaveLength(2)
+        // count must reflect the filtered total (3), not the page size (2).
+        expect(response.data.count).toBe(3)
+        expect(response.data.offset).toBe(1)
+        expect(response.data.limit).toBe(2)
+      })
+
+      it("still returns a review whose order was canceled after the review was created", async () => {
+        const container = getContainer()
+        const adminHeaders = { headers: { authorization: "" } }
+        await createAdminUser(container, adminHeaders)
+
+        const { review, product, order } = await createPendingReview(
+          container,
+          Date.now()
+        )
+
+        // Cancel the order for real, via the same admin order-cancel route
+        // used elsewhere in this suite (e.g.
+        // fulfillment-queue.spec.ts), rather than mutating order.status
+        // directly, so this exercises the real cancellation workflow.
+        const cancelResponse = await api.post(
+          `/admin/orders/${order.id}/cancel`,
+          {},
+          adminHeaders
+        )
+        expect(cancelResponse.status).toBe(200)
+
+        const response = await api.get(
+          `/admin/reviews?product_id=${product.id}`,
+          adminHeaders
+        )
+
+        expect(response.status).toBe(200)
+        const found = response.data.reviews.find(
+          (r: any) => r.id === review.id
+        )
+        expect(found).toMatchObject({
+          id: review.id,
+          status: "pending",
+          rating: 5,
+          title: "Great product",
+          comment: "Loved it",
+        })
       })
     })
   },
