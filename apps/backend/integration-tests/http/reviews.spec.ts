@@ -161,6 +161,122 @@ medusaIntegrationTestRunner({
         expect(response.status).toBe(400)
       })
 
+      // The customer's only order containing the product is canceled, which
+      // must be rejected the same as having no order at all -- this exercises
+      // the `status: { $ne: "canceled" }` branch of checkVerifiedPurchaseStep
+      // directly (the existing cancellation test above only covers a review
+      // that already exists surviving a *later* cancellation, which is a
+      // different code path).
+      it("returns 400 when the customer's only order containing the product is canceled", async () => {
+        const container = getContainer()
+        const adminHeaders = { headers: { authorization: "" } }
+        await createAdminUser(container, adminHeaders)
+
+        const productModule = container.resolve(Modules.PRODUCT)
+        const orderModule = container.resolve(Modules.ORDER)
+
+        const suffix = Date.now()
+        const { customer, headers } = await createCustomerWithAuthHeaders(
+          container,
+          `canceled-order-${suffix}@example.com`
+        )
+        const product = await productModule.createProducts({
+          title: "Canceled order product",
+          handle: `canceled-order-product-${suffix}`,
+        })
+
+        const order = await orderModule.createOrders({
+          customer_id: customer.id,
+          currency_code: "usd",
+          items: [
+            {
+              title: "Test item",
+              quantity: 1,
+              unit_price: 100,
+              product_id: product.id,
+            },
+          ],
+        })
+
+        // Cancel via the real admin order-cancel route (same pattern as the
+        // "still returns a review whose order was canceled after the review
+        // was created" test below), not a direct status mutation.
+        const cancelResponse = await api.post(
+          `/admin/orders/${order.id}/cancel`,
+          {},
+          adminHeaders
+        )
+        expect(cancelResponse.status).toBe(200)
+
+        const response = await api
+          .post(
+            "/store/reviews",
+            {
+              product_id: product.id,
+              rating: 5,
+              title: "Great product",
+              comment: "Loved it",
+            },
+            headers
+          )
+          .catch((e) => e.response)
+
+        expect(response.status).toBe(400)
+      })
+
+      // A draft order (an admin-created quote) that was never converted into
+      // a real order must not count as a purchase. CreateOrderWorkflowInput
+      // doesn't accept is_draft_order at creation (this installed
+      // @medusajs/medusa version), so this flips it via the module service
+      // directly after creation, the same pattern used in
+      // fulfillment-queue.spec.ts's "excludes a draft order even if
+      // unfulfilled" test -- the order is never converted back.
+      it("returns 400 when the customer's only order containing the product is an unconverted draft order", async () => {
+        const container = getContainer()
+        const productModule = container.resolve(Modules.PRODUCT)
+        const orderModule = container.resolve(Modules.ORDER)
+
+        const suffix = Date.now()
+        const { customer, headers } = await createCustomerWithAuthHeaders(
+          container,
+          `draft-order-${suffix}@example.com`
+        )
+        const product = await productModule.createProducts({
+          title: "Draft order product",
+          handle: `draft-order-product-${suffix}`,
+        })
+
+        const draftOrder = await orderModule.createOrders({
+          customer_id: customer.id,
+          currency_code: "usd",
+          items: [
+            {
+              title: "Test item",
+              quantity: 1,
+              unit_price: 100,
+              product_id: product.id,
+            },
+          ],
+        })
+
+        await orderModule.updateOrders(draftOrder.id, { is_draft_order: true })
+
+        const response = await api
+          .post(
+            "/store/reviews",
+            {
+              product_id: product.id,
+              rating: 5,
+              title: "Great product",
+              comment: "Loved it",
+            },
+            headers
+          )
+          .catch((e) => e.response)
+
+        expect(response.status).toBe(400)
+      })
+
       it("updates the same review id and resets status to pending on a second submission", async () => {
         const container = getContainer()
         const productModule = container.resolve(Modules.PRODUCT)

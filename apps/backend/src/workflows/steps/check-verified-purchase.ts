@@ -36,6 +36,11 @@ export const checkVerifiedPurchaseStep = createStep(
       filters: {
         customer_id: input.customerId,
         status: { $ne: "canceled" },
+        // A draft order (an admin-created quote) that was never converted
+        // into a real order must not count as a purchase -- see
+        // apps/backend/src/api/admin/fulfillment-queue/route.ts for this
+        // repo's established pattern of filtering these out.
+        is_draft_order: false,
       },
     })
 
