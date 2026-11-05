@@ -81,6 +81,9 @@ export const updatePurchaseStep = createStep(
     const existing = await purchaseModule.retrievePurchase(input.purchase_id, {
       relations: ["items"],
     })
+    // Residual race: an ordered transition committed between this check and
+    // the writes below is not detected. Accepted: the plan scopes locking to
+    // receive-goods.
     if (existing.status !== "draft") {
       throw new MedusaError(
         MedusaError.Types.NOT_ALLOWED,
