@@ -1,4 +1,5 @@
 import { authenticate, configureStoreSearch, defineMiddlewares } from '@medusajs/framework/http'
+import { supplierMiddlewares } from './admin/suppliers/middlewares'
 import { reviewMiddlewares } from './store/reviews/middlewares'
 
 // The product index declares filterable `status` and `sales_channel_ids`, so
@@ -21,6 +22,7 @@ export default defineMiddlewares({
       middlewares: [authenticate('customer', ['session', 'bearer'])],
     },
     ...reviewMiddlewares,
+    ...supplierMiddlewares,
     {
       // The EasyPost webhook route verifies the `X-Hmac-Signature` header
       // against the exact raw request bytes, so the JSON bodyparser must
