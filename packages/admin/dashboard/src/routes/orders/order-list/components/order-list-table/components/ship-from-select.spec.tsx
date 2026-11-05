@@ -34,6 +34,7 @@ if (!Element.prototype.scrollIntoView) {
   Element.prototype.scrollIntoView = vi.fn()
 }
 
+import { Link, MemoryRouter } from "react-router-dom"
 import { ShipFromSelect } from "./ship-from-select"
 
 beforeEach(() => {
@@ -55,6 +56,24 @@ afterEach(() => {
 })
 
 describe("ShipFromSelect", () => {
+  it("does not follow the surrounding row Link when its trigger is clicked", () => {
+    render(
+      <MemoryRouter>
+        <Link to="/orders/order_1">
+          <ShipFromSelect
+            orderId="order_1"
+            defaultLocationId="sloc_default"
+            onChange={vi.fn()}
+          />
+        </Link>
+      </MemoryRouter>
+    )
+
+    // `fireEvent.click` returns false when the click's default (Chrome
+    // following the anchor's `href`) was cancelled.
+    expect(fireEvent.click(screen.getByRole("combobox"))).toBe(false)
+  })
+
   it("defaults to the store's configured default location", async () => {
     render(
       <ShipFromSelect

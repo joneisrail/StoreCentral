@@ -16,6 +16,7 @@ vi.mock("react-i18next", () => ({
 }))
 
 import { useState } from "react"
+import { Link, MemoryRouter } from "react-router-dom"
 
 import { PackagePopover, PackageSelection } from "./package-popover"
 
@@ -44,6 +45,24 @@ afterEach(() => {
 })
 
 describe("PackagePopover", () => {
+  it("opens without following the surrounding row Link - the browser's own anchor navigation is cancelled too", () => {
+    render(
+      <MemoryRouter>
+        <Link to="/orders/order_1">
+          <PackagePopover initialParcel={parcel} onChange={vi.fn()} />
+        </Link>
+      </MemoryRouter>
+    )
+
+    // `fireEvent.click` returns false when a handler called
+    // `preventDefault`, which is what stops Chrome from following the
+    // anchor's `href` when its React `onClick` never runs.
+    const notCancelled = fireEvent.click(screen.getByRole("button"))
+
+    expect(notCancelled).toBe(false)
+    expect(screen.getByText("USPS")).toBeTruthy()
+  })
+
   it("lists USPS and FedEx presets grouped by carrier", () => {
     render(<PackagePopover initialParcel={parcel} onChange={vi.fn()} />)
 

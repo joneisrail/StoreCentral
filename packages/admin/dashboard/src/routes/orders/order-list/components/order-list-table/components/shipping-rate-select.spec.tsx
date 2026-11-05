@@ -36,6 +36,7 @@ if (!Element.prototype.scrollIntoView) {
   Element.prototype.scrollIntoView = vi.fn()
 }
 
+import { Link, MemoryRouter } from "react-router-dom"
 import { ShippingRateSelect } from "./shipping-rate-select"
 
 const parcel = { weight: 16 }
@@ -68,6 +69,49 @@ afterEach(() => {
 })
 
 describe("ShippingRateSelect", () => {
+  it("does not follow the surrounding row Link when its trigger or retry button is clicked", () => {
+    mockUseOrderCarrierRates.mockReturnValue({
+      data: TWO_RATES,
+      isError: false,
+      refetch: vi.fn(),
+    })
+    const { unmount } = render(
+      <MemoryRouter>
+        <Link to="/orders/order_1">
+          <ShippingRateSelect
+            orderId="order_1"
+            locationId="sloc_1"
+            parcel={parcel}
+            onChange={vi.fn()}
+          />
+        </Link>
+      </MemoryRouter>
+    )
+    expect(fireEvent.click(screen.getByRole("combobox"))).toBe(false)
+    unmount()
+
+    mockUseOrderCarrierRates.mockReturnValue({
+      data: undefined,
+      isError: true,
+      refetch: vi.fn(),
+    })
+    render(
+      <MemoryRouter>
+        <Link to="/orders/order_1">
+          <ShippingRateSelect
+            orderId="order_1"
+            locationId="sloc_1"
+            parcel={parcel}
+            onChange={vi.fn()}
+          />
+        </Link>
+      </MemoryRouter>
+    )
+    expect(
+      fireEvent.click(screen.getByRole("button", { name: /retry/i }))
+    ).toBe(false)
+  })
+
   it("auto-selects the cheapest rate once quoted", async () => {
     const onChange = vi.fn()
     mockUseOrderCarrierRates.mockReturnValue({

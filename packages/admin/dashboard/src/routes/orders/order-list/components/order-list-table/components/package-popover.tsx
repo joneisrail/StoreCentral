@@ -1,4 +1,12 @@
-import { Button, Hint, Input, Label, Popover, RadioGroup, Text } from "@medusajs/ui"
+import {
+  Button,
+  Hint,
+  Input,
+  Label,
+  Popover,
+  RadioGroup,
+  Text,
+} from "@medusajs/ui"
 import { useId, useState } from "react"
 import { useTranslation } from "react-i18next"
 
@@ -6,7 +14,11 @@ import {
   EASYPOST_PACKAGE_PRESETS,
   EasyPostPackagePreset,
 } from "../../../../../../lib/easypost-package-presets"
-import { formatPackageField, OrderParcel } from "../../../../../../lib/order-parcel"
+import {
+  formatPackageField,
+  OrderParcel,
+} from "../../../../../../lib/order-parcel"
+import { RowLinkGuard } from "./row-link-guard"
 
 /**
  * The payload `PackagePopover` hands back to `onChange` once a selection is
@@ -46,7 +58,8 @@ const CUSTOM_VALUE = "__custom__"
 
 const CARRIERS: EasyPostPackagePreset["carrier"][] = ["USPS", "FedEx"]
 
-const toInputValue = (value: number | null) => (value === null ? "" : String(value))
+const toInputValue = (value: number | null) =>
+  value === null ? "" : String(value)
 
 /**
  * The confirmed parcel to display/reopen with: the confirmed `selection`'s
@@ -188,7 +201,9 @@ export const PackagePopover = ({
       return
     }
 
-    const preset = EASYPOST_PACKAGE_PRESETS.find((p) => p.code === selectedPreset)
+    const preset = EASYPOST_PACKAGE_PRESETS.find(
+      (p) => p.code === selectedPreset
+    )
     if (preset) {
       handleConfirmPreset(preset)
     }
@@ -218,136 +233,138 @@ export const PackagePopover = ({
       )}`
 
   return (
-    <Popover open={open} onOpenChange={handleOpenChange}>
-      {/*
-       * Same reasoning as `FulfillConfirmPopover`'s trigger: this cell sits
-       * inside `_DataTable`'s row `Link`, so the click must stop here or it
-       * bubbles up and navigates to the order detail page instead of
-       * opening the popover.
-       */}
-      <Popover.Trigger asChild>
-        <Button
-          size="small"
-          variant="secondary"
+    <RowLinkGuard>
+      <Popover open={open} onOpenChange={handleOpenChange}>
+        {/*
+         * Same reasoning as `FulfillConfirmPopover`'s trigger: this cell sits
+         * inside `_DataTable`'s row `Link`, so the click must stop here or it
+         * bubbles up and navigates to the order detail page instead of
+         * opening the popover.
+         */}
+        <Popover.Trigger asChild>
+          <Button size="small" variant="secondary">
+            <span className="truncate">{triggerLabel}</span>
+          </Button>
+        </Popover.Trigger>
+        <Popover.Content
+          align="end"
+          side="top"
+          className="w-[360px] overflow-hidden"
           onClick={(e) => {
             e.stopPropagation()
           }}
         >
-          <span className="truncate">{triggerLabel}</span>
-        </Button>
-      </Popover.Trigger>
-      <Popover.Content
-        align="end"
-        side="top"
-        className="w-[360px] overflow-hidden"
-        onClick={(e) => {
-          e.stopPropagation()
-        }}
-      >
-        <div className="flex max-h-[420px] flex-col gap-y-3 overflow-y-auto p-3">
-          {weightError && (
-            <Hint variant="error">
-              {t("orders.readyToShip.packageWeightRequired")}
-            </Hint>
-          )}
+          <div className="flex max-h-[420px] flex-col gap-y-3 overflow-y-auto p-3">
+            {weightError && (
+              <Hint variant="error">
+                {t("orders.readyToShip.packageWeightRequired")}
+              </Hint>
+            )}
 
-          <RadioGroup
-            value={selectedPreset}
-            onValueChange={handleSelectedPresetChange}
-            className="flex flex-col gap-y-3"
-          >
-            {CARRIERS.map((carrier) => (
-              <div key={carrier} className="flex flex-col gap-y-1">
-                <Text size="xsmall" weight="plus" className="text-ui-fg-subtle">
-                  {carrier}
-                </Text>
-                <div className="flex flex-col gap-y-0.5">
-                  {EASYPOST_PACKAGE_PRESETS.filter((preset) => preset.carrier === carrier).map(
-                    (preset) => (
+            <RadioGroup
+              value={selectedPreset}
+              onValueChange={handleSelectedPresetChange}
+              className="flex flex-col gap-y-3"
+            >
+              {CARRIERS.map((carrier) => (
+                <div key={carrier} className="flex flex-col gap-y-1">
+                  <Text
+                    size="xsmall"
+                    weight="plus"
+                    className="text-ui-fg-subtle"
+                  >
+                    {carrier}
+                  </Text>
+                  <div className="flex flex-col gap-y-0.5">
+                    {EASYPOST_PACKAGE_PRESETS.filter(
+                      (preset) => preset.carrier === carrier
+                    ).map((preset) => (
                       <label
                         key={preset.code}
-                        className="hover:bg-ui-bg-base-hover flex cursor-pointer items-center gap-x-2 rounded-md px-1 py-1"
+                        className="flex cursor-pointer items-center gap-x-2 rounded-md px-1 py-1 hover:bg-ui-bg-base-hover"
                       >
                         <RadioGroup.Item value={preset.code} />
                         <Text size="small">{preset.label}</Text>
                       </label>
-                    )
-                  )}
+                    ))}
+                  </div>
+                </div>
+              ))}
+
+              <label className="flex cursor-pointer items-center gap-x-2 rounded-md px-1 py-1 hover:bg-ui-bg-base-hover">
+                <RadioGroup.Item value={CUSTOM_VALUE} />
+                <Text size="small">
+                  {t("orders.readyToShip.packageCustom")}
+                </Text>
+              </label>
+            </RadioGroup>
+
+            {selectedPreset === CUSTOM_VALUE && (
+              <div className="grid grid-cols-2 gap-x-2 gap-y-2">
+                <div className="flex flex-col gap-y-1">
+                  <Label htmlFor={weightInputId} size="xsmall" weight="plus">
+                    {t("fields.weight")}
+                  </Label>
+                  <Input
+                    id={weightInputId}
+                    type="number"
+                    value={weight}
+                    onChange={(e) => {
+                      setWeight(e.target.value)
+                      setWeightError(false)
+                    }}
+                  />
+                </div>
+                <div />
+                <div className="flex flex-col gap-y-1">
+                  <Label htmlFor={lengthInputId} size="xsmall">
+                    {t("fields.length")}
+                  </Label>
+                  <Input
+                    id={lengthInputId}
+                    type="number"
+                    value={length}
+                    onChange={(e) => setLength(e.target.value)}
+                  />
+                </div>
+                <div className="flex flex-col gap-y-1">
+                  <Label htmlFor={widthInputId} size="xsmall">
+                    {t("fields.width")}
+                  </Label>
+                  <Input
+                    id={widthInputId}
+                    type="number"
+                    value={width}
+                    onChange={(e) => setWidth(e.target.value)}
+                  />
+                </div>
+                <div className="flex flex-col gap-y-1">
+                  <Label htmlFor={heightInputId} size="xsmall">
+                    {t("fields.height")}
+                  </Label>
+                  <Input
+                    id={heightInputId}
+                    type="number"
+                    value={height}
+                    onChange={(e) => setHeight(e.target.value)}
+                  />
                 </div>
               </div>
-            ))}
+            )}
 
-            <label className="hover:bg-ui-bg-base-hover flex cursor-pointer items-center gap-x-2 rounded-md px-1 py-1">
-              <RadioGroup.Item value={CUSTOM_VALUE} />
-              <Text size="small">{t("orders.readyToShip.packageCustom")}</Text>
-            </label>
-          </RadioGroup>
-
-          {selectedPreset === CUSTOM_VALUE && (
-            <div className="grid grid-cols-2 gap-x-2 gap-y-2">
-              <div className="flex flex-col gap-y-1">
-                <Label htmlFor={weightInputId} size="xsmall" weight="plus">
-                  {t("fields.weight")}
-                </Label>
-                <Input
-                  id={weightInputId}
-                  type="number"
-                  value={weight}
-                  onChange={(e) => {
-                    setWeight(e.target.value)
-                    setWeightError(false)
-                  }}
-                />
-              </div>
-              <div />
-              <div className="flex flex-col gap-y-1">
-                <Label htmlFor={lengthInputId} size="xsmall">
-                  {t("fields.length")}
-                </Label>
-                <Input
-                  id={lengthInputId}
-                  type="number"
-                  value={length}
-                  onChange={(e) => setLength(e.target.value)}
-                />
-              </div>
-              <div className="flex flex-col gap-y-1">
-                <Label htmlFor={widthInputId} size="xsmall">
-                  {t("fields.width")}
-                </Label>
-                <Input
-                  id={widthInputId}
-                  type="number"
-                  value={width}
-                  onChange={(e) => setWidth(e.target.value)}
-                />
-              </div>
-              <div className="flex flex-col gap-y-1">
-                <Label htmlFor={heightInputId} size="xsmall">
-                  {t("fields.height")}
-                </Label>
-                <Input
-                  id={heightInputId}
-                  type="number"
-                  value={height}
-                  onChange={(e) => setHeight(e.target.value)}
-                />
-              </div>
-            </div>
-          )}
-
-          <div className="flex items-center justify-end gap-x-2">
-            <Popover.Close asChild>
-              <Button size="small" variant="secondary">
-                {t("actions.cancel")}
+            <div className="flex items-center justify-end gap-x-2">
+              <Popover.Close asChild>
+                <Button size="small" variant="secondary">
+                  {t("actions.cancel")}
+                </Button>
+              </Popover.Close>
+              <Button size="small" type="button" onClick={handleConfirm}>
+                {t("actions.confirm")}
               </Button>
-            </Popover.Close>
-            <Button size="small" type="button" onClick={handleConfirm}>
-              {t("actions.confirm")}
-            </Button>
+            </div>
           </div>
-        </div>
-      </Popover.Content>
-    </Popover>
+        </Popover.Content>
+      </Popover>
+    </RowLinkGuard>
   )
 }

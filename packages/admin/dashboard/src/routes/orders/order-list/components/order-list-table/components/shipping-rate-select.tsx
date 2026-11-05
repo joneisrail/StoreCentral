@@ -7,6 +7,7 @@ import {
   useOrderCarrierRates,
 } from "../../../../../../hooks/api/orders"
 import { PackageSelection } from "./ready-to-ship-table"
+import { RowLinkGuard } from "./row-link-guard"
 
 type ShippingRateSelectProps = {
   orderId: string
@@ -89,7 +90,7 @@ export const ShippingRateSelect = ({
     // Retry can't fix it, so say what will.
     return (
       <div className="flex h-full w-full items-center overflow-hidden">
-        <Text size="small" className="text-ui-fg-error truncate">
+        <Text size="small" className="truncate text-ui-fg-error">
           {t("orders.readyToShip.noShipFromLocation")}
         </Text>
       </div>
@@ -99,68 +100,58 @@ export const ShippingRateSelect = ({
   if (isError) {
     return (
       <div className="flex h-full w-full items-center gap-x-2 overflow-hidden">
-        <Text size="small" className="text-ui-fg-error truncate">
+        <Text size="small" className="truncate text-ui-fg-error">
           {t("orders.readyToShip.shippingRateQuoteFailed")}
         </Text>
-        <Button
-          size="small"
-          variant="secondary"
-          onClick={(e) => {
-            // Same reasoning as `ShipFromSelect`'s/`PackagePopover`'s
-            // trigger: this cell sits inside `_DataTable`'s row `Link`, so
-            // the click must stop here or it bubbles up and navigates to
-            // the order detail page instead of retrying the quote.
-            e.stopPropagation()
-            refetch()
-          }}
-        >
-          {t("orders.readyToShip.retry")}
-        </Button>
+        <RowLinkGuard>
+          <Button size="small" variant="secondary" onClick={() => refetch()}>
+            {t("orders.readyToShip.retry")}
+          </Button>
+        </RowLinkGuard>
       </div>
     )
   }
 
-  const selectedRate = data?.rates.find((rate) => rate.rate_id === selectedRateId)
+  const selectedRate = data?.rates.find(
+    (rate) => rate.rate_id === selectedRateId
+  )
 
   return (
-    <Select
-      value={selectedRateId ?? undefined}
-      onValueChange={(rateId) => {
-        setSelectedRateId(rateId)
-        if (data) {
-          onChange({ shipmentId: data.shipment_id, rateId })
-        }
-      }}
-      disabled={!data}
-    >
-      {/*
-       * Same reasoning as `ShipFromSelect`'s trigger: this cell sits inside
-       * `_DataTable`'s row `Link`, so the click must stop here or it
-       * bubbles up and navigates to the order detail page instead of
-       * opening the select. The `aria-label` names the order, since every
-       * row's trigger otherwise shares the same "combobox" role.
-       */}
-      <Select.Trigger
-        aria-label={`Shipping rate - order ${orderId}`}
-        onClick={(e) => {
-          e.stopPropagation()
+    <RowLinkGuard className="flex w-full">
+      <Select
+        value={selectedRateId ?? undefined}
+        onValueChange={(rateId) => {
+          setSelectedRateId(rateId)
+          if (data) {
+            onChange({ shipmentId: data.shipment_id, rateId })
+          }
         }}
+        disabled={!data}
       >
-        <Select.Value placeholder={t("orders.readyToShip.quoting")}>
-          {selectedRate ? formatRateLabel(selectedRate) : undefined}
-        </Select.Value>
-      </Select.Trigger>
-      <Select.Content
-        onClick={(e) => {
-          e.stopPropagation()
-        }}
-      >
-        {data?.rates.map((rate) => (
-          <Select.Item key={rate.rate_id} value={rate.rate_id}>
-            {formatRateLabel(rate)}
-          </Select.Item>
-        ))}
-      </Select.Content>
-    </Select>
+        {/*
+         * Same reasoning as `ShipFromSelect`'s trigger: this cell sits inside
+         * `_DataTable`'s row `Link`, so the click must stop here or it
+         * bubbles up and navigates to the order detail page instead of
+         * opening the select. The `aria-label` names the order, since every
+         * row's trigger otherwise shares the same "combobox" role.
+         */}
+        <Select.Trigger aria-label={`Shipping rate - order ${orderId}`}>
+          <Select.Value placeholder={t("orders.readyToShip.quoting")}>
+            {selectedRate ? formatRateLabel(selectedRate) : undefined}
+          </Select.Value>
+        </Select.Trigger>
+        <Select.Content
+          onClick={(e) => {
+            e.stopPropagation()
+          }}
+        >
+          {data?.rates.map((rate) => (
+            <Select.Item key={rate.rate_id} value={rate.rate_id}>
+              {formatRateLabel(rate)}
+            </Select.Item>
+          ))}
+        </Select.Content>
+      </Select>
+    </RowLinkGuard>
   )
 }

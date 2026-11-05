@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, waitFor } from "@testing-library/react"
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { TooltipProvider } from "@medusajs/ui"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -48,6 +48,7 @@ vi.mock("../../../../../../hooks/api/stock-locations", () => ({
   useStockLocations: (...args: any[]) => mockUseStockLocations(...args),
 }))
 
+import { Link, MemoryRouter } from "react-router-dom"
 import { FulfillConfirmPopover } from "./fulfill-confirm-popover"
 
 const baseOrder = {
@@ -107,6 +108,28 @@ mockUseStockLocations.mockReturnValue({
 })
 
 describe("FulfillConfirmPopover", () => {
+  it("opens without following the surrounding row Link", async () => {
+    render(
+      <MemoryRouter>
+        <Link to="/orders/order_1">
+          <FulfillConfirmPopover
+            order={baseOrder}
+            rowLocationOverride={{}}
+            rowRates={quotedRate}
+            defaultLocationId="loc_1"
+          />
+        </Link>
+      </MemoryRouter>
+    )
+
+    expect(
+      fireEvent.click(
+        screen.getByRole("button", { name: "orders.readyToShip.fulfill" })
+      )
+    ).toBe(false)
+    expect(await screen.findByText("2x T-Shirt")).toBeTruthy()
+  })
+
   it("renders the inert, disabled Fulfill button when the order has no shipping method - no popover is wired", () => {
     render(
       <TooltipProvider>

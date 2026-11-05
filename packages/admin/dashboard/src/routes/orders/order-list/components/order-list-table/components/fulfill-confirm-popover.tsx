@@ -14,6 +14,7 @@ import {
   ReadyToShipOrder,
   resolveShipFromLocationId,
 } from "./ready-to-ship-table"
+import { RowLinkGuard } from "./row-link-guard"
 
 type FulfillConfirmPopoverProps = {
   order: ReadyToShipOrder
@@ -182,114 +183,97 @@ export const FulfillConfirmPopover = ({
   }
 
   return (
-    <Popover open={open} onOpenChange={handleOpenChange}>
-      {/*
-       * `DisabledFulfillCell` isn't used as the trigger here: Radix's
-       * `asChild` clones its injected props (ref, onClick, aria
-       * attributes) onto the literal child element, which only works when
-       * that child forwards them on to a real DOM node (as `Button`
-       * does). `DisabledFulfillCell` is a plain function component that
-       * ignores extra props, so the button below mirrors its rendering
-       * (same label, size and variant) instead. The no-shipping-method
-       * case above still reuses `DisabledFulfillCell` (and its `Tooltip`)
-       * verbatim, since that branch never needs to compose with the
-       * popover trigger.
-       */}
-      <Popover.Trigger asChild>
-        <Button
-          size="small"
-          variant="secondary"
+    <RowLinkGuard>
+      <Popover open={open} onOpenChange={handleOpenChange}>
+        {/*
+         * `DisabledFulfillCell` isn't used as the trigger here: Radix's
+         * `asChild` clones its injected props (ref, onClick, aria
+         * attributes) onto the literal child element, which only works when
+         * that child forwards them on to a real DOM node (as `Button`
+         * does). `DisabledFulfillCell` is a plain function component that
+         * ignores extra props, so the button below mirrors its rendering
+         * (same label, size and variant) instead. The no-shipping-method
+         * case above still reuses `DisabledFulfillCell` (and its `Tooltip`)
+         * verbatim, since that branch never needs to compose with the
+         * popover trigger.
+         */}
+        <Popover.Trigger asChild>
+          <Button size="small" variant="secondary">
+            {t("orders.readyToShip.fulfill")}
+          </Button>
+        </Popover.Trigger>
+        <Popover.Content
+          align="end"
+          side="top"
+          className="w-[320px] overflow-hidden"
+          // Radix portals this content elsewhere in the DOM, but React's
+          // synthetic event system still dispatches through the *original*
+          // component tree (the row's `Link` is an ancestor there), so a
+          // click on Confirm/Cancel/the content itself would otherwise still
+          // bubble up to - and navigate via - that `Link`. Stopping it here
+          // covers the whole popover (content background, Cancel, Confirm)
+          // in one place rather than on each button individually.
           onClick={(e) => {
-            // This cell sits inside `_DataTable`'s own `navigateTo` `Link`
-            // (`data-table-root.tsx`'s `shouldRenderAsLink`), which wraps
-            // every non-`select` cell. `Link`'s own navigation is just
-            // another React click handler (react-router is client-side
-            // routing, not a real anchor follow), so stopping this
-            // synthetic event from bubbling up to it - the same pattern
-            // the "select" checkbox column and `ActionMenu` already use -
-            // is enough to keep this click from navigating away instead of
-            // opening the popover. Deliberately not `preventDefault`: Radix
-            // composes this handler with its own open-toggle handler via
-            // `composeEventHandlers`, which skips its handler once
-            // `defaultPrevented` is set, so calling it here would stop the
-            // popover from ever opening.
             e.stopPropagation()
           }}
         >
-          {t("orders.readyToShip.fulfill")}
-        </Button>
-      </Popover.Trigger>
-      <Popover.Content
-        align="end"
-        side="top"
-        className="w-[320px] overflow-hidden"
-        // Radix portals this content elsewhere in the DOM, but React's
-        // synthetic event system still dispatches through the *original*
-        // component tree (the row's `Link` is an ancestor there), so a
-        // click on Confirm/Cancel/the content itself would otherwise still
-        // bubble up to - and navigate via - that `Link`. Stopping it here
-        // covers the whole popover (content background, Cancel, Confirm)
-        // in one place rather than on each button individually.
-        onClick={(e) => {
-          e.stopPropagation()
-        }}
-      >
-        <div className="flex flex-col gap-y-3 p-3">
-          <Text size="small" weight="plus">
-            {t("orders.readyToShip.confirmHeading")}
-          </Text>
-
-          <div className="flex flex-col gap-y-1">
-            <Text size="xsmall" className="text-ui-fg-subtle">
-              {t("fields.location")}
+          <div className="flex flex-col gap-y-3 p-3">
+            <Text size="small" weight="plus">
+              {t("orders.readyToShip.confirmHeading")}
             </Text>
-            <Text size="small">{locationName}</Text>
-          </div>
 
-          <div className="flex flex-col gap-y-1">
-            <Text size="xsmall" className="text-ui-fg-subtle">
-              {t("fields.items")}
-            </Text>
-            <div className="flex flex-col gap-y-0.5">
-              {fulfillableItems.map((item) => (
-                <Text size="small" key={item.id}>
-                  {getFulfillableQuantity(item)}x {item.title}
-                </Text>
-              ))}
+            <div className="flex flex-col gap-y-1">
+              <Text size="xsmall" className="text-ui-fg-subtle">
+                {t("fields.location")}
+              </Text>
+              <Text size="small">{locationName}</Text>
+            </div>
+
+            <div className="flex flex-col gap-y-1">
+              <Text size="xsmall" className="text-ui-fg-subtle">
+                {t("fields.items")}
+              </Text>
+              <div className="flex flex-col gap-y-0.5">
+                {fulfillableItems.map((item) => (
+                  <Text size="small" key={item.id}>
+                    {getFulfillableQuantity(item)}x {item.title}
+                  </Text>
+                ))}
+              </div>
+            </div>
+
+            {failure && (
+              <Alert variant="error" dismissible={false} className="p-2">
+                <div className="flex flex-col gap-y-1">
+                  <span>{failure.error}</span>
+                  {failure.easypost_shipment_id && (
+                    <OrphanedLabelNotice
+                      shipmentId={failure.easypost_shipment_id}
+                    />
+                  )}
+                </div>
+              </Alert>
+            )}
+
+            <div className="flex items-center justify-end gap-x-2">
+              <Popover.Close asChild>
+                <Button size="small" variant="secondary" disabled={isPending}>
+                  {t("actions.cancel")}
+                </Button>
+              </Popover.Close>
+              <Button
+                size="small"
+                type="button"
+                isLoading={isPending}
+                disabled={!fulfillableItems.length}
+                onClick={handleConfirm}
+              >
+                {t("actions.confirm")}
+              </Button>
             </div>
           </div>
-
-          {failure && (
-            <Alert variant="error" dismissible={false} className="p-2">
-              <div className="flex flex-col gap-y-1">
-                <span>{failure.error}</span>
-                {failure.easypost_shipment_id && (
-                  <OrphanedLabelNotice
-                    shipmentId={failure.easypost_shipment_id}
-                  />
-                )}
-              </div>
-            </Alert>
-          )}
-
-          <div className="flex items-center justify-end gap-x-2">
-            <Popover.Close asChild>
-              <Button size="small" variant="secondary" disabled={isPending}>
-                {t("actions.cancel")}
-              </Button>
-            </Popover.Close>
-            <Button
-              size="small"
-              type="button"
-              isLoading={isPending}
-              disabled={!fulfillableItems.length}
-              onClick={handleConfirm}
-            >
-              {t("actions.confirm")}
-            </Button>
-          </div>
-        </div>
-      </Popover.Content>
-    </Popover>
+        </Popover.Content>
+      </Popover>
+    </RowLinkGuard>
   )
 }

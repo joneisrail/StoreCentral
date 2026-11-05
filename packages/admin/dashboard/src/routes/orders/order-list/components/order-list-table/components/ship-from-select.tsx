@@ -2,6 +2,7 @@ import { Select } from "@medusajs/ui"
 import { useTranslation } from "react-i18next"
 
 import { useStockLocations } from "../../../../../../hooks/api/stock-locations"
+import { RowLinkGuard } from "./row-link-guard"
 
 type ShipFromSelectProps = {
   orderId: string
@@ -31,37 +32,34 @@ export const ShipFromSelect = ({
   )
 
   return (
-    <Select value={defaultLocationId ?? undefined} onValueChange={onChange}>
-      {/*
-       * Same reasoning as `PackagePopover`'s/`FulfillConfirmPopover`'s
-       * trigger: this cell sits inside `_DataTable`'s row `Link`, so the
-       * click must stop here or it bubbles up and navigates to the order
-       * detail page instead of opening the select. The `aria-label` names
-       * the order, since every row's trigger otherwise shares the same
-       * "combobox" role - ambiguous for screen reader users navigating a
-       * table full of them.
-       */}
-      <Select.Trigger
-        aria-label={`Ship from - order ${orderId}`}
-        onClick={(e) => {
-          e.stopPropagation()
-        }}
-      >
-        <Select.Value placeholder={t("fields.location")}>
-          {selectedLocation?.name}
-        </Select.Value>
-      </Select.Trigger>
-      <Select.Content
-        onClick={(e) => {
-          e.stopPropagation()
-        }}
-      >
-        {stock_locations?.map((location) => (
-          <Select.Item key={location.id} value={location.id}>
-            {location.name}
-          </Select.Item>
-        ))}
-      </Select.Content>
-    </Select>
+    <RowLinkGuard className="flex w-full">
+      <Select value={defaultLocationId ?? undefined} onValueChange={onChange}>
+        {/*
+         * Same reasoning as `PackagePopover`'s/`FulfillConfirmPopover`'s
+         * trigger: this cell sits inside `_DataTable`'s row `Link`, so the
+         * click must stop here or it bubbles up and navigates to the order
+         * detail page instead of opening the select. The `aria-label` names
+         * the order, since every row's trigger otherwise shares the same
+         * "combobox" role - ambiguous for screen reader users navigating a
+         * table full of them.
+         */}
+        <Select.Trigger aria-label={`Ship from - order ${orderId}`}>
+          <Select.Value placeholder={t("fields.location")}>
+            {selectedLocation?.name}
+          </Select.Value>
+        </Select.Trigger>
+        <Select.Content
+          onClick={(e) => {
+            e.stopPropagation()
+          }}
+        >
+          {stock_locations?.map((location) => (
+            <Select.Item key={location.id} value={location.id}>
+              {location.name}
+            </Select.Item>
+          ))}
+        </Select.Content>
+      </Select>
+    </RowLinkGuard>
   )
 }
