@@ -23,6 +23,24 @@ export const CreatePurchaseSchema = z.object({
 })
 export type CreatePurchaseSchema = z.infer<typeof CreatePurchaseSchema>
 
+export const UpdatePurchaseSchema = z.object({
+  items: z
+    .array(
+      z.object({
+        variant_id: z.string().min(1),
+        quantity: z.number().int().min(1),
+        unit_cost: z.number().min(0),
+      })
+    )
+    .min(1)
+    .optional(),
+  shipping_cost: z.number().min(0).optional(),
+  tax: z.number().min(0).optional(),
+  other_cost: z.number().min(0).optional(),
+  notes: z.string().optional(),
+})
+export type UpdatePurchaseSchema = z.infer<typeof UpdatePurchaseSchema>
+
 export const ListPurchasesQuerySchema = z.object({
   status: z
     .enum(["draft", "ordered", "partially_received", "received", "cancelled"])
@@ -48,5 +66,10 @@ export const purchaseMiddlewares: MiddlewareRoute[] = [
     matcher: "/admin/purchases",
     method: "POST",
     middlewares: [validateAndTransformBody(CreatePurchaseSchema)],
+  },
+  {
+    matcher: "/admin/purchases/:id",
+    method: "POST",
+    middlewares: [validateAndTransformBody(UpdatePurchaseSchema)],
   },
 ]

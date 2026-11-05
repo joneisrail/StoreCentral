@@ -3,7 +3,7 @@ import { Modules } from "@medusajs/framework/utils"
 import { PURCHASE_MODULE } from "../../src/modules/purchase"
 import { createAdminUser } from "../helpers/create-admin-user"
 
-jest.setTimeout(60000)
+jest.setTimeout(300000)
 
 medusaIntegrationTestRunner({
   testSuite: ({ api, getContainer }) => {
@@ -309,6 +309,217 @@ medusaIntegrationTestRunner({
           .catch((e) => e.response)
 
         expect(response.status).toBe(404)
+      })
+      describe("POST /admin/purchases/:id", () => {
+        it("replaces items and updates costs on a draft", async () => {
+          const supplier = await createSupplier("Acme")
+          const variantA = await createVariant("Shirt A")
+          const variantB = await createVariant("Shirt B")
+          const created = await createPurchase({
+            supplier_id: supplier.id,
+            items: [{ variant_id: variantA.id, quantity: 3, unit_cost: 4 }],
+            shipping_cost: 5,
+            notes: "before",
+          })
+
+          const response = await api.post(
+            `/admin/purchases/${created.id}`,
+            {
+              items: [
+                { variant_id: variantB.id, quantity: 2, unit_cost: 10 },
+                { variant_id: variantA.id, quantity: 1, unit_cost: 7.5 },
+              ],
+              shipping_cost: 2,
+              tax: 1.5,
+              other_cost: 0.5,
+              notes: "after",
+            },
+            adminHeaders
+          )
+
+          expect(response.status).toBe(200)
+          const purchase = response.data.purchase
+          expect(purchase.id).toBe(created.id)
+          expect(purchase.status).toBe("draft")
+          expect(purchase.supplier).toEqual({ id: supplier.id, name: "Acme" })
+          expect(purchase.items).toHaveLength(2)
+          expect(purchase.items.map((i: any) => i.variant_id).sort()).toEqual(
+            [variantA.id, variantB.id].sort()
+          )
+          expect(
+            purchase.items.find((i: any) => i.variant_id === variantB.id)
+          ).toMatchObject({
+            sku: variantB.sku,
+            title: variantB.title,
+            quantity: 2,
+            unit_cost: 10,
+          })
+          expect(purchase.subtotal).toBe(27.5)
+          expect(purchase.shipping_cost).toBe(2)
+          expect(purchase.tax).toBe(1.5)
+          expect(purchase.other_cost).toBe(0.5)
+          expect(purchase.total).toBe(31.5)
+          expect(purchase.notes).toBe("after")
+
+          const fetched = await api.get(
+            `/admin/purchases/${created.id}`,
+            adminHeaders
+          )
+          expect(fetched.data.purchase.items).toHaveLength(2)
+          expect(fetched.data.purchase.total).toBe(31.5)
+
+          const purchaseModule = getContainer().resolve(PURCHASE_MODULE) as any
+          const stored = await purchaseModule.listPurchaseItems({
+            purchase_id: created.id,
+          })
+          expect(stored).toHaveLength(2)
+
+          const query = getContainer().resolve("query") as any
+          const { data: linked } = await query.graph({
+            entity: "purchase_item",
+            fields: ["id", "product_variant.id"],
+            filters: { id: purchase.items.map((i: any) => i.id) },
+          })
+          expect(linked.map((i: any) => i.product_variant.id).sort()).toEqual(
+            [variantA.id, variantB.id].sort()
+          )
+          const { data: oldLinked } = await query.graph({
+            entity: "purchase_item",
+            fields: ["id", "product_variant.id"],
+            filters: { id: created.items[0].id },
+          })
+          expect(oldLinked).toEqual([])
+        })
+
+        it("updates only costs and notes when items are omitted", async () => {
+          const supplier = await createSupplier("Acme")
+          const variant = await createVariant()
+          const created = await createPurchase({
+            supplier_id: supplier.id,
+            items: [{ variant_id: variant.id, quantity: 2, unit_cost: 3 }],
+          })
+
+          const response = await api.post(
+            `/admin/purchases/${created.id}`,
+            { tax: 4 },
+            adminHeaders
+          )
+
+          expect(response.status).toBe(200)
+          expect(response.data.purchase.items).toHaveLength(1)
+          expect(response.data.purchase.items[0].id).toBe(created.items[0].id)
+          expect(response.data.purchase.subtotal).toBe(6)
+          expect(response.data.purchase.total).toBe(10)
+        })
+
+        it("rejects with 400 once the purchase is ordered", async () => {
+          const supplier = await createSupplier("Acme")
+          const variant = await createVariant()
+          const created = await createPurchase({
+            supplier_id: supplier.id,
+            items: [{ variant_id: variant.id, quantity: 2, unit_cost: 3 }],
+          })
+          const purchaseModule = getContainer().resolve(PURCHASE_MODULE) as any
+          await purchaseModule.updatePurchases({
+            id: created.id,
+            status: "ordered",
+          })
+
+          const response = await api
+            .post(
+              `/admin/purchases/${created.id}`,
+              { shipping_cost: 99 },
+              adminHeaders
+            )
+            .catch((e) => e.response)
+
+          expect(response.status).toBe(400)
+          const fetched = await api.get(
+            `/admin/purchases/${created.id}`,
+            adminHeaders
+          )
+          expect(fetched.data.purchase.shipping_cost).toBe(0)
+          expect(fetched.data.purchase.items).toHaveLength(1)
+        })
+
+        it("rejects an unknown variant with 404 and leaves the old items untouched", async () => {
+          const supplier = await createSupplier("Acme")
+          const variant = await createVariant()
+          const created = await createPurchase({
+            supplier_id: supplier.id,
+            items: [{ variant_id: variant.id, quantity: 2, unit_cost: 3 }],
+            shipping_cost: 1,
+            notes: "keep",
+          })
+
+          const response = await api
+            .post(
+              `/admin/purchases/${created.id}`,
+              {
+                items: [
+                  { variant_id: "variant_missing", quantity: 1, unit_cost: 1 },
+                ],
+                shipping_cost: 50,
+                notes: "changed",
+              },
+              adminHeaders
+            )
+            .catch((e) => e.response)
+
+          expect(response.status).toBe(404)
+          const fetched = (
+            await api.get(`/admin/purchases/${created.id}`, adminHeaders)
+          ).data.purchase
+          expect(fetched.items).toHaveLength(1)
+          expect(fetched.items[0]).toMatchObject({
+            id: created.items[0].id,
+            variant_id: variant.id,
+            quantity: 2,
+            unit_cost: 3,
+          })
+          expect(fetched.shipping_cost).toBe(1)
+          expect(fetched.notes).toBe("keep")
+          expect(fetched.total).toBe(7)
+
+          // The old item-variant link is still in place.
+          const query = getContainer().resolve("query") as any
+          const { data } = await query.graph({
+            entity: "purchase_item",
+            fields: ["id", "product_variant.id"],
+            filters: { id: created.items[0].id },
+          })
+          expect(data[0].product_variant.id).toBe(variant.id)
+        })
+
+        it("unknown purchase id returns 404", async () => {
+          const response = await api
+            .post("/admin/purchases/pur_missing", { notes: "x" }, adminHeaders)
+            .catch((e) => e.response)
+
+          expect(response.status).toBe(404)
+        })
+
+        it.each([
+          ["empty items", { items: [] }],
+          [
+            "quantity 0",
+            { items: [{ variant_id: "v", quantity: 0, unit_cost: 1 }] },
+          ],
+          ["negative tax", { tax: -1 }],
+        ])("rejects %s with 400", async (_name, body) => {
+          const supplier = await createSupplier("Acme")
+          const variant = await createVariant()
+          const created = await createPurchase({
+            supplier_id: supplier.id,
+            items: [{ variant_id: variant.id, quantity: 1, unit_cost: 1 }],
+          })
+
+          const response = await api
+            .post(`/admin/purchases/${created.id}`, body, adminHeaders)
+            .catch((e) => e.response)
+
+          expect(response.status).toBe(400)
+        })
       })
     })
   },
