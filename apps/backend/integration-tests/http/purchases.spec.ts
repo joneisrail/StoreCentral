@@ -1402,6 +1402,98 @@ medusaIntegrationTestRunner({
           ).toBeUndefined()
         })
 
+        it("a rollback keeps a level it created once that level holds stock from elsewhere", async () => {
+          const location = await createStockLocation()
+          const shirt = await createStockedVariant()
+          const purchase = await orderedPurchase([
+            { variant_id: shirt.id, quantity: 5 },
+          ])
+          expect(
+            await stockedAt(shirt.inventory_item_id, location.id)
+          ).toBeUndefined()
+
+          // The link step runs after this request created the level and
+          // recorded its receipt. Stock arrives at that level out-of-band
+          // before the link step fails.
+          const inventoryModule = getContainer().resolve(
+            Modules.INVENTORY
+          ) as any
+          const link = getContainer().resolve(
+            ContainerRegistrationKeys.LINK
+          ) as any
+          let levelSeen: number | undefined
+          const spy = jest
+            .spyOn(link, "create")
+            .mockImplementationOnce(async () => {
+              levelSeen = await stockedAt(shirt.inventory_item_id, location.id)
+              await inventoryModule.adjustInventory(
+                shirt.inventory_item_id,
+                location.id,
+                4
+              )
+              throw new Error("link create failed")
+            })
+
+          const response = await receive(purchase.id, {
+            stock_location_id: location.id,
+            items: [{ purchase_item_id: purchase.items[0].id, quantity: 2 }],
+          })
+          spy.mockRestore()
+
+          expect(levelSeen).toBe(0)
+          expect(response.status).toBe(500)
+          expect(await stockedAt(shirt.inventory_item_id, location.id)).toBe(4)
+          const after = await fetchPurchase(purchase.id)
+          expect(after.status).toBe("ordered")
+          expect(after.items[0].quantity_received).toBe(0)
+          expect(await allReceiptRowCounts()).toEqual({ receipts: 0, items: 0 })
+          expect(await allStockLocationLinkCount()).toBe(0)
+        })
+
+        it("a receive that created the level and then fails does not remove stock a concurrent receive put on it", async () => {
+          const location = await createStockLocation()
+          const shirt = await createStockedVariant()
+          const purchase = await orderedPurchase([
+            { variant_id: shirt.id, quantity: 5 },
+          ])
+          const item = purchase.items[0].id
+
+          // Request A creates the level, records its receipt, then reaches
+          // the link step. Request B runs to completion right there: it finds
+          // the level A created, creates none, and stocks it. Then A fails.
+          const link = getContainer().resolve(
+            ContainerRegistrationKeys.LINK
+          ) as any
+          let second: any
+          const spy = jest
+            .spyOn(link, "create")
+            .mockImplementationOnce(async () => {
+              second = await receive(purchase.id, {
+                stock_location_id: location.id,
+                items: [{ purchase_item_id: item, quantity: 3 }],
+              })
+              throw new Error("link create failed")
+            })
+
+          const first = await receive(purchase.id, {
+            stock_location_id: location.id,
+            items: [{ purchase_item_id: item, quantity: 2 }],
+          })
+          spy.mockRestore()
+
+          expect(second.status).toBe(200)
+          expect(first.status).toBe(500)
+          expect(await stockedAt(shirt.inventory_item_id, location.id)).toBe(3)
+          const after = await fetchPurchase(purchase.id)
+          expect(after.status).toBe("partially_received")
+          expect(after.items[0].quantity_received).toBe(3)
+          const rows = await receiptRows(purchase.id)
+          expect(rows.receipts).toHaveLength(1)
+          expect(rows.receipts[0].id).toBe(second.data.receipt.id)
+          expect(rows.items.map((i: any) => i.quantity)).toEqual([3])
+          expect(await allStockLocationLinkCount()).toBe(1)
+        })
+
         it("a failure of the stock location link rolls back the receipt and restores the ordered status", async () => {
           const location = await createStockLocation()
           const shirt = await createStockedVariant()

@@ -8,9 +8,9 @@ import {
 } from "@medusajs/framework/workflows-sdk"
 import {
   adjustInventoryLevelsStep,
-  createInventoryLevelsStep,
   createRemoteLinkStep,
 } from "@medusajs/medusa/core-flows"
+import { ensureInventoryLevelsStep } from "./steps/ensure-inventory-levels"
 import { recordPurchaseReceiptStep } from "./steps/record-purchase-receipt"
 import { validatePurchaseReceiptStep } from "./steps/validate-purchase-receipt"
 
@@ -35,7 +35,7 @@ export const receivePurchaseGoodsWorkflow = createWorkflow(
       { validation },
       ({ validation }) => validation.missingLevels.length > 0
     ).then(() => {
-      createInventoryLevelsStep(validation.missingLevels)
+      ensureInventoryLevelsStep(validation.missingLevels)
     })
 
     const recorded = recordPurchaseReceiptStep({
