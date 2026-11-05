@@ -623,6 +623,147 @@ medusaIntegrationTestRunner({
           expect(response.status).toBe(400)
         })
       })
+
+      describe("POST /admin/purchases/:id/order and /cancel", () => {
+        const draftPurchase = async () => {
+          const supplier = await createSupplier("Acme")
+          const variant = await createVariant()
+          return createPurchase({
+            supplier_id: supplier.id,
+            items: [{ variant_id: variant.id, quantity: 4, unit_cost: 2 }],
+          })
+        }
+
+        const post = (path: string) =>
+          api.post(path, {}, adminHeaders).catch((e) => e.response)
+
+        const setState = async (id: string, data: Record<string, unknown>) => {
+          const purchaseModule = getContainer().resolve(PURCHASE_MODULE) as any
+          await purchaseModule.updatePurchases({ id, ...data })
+        }
+
+        const fetchPurchase = async (id: string) =>
+          (await api.get(`/admin/purchases/${id}`, adminHeaders)).data.purchase
+
+        it("POST /:id/order moves draft to ordered and sets ordered_at", async () => {
+          const created = await draftPurchase()
+          expect(created.ordered_at).toBeNull()
+
+          const before = Date.now()
+          const response = await post(`/admin/purchases/${created.id}/order`)
+
+          expect(response.status).toBe(200)
+          expect(response.data.purchase.id).toBe(created.id)
+          expect(response.data.purchase.status).toBe("ordered")
+          expect(response.data.purchase.items).toHaveLength(1)
+          expect(response.data.purchase.supplier.name).toBe("Acme")
+          const orderedAt = new Date(response.data.purchase.ordered_at)
+          expect(orderedAt.getTime()).toBeGreaterThanOrEqual(before - 1000)
+          expect(orderedAt.getTime()).toBeLessThanOrEqual(Date.now() + 1000)
+
+          const fetched = await fetchPurchase(created.id)
+          expect(fetched.status).toBe("ordered")
+          expect(fetched.ordered_at).toBe(response.data.purchase.ordered_at)
+        })
+
+        it("order rejects a draft with no items (400)", async () => {
+          const created = await draftPurchase()
+          const purchaseModule = getContainer().resolve(PURCHASE_MODULE) as any
+          await purchaseModule.deletePurchaseItems([created.items[0].id])
+
+          const response = await post(`/admin/purchases/${created.id}/order`)
+
+          expect(response.status).toBe(400)
+          const fetched = await fetchPurchase(created.id)
+          expect(fetched.status).toBe("draft")
+          expect(fetched.ordered_at).toBeNull()
+        })
+
+        it("order rejects a purchase that is not draft (400)", async () => {
+          const created = await draftPurchase()
+          const first = await post(`/admin/purchases/${created.id}/order`)
+          expect(first.status).toBe(200)
+
+          const second = await post(`/admin/purchases/${created.id}/order`)
+
+          expect(second.status).toBe(400)
+          const fetched = await fetchPurchase(created.id)
+          expect(fetched.status).toBe("ordered")
+          expect(fetched.ordered_at).toBe(first.data.purchase.ordered_at)
+        })
+
+        it("order on an unknown id returns 404", async () => {
+          const response = await post("/admin/purchases/pur_missing/order")
+
+          expect(response.status).toBe(404)
+        })
+
+        it("POST /:id/cancel cancels a draft and an ordered purchase", async () => {
+          const draft = await draftPurchase()
+          const cancelledDraft = await post(`/admin/purchases/${draft.id}/cancel`)
+          expect(cancelledDraft.status).toBe(200)
+          expect(cancelledDraft.data.purchase.id).toBe(draft.id)
+          expect(cancelledDraft.data.purchase.status).toBe("cancelled")
+          expect(cancelledDraft.data.purchase.ordered_at).toBeNull()
+          expect((await fetchPurchase(draft.id)).status).toBe("cancelled")
+
+          const ordered = await draftPurchase()
+          const placed = await post(`/admin/purchases/${ordered.id}/order`)
+          const cancelledOrdered = await post(
+            `/admin/purchases/${ordered.id}/cancel`
+          )
+          expect(cancelledOrdered.status).toBe(200)
+          expect(cancelledOrdered.data.purchase.status).toBe("cancelled")
+          // History is kept: ordered_at is not cleared by cancelling.
+          expect(cancelledOrdered.data.purchase.ordered_at).toBe(
+            placed.data.purchase.ordered_at
+          )
+          expect((await fetchPurchase(ordered.id)).status).toBe("cancelled")
+        })
+
+        it("cancel rejects once any quantity_received > 0 (400)", async () => {
+          const created = await draftPurchase()
+          const placed = await post(`/admin/purchases/${created.id}/order`)
+          await setState(created.id, { status: "partially_received" })
+          const purchaseModule = getContainer().resolve(PURCHASE_MODULE) as any
+          await purchaseModule.updatePurchaseItems({
+            id: created.items[0].id,
+            quantity_received: 1,
+          })
+
+          const response = await post(`/admin/purchases/${created.id}/cancel`)
+
+          expect(response.status).toBe(400)
+          const fetched = await fetchPurchase(created.id)
+          expect(fetched.status).toBe("partially_received")
+          expect(fetched.ordered_at).toBe(placed.data.purchase.ordered_at)
+          expect(fetched.items[0].quantity_received).toBe(1)
+        })
+
+        it("cancel rejects a received or already cancelled purchase (400)", async () => {
+          const received = await draftPurchase()
+          await setState(received.id, { status: "received" })
+          const receivedResponse = await post(
+            `/admin/purchases/${received.id}/cancel`
+          )
+          expect(receivedResponse.status).toBe(400)
+          expect((await fetchPurchase(received.id)).status).toBe("received")
+
+          const cancelled = await draftPurchase()
+          expect(
+            (await post(`/admin/purchases/${cancelled.id}/cancel`)).status
+          ).toBe(200)
+          const again = await post(`/admin/purchases/${cancelled.id}/cancel`)
+          expect(again.status).toBe(400)
+          expect((await fetchPurchase(cancelled.id)).status).toBe("cancelled")
+        })
+
+        it("cancel on an unknown id returns 404", async () => {
+          const response = await post("/admin/purchases/pur_missing/cancel")
+
+          expect(response.status).toBe(404)
+        })
+      })
     })
   },
 })
