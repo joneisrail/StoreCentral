@@ -1,4 +1,5 @@
 import { authenticate, configureStoreSearch, defineMiddlewares } from '@medusajs/framework/http'
+import { purchaseMiddlewares } from './admin/purchases/middlewares'
 import { supplierMiddlewares } from './admin/suppliers/middlewares'
 import { reviewMiddlewares } from './store/reviews/middlewares'
 
@@ -23,6 +24,7 @@ export default defineMiddlewares({
     },
     ...reviewMiddlewares,
     ...supplierMiddlewares,
+    ...purchaseMiddlewares,
     {
       // The EasyPost webhook route verifies the `X-Hmac-Signature` header
       // against the exact raw request bytes, so the JSON bodyparser must
