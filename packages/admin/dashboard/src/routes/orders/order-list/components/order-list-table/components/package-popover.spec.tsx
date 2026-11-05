@@ -156,7 +156,7 @@ describe("PackagePopover", () => {
     })
   })
 
-  it("hides the four custom number inputs once a preset is selected, and reveals them again when switching back to Custom", () => {
+  it("hides the length/width/height inputs once a preset is selected (weight stays), and reveals them again when switching back to Custom", () => {
     render(<PackagePopover initialParcel={parcel} onChange={vi.fn()} />)
 
     fireEvent.click(screen.getByRole("button"))
@@ -168,7 +168,7 @@ describe("PackagePopover", () => {
       screen.getByText("USPS Small Flat Rate Box (8.6875in x 5.4375in x 1.75in)")
     )
 
-    expect(screen.queryByLabelText("fields.weight")).toBeNull()
+    expect(screen.getByLabelText("fields.weight")).toBeTruthy()
     expect(screen.queryByLabelText("fields.length")).toBeNull()
     expect(screen.queryByLabelText("fields.width")).toBeNull()
     expect(screen.queryByLabelText("fields.height")).toBeNull()
@@ -203,6 +203,32 @@ describe("PackagePopover", () => {
     // Still open, trigger unchanged - a blocked preset confirm must not
     // silently close as if it had succeeded.
     expect(screen.getByRole("button", { name: "actions.confirm" })).toBeTruthy()
+  })
+
+  it("lets the admin type the weight for a preset when the order has none, then confirms with it", () => {
+    const onChange = vi.fn()
+    render(
+      <PackagePopover
+        initialParcel={{ weight: null, length: null, width: null, height: null }}
+        onChange={onChange}
+      />
+    )
+
+    fireEvent.click(screen.getByRole("button"))
+    fireEvent.click(
+      screen.getByText("USPS Small Flat Rate Box (8.6875in x 5.4375in x 1.75in)")
+    )
+    // The weight stays editable for a preset - the box fixes only the
+    // dimensions - so an order with no item weights is not a dead end.
+    fireEvent.change(screen.getByLabelText("fields.weight"), {
+      target: { value: "12" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "actions.confirm" }))
+
+    expect(onChange).toHaveBeenCalledWith({
+      predefinedPackage: "SmallFlatRateBox",
+      weight: 12,
+    })
   })
 
   it("blocks confirming a preset when the order's computed weight is exactly 0, and never calls onChange", () => {
@@ -240,8 +266,9 @@ describe("PackagePopover", () => {
       screen.getByText("orders.readyToShip.packageWeightRequired")
     ).toBeTruthy()
 
-    // Switching to a preset (the order's own computed weight, 10, is valid)
-    // must drop the stale error rather than leaving it stuck on screen.
+    // Switching to a preset must drop the stale error rather than leaving it
+    // stuck on screen. The weight field is shared with Custom and stays
+    // visible, so the admin then fixes the bad "0" there.
     fireEvent.click(
       screen.getByText("USPS Small Flat Rate Box (8.6875in x 5.4375in x 1.75in)")
     )
@@ -249,6 +276,9 @@ describe("PackagePopover", () => {
       screen.queryByText("orders.readyToShip.packageWeightRequired")
     ).toBeNull()
 
+    fireEvent.change(screen.getByLabelText("fields.weight"), {
+      target: { value: "10" },
+    })
     fireEvent.click(screen.getByRole("button", { name: "actions.confirm" }))
     expect(onChange).toHaveBeenCalledWith({
       predefinedPackage: "SmallFlatRateBox",

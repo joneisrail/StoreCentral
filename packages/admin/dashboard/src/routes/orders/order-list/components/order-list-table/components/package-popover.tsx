@@ -176,16 +176,13 @@ export const PackagePopover = ({
 
   const handleConfirmPreset = (preset: EasyPostPackagePreset) => {
     // The preset fixes the box's own dimensions - only the shipment's
-    // weight (from the order's items, same value `PackageCell` shows) still
-    // applies, so it's taken from `initialParcel` rather than a visible
-    // input. Validated the same way as Custom's weight input (required,
-    // > 0): an order with no computed weight at all (every item missing a
-    // variant weight) would otherwise silently confirm an unratable
-    // `weight: 0` parcel with no in-UI warning. There's no input here to
-    // attach the error to directly, so it reuses the same Hint - the fix is
-    // for the admin to switch to Custom and enter a weight by hand.
-    const weightValue = initialParcel.weight
-    if (weightValue === null || !(weightValue > 0)) {
+    // weight still applies. It is the same weight input Custom uses,
+    // prefilled from the order's items; an order whose items carry no
+    // weight starts empty and the admin types it in. Validated the same
+    // way as Custom (required, > 0), since a missing or zero weight would
+    // otherwise confirm an unratable parcel.
+    const weightValue = Number(weight)
+    if (weight.trim() === "" || !(weightValue > 0)) {
       setWeightError(true)
       return
     }
@@ -255,12 +252,6 @@ export const PackagePopover = ({
           }}
         >
           <div className="flex max-h-[420px] flex-col gap-y-3 overflow-y-auto p-3">
-            {weightError && (
-              <Hint variant="error">
-                {t("orders.readyToShip.packageWeightRequired")}
-              </Hint>
-            )}
-
             <RadioGroup
               value={selectedPreset}
               onValueChange={handleSelectedPresetChange}
@@ -299,58 +290,65 @@ export const PackagePopover = ({
               </label>
             </RadioGroup>
 
-            {selectedPreset === CUSTOM_VALUE && (
-              <div className="grid grid-cols-2 gap-x-2 gap-y-2">
-                <div className="flex flex-col gap-y-1">
-                  <Label htmlFor={weightInputId} size="xsmall" weight="plus">
-                    {t("fields.weight")}
-                  </Label>
-                  <Input
-                    id={weightInputId}
-                    type="number"
-                    value={weight}
-                    onChange={(e) => {
-                      setWeight(e.target.value)
-                      setWeightError(false)
-                    }}
-                  />
-                </div>
-                <div />
-                <div className="flex flex-col gap-y-1">
-                  <Label htmlFor={lengthInputId} size="xsmall">
-                    {t("fields.length")}
-                  </Label>
-                  <Input
-                    id={lengthInputId}
-                    type="number"
-                    value={length}
-                    onChange={(e) => setLength(e.target.value)}
-                  />
-                </div>
-                <div className="flex flex-col gap-y-1">
-                  <Label htmlFor={widthInputId} size="xsmall">
-                    {t("fields.width")}
-                  </Label>
-                  <Input
-                    id={widthInputId}
-                    type="number"
-                    value={width}
-                    onChange={(e) => setWidth(e.target.value)}
-                  />
-                </div>
-                <div className="flex flex-col gap-y-1">
-                  <Label htmlFor={heightInputId} size="xsmall">
-                    {t("fields.height")}
-                  </Label>
-                  <Input
-                    id={heightInputId}
-                    type="number"
-                    value={height}
-                    onChange={(e) => setHeight(e.target.value)}
-                  />
-                </div>
+            <div className="grid grid-cols-2 gap-x-2 gap-y-2">
+              <div className="flex flex-col gap-y-1">
+                <Label htmlFor={weightInputId} size="xsmall" weight="plus">
+                  {t("fields.weight")}
+                </Label>
+                <Input
+                  id={weightInputId}
+                  type="number"
+                  value={weight}
+                  onChange={(e) => {
+                    setWeight(e.target.value)
+                    setWeightError(false)
+                  }}
+                />
+                {weightError && (
+                  <Hint variant="error">
+                    {t("orders.readyToShip.packageWeightRequired")}
+                  </Hint>
+                )}
               </div>
-            )}
+              {selectedPreset === CUSTOM_VALUE && (
+                <>
+                  <div />
+                  <div className="flex flex-col gap-y-1">
+                    <Label htmlFor={lengthInputId} size="xsmall">
+                      {t("fields.length")}
+                    </Label>
+                    <Input
+                      id={lengthInputId}
+                      type="number"
+                      value={length}
+                      onChange={(e) => setLength(e.target.value)}
+                    />
+                  </div>
+                  <div className="flex flex-col gap-y-1">
+                    <Label htmlFor={widthInputId} size="xsmall">
+                      {t("fields.width")}
+                    </Label>
+                    <Input
+                      id={widthInputId}
+                      type="number"
+                      value={width}
+                      onChange={(e) => setWidth(e.target.value)}
+                    />
+                  </div>
+                  <div className="flex flex-col gap-y-1">
+                    <Label htmlFor={heightInputId} size="xsmall">
+                      {t("fields.height")}
+                    </Label>
+                    <Input
+                      id={heightInputId}
+                      type="number"
+                      value={height}
+                      onChange={(e) => setHeight(e.target.value)}
+                    />
+                  </div>
+                </>
+              )}
+            </div>
 
             <div className="flex items-center justify-end gap-x-2">
               <Popover.Close asChild>
