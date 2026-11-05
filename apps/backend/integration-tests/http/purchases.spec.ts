@@ -804,6 +804,635 @@ medusaIntegrationTestRunner({
           expect(response.status).toBe(404)
         })
       })
+
+      describe("POST /admin/purchases/:id/receive", () => {
+        const createStockLocation = async (name = "Main warehouse") =>
+          (
+            await api.post("/admin/stock-locations", { name }, adminHeaders)
+          ).data.stock_location as { id: string }
+
+        // A variant with manage_inventory: true gets its own inventory item
+        // from the product workflow.
+        const createStockedVariant = async (title = "Stocked Shirt") => {
+          counter += 1
+          const product = (
+            await api.post(
+              "/admin/products",
+              {
+                title: `Stocked product ${counter}`,
+                options: [{ title: "size", values: ["large"] }],
+                variants: [
+                  {
+                    title,
+                    sku: `STOCK-${counter}`,
+                    manage_inventory: true,
+                    prices: [{ currency_code: "usd", amount: 100 }],
+                    options: { size: "large" },
+                  },
+                ],
+              },
+              adminHeaders
+            )
+          ).data.product
+          const variant = product.variants[0] as { id: string; title: string }
+
+          const query = getContainer().resolve("query") as any
+          const { data } = await query.graph({
+            entity: "product_variant",
+            fields: ["id", "inventory_items.inventory_item_id"],
+            filters: { id: variant.id },
+          })
+          const inventoryItemId = data[0].inventory_items[0]
+            .inventory_item_id as string
+          expect(inventoryItemId).toBeTruthy()
+
+          return { ...variant, inventory_item_id: inventoryItemId }
+        }
+
+        const setStock = async (
+          inventoryItemId: string,
+          locationId: string,
+          stockedQuantity: number
+        ) => {
+          await api.post(
+            `/admin/inventory-items/${inventoryItemId}/location-levels`,
+            { location_id: locationId, stocked_quantity: stockedQuantity },
+            adminHeaders
+          )
+        }
+
+        // undefined means the location has no inventory level for the item.
+        const stockedAt = async (inventoryItemId: string, locationId: string) => {
+          const inventoryModule = getContainer().resolve(
+            Modules.INVENTORY
+          ) as any
+          const levels = await inventoryModule.listInventoryLevels({
+            inventory_item_id: inventoryItemId,
+            location_id: locationId,
+          })
+          expect(levels.length).toBeLessThanOrEqual(1)
+          return levels.length ? Number(levels[0].stocked_quantity) : undefined
+        }
+
+        const orderedPurchase = async (
+          lines: { variant_id: string; quantity: number }[]
+        ) => {
+          const supplier = await createSupplier("Acme")
+          const created = await createPurchase({
+            supplier_id: supplier.id,
+            items: lines.map((line) => ({ ...line, unit_cost: 2 })),
+          })
+          const placed = await api.post(
+            `/admin/purchases/${created.id}/order`,
+            {},
+            adminHeaders
+          )
+          expect(placed.status).toBe(200)
+          return placed.data.purchase as {
+            id: string
+            items: { id: string; variant_id: string }[]
+          }
+        }
+
+        const itemFor = (
+          purchase: { items: { id: string; variant_id: string }[] },
+          variantId: string
+        ) => purchase.items.find((i) => i.variant_id === variantId)!.id
+
+        const receive = (purchaseId: string, body: Record<string, unknown>) =>
+          api
+            .post(`/admin/purchases/${purchaseId}/receive`, body, adminHeaders)
+            .catch((e) => e.response)
+
+        const fetchPurchase = async (id: string) =>
+          (await api.get(`/admin/purchases/${id}`, adminHeaders)).data.purchase
+
+        const receiptRows = async (purchaseId: string) => {
+          const purchaseModule = getContainer().resolve(PURCHASE_MODULE) as any
+          const receipts = await purchaseModule.listPurchaseReceipts({
+            purchase_id: purchaseId,
+          })
+          const items = receipts.length
+            ? await purchaseModule.listPurchaseReceiptItems({
+                receipt_id: receipts.map((r: any) => r.id),
+              })
+            : []
+          return { receipts, items }
+        }
+
+        const allReceiptRowCounts = async () => {
+          const purchaseModule = getContainer().resolve(PURCHASE_MODULE) as any
+          const [, receipts] = await purchaseModule.listAndCountPurchaseReceipts(
+            {}
+          )
+          const [, items] =
+            await purchaseModule.listAndCountPurchaseReceiptItems({})
+          return { receipts, items }
+        }
+
+        const stockLocationLinks = async (receiptId: string) => {
+          const link = getContainer().resolve(
+            ContainerRegistrationKeys.LINK
+          ) as any
+          const linkModule = link.getLinkModule(
+            "purchase",
+            "purchase_receipt_id",
+            Modules.STOCK_LOCATION,
+            "stock_location_id"
+          )
+          return (await linkModule.list({
+            purchase_receipt_id: receiptId,
+          })) as { purchase_receipt_id: string; stock_location_id: string }[]
+        }
+
+        const allStockLocationLinkCount = async () => {
+          const link = getContainer().resolve(
+            ContainerRegistrationKeys.LINK
+          ) as any
+          const linkModule = link.getLinkModule(
+            "purchase",
+            "purchase_receipt_id",
+            Modules.STOCK_LOCATION,
+            "stock_location_id"
+          )
+          return ((await linkModule.list({})) as unknown[]).length
+        }
+
+        it("partial delivery raises stock by the received quantity, records the receipt, links the receipt to the stock location, sets partially_received", async () => {
+          const location = await createStockLocation()
+          const shirt = await createStockedVariant("Shirt A")
+          const hat = await createStockedVariant("Hat B")
+          await setStock(shirt.inventory_item_id, location.id, 7)
+          await setStock(hat.inventory_item_id, location.id, 1)
+          const purchase = await orderedPurchase([
+            { variant_id: shirt.id, quantity: 10 },
+            { variant_id: hat.id, quantity: 4 },
+          ])
+          const shirtItem = itemFor(purchase, shirt.id)
+          const hatItem = itemFor(purchase, hat.id)
+
+          const response = await receive(purchase.id, {
+            stock_location_id: location.id,
+            items: [
+              { purchase_item_id: shirtItem, quantity: 3 },
+              { purchase_item_id: hatItem, quantity: 4 },
+            ],
+            note: "first box",
+          })
+
+          expect(response.status).toBe(200)
+          const body = response.data.purchase
+          expect(body.id).toBe(purchase.id)
+          expect(body.status).toBe("partially_received")
+          const byId = (id: string) => body.items.find((i: any) => i.id === id)
+          expect(byId(shirtItem)).toMatchObject({
+            quantity: 10,
+            quantity_received: 3,
+            remaining: 7,
+          })
+          expect(byId(hatItem)).toMatchObject({
+            quantity: 4,
+            quantity_received: 4,
+            remaining: 0,
+          })
+          expect(body.receipts).toHaveLength(1)
+          expect(body.receipts[0]).toMatchObject({
+            stock_location_id: location.id,
+            note: "first box",
+          })
+          expect(
+            body.receipts[0].items.sort((a: any, b: any) =>
+              a.quantity - b.quantity
+            )
+          ).toEqual([
+            { purchase_item_id: shirtItem, quantity: 3 },
+            { purchase_item_id: hatItem, quantity: 4 },
+          ])
+          expect(response.data.receipt.id).toBe(body.receipts[0].id)
+
+          expect(await stockedAt(shirt.inventory_item_id, location.id)).toBe(10)
+          expect(await stockedAt(hat.inventory_item_id, location.id)).toBe(5)
+
+          const rows = await receiptRows(purchase.id)
+          expect(rows.receipts).toHaveLength(1)
+          expect(rows.items).toHaveLength(2)
+          expect(await stockLocationLinks(rows.receipts[0].id)).toEqual([
+            expect.objectContaining({ stock_location_id: location.id }),
+          ])
+
+          const fetched = await fetchPurchase(purchase.id)
+          expect(fetched.status).toBe("partially_received")
+          expect(fetched.receipts).toHaveLength(1)
+        })
+
+        it("a second delivery completing the order sets received", async () => {
+          const location = await createStockLocation()
+          const shirt = await createStockedVariant()
+          await setStock(shirt.inventory_item_id, location.id, 2)
+          const purchase = await orderedPurchase([
+            { variant_id: shirt.id, quantity: 5 },
+          ])
+          const item = itemFor(purchase, shirt.id)
+
+          const first = await receive(purchase.id, {
+            stock_location_id: location.id,
+            items: [{ purchase_item_id: item, quantity: 2 }],
+          })
+          expect(first.status).toBe(200)
+          expect(first.data.purchase.status).toBe("partially_received")
+
+          const second = await receive(purchase.id, {
+            stock_location_id: location.id,
+            items: [{ purchase_item_id: item, quantity: 3 }],
+          })
+
+          expect(second.status).toBe(200)
+          expect(second.data.purchase.status).toBe("received")
+          expect(second.data.purchase.items[0]).toMatchObject({
+            quantity_received: 5,
+            remaining: 0,
+          })
+          expect(second.data.purchase.receipts).toHaveLength(2)
+          expect(await stockedAt(shirt.inventory_item_id, location.id)).toBe(7)
+          const rows = await receiptRows(purchase.id)
+          expect(rows.receipts).toHaveLength(2)
+          expect(
+            rows.items.map((i: any) => i.quantity).sort()
+          ).toEqual([2, 3])
+        })
+
+        it("rejects receiving more than the remaining quantity (400), naming the item and the remaining number; stock and records unchanged", async () => {
+          const location = await createStockLocation()
+          const shirt = await createStockedVariant("Remaining Shirt")
+          await setStock(shirt.inventory_item_id, location.id, 4)
+          const purchase = await orderedPurchase([
+            { variant_id: shirt.id, quantity: 5 },
+          ])
+          const item = itemFor(purchase, shirt.id)
+          const first = await receive(purchase.id, {
+            stock_location_id: location.id,
+            items: [{ purchase_item_id: item, quantity: 2 }],
+          })
+          expect(first.status).toBe(200)
+
+          const response = await receive(purchase.id, {
+            stock_location_id: location.id,
+            items: [{ purchase_item_id: item, quantity: 4 }],
+          })
+
+          expect(response.status).toBe(400)
+          expect(response.data.message).toContain("Remaining Shirt")
+          expect(response.data.message).toContain("only 3 remaining")
+          expect(await stockedAt(shirt.inventory_item_id, location.id)).toBe(6)
+          const fetched = await fetchPurchase(purchase.id)
+          expect(fetched.status).toBe("partially_received")
+          expect(fetched.items[0].quantity_received).toBe(2)
+          const rows = await receiptRows(purchase.id)
+          expect(rows.receipts).toHaveLength(1)
+          expect(rows.items).toHaveLength(1)
+          expect(await allStockLocationLinkCount()).toBe(1)
+        })
+
+        it("rejects a draft, cancelled or already received purchase (400)", async () => {
+          const location = await createStockLocation()
+          const shirt = await createStockedVariant()
+          await setStock(shirt.inventory_item_id, location.id, 0)
+          const supplier = await createSupplier("Acme")
+          const purchaseModule = getContainer().resolve(PURCHASE_MODULE) as any
+
+          const draft = await createPurchase({
+            supplier_id: supplier.id,
+            items: [{ variant_id: shirt.id, quantity: 3, unit_cost: 1 }],
+          })
+          const cancelled = await createPurchase({
+            supplier_id: supplier.id,
+            items: [{ variant_id: shirt.id, quantity: 3, unit_cost: 1 }],
+          })
+          expect(
+            (
+              await api.post(
+                `/admin/purchases/${cancelled.id}/cancel`,
+                {},
+                adminHeaders
+              )
+            ).status
+          ).toBe(200)
+          const received = await orderedPurchase([
+            { variant_id: shirt.id, quantity: 3 },
+          ])
+          const completed = await receive(received.id, {
+            stock_location_id: location.id,
+            items: [{ purchase_item_id: received.items[0].id, quantity: 3 }],
+          })
+          expect(completed.status).toBe(200)
+          expect(completed.data.purchase.status).toBe("received")
+          // Leave room to receive so only the status can reject it.
+          await purchaseModule.updatePurchaseItems({
+            id: received.items[0].id,
+            quantity_received: 1,
+          })
+          expect(await stockedAt(shirt.inventory_item_id, location.id)).toBe(3)
+          const countsBefore = await allReceiptRowCounts()
+
+          for (const [purchase, status] of [
+            [draft, "draft"],
+            [cancelled, "cancelled"],
+            [received, "received"],
+          ] as const) {
+            const response = await receive(purchase.id, {
+              stock_location_id: location.id,
+              items: [{ purchase_item_id: purchase.items[0].id, quantity: 1 }],
+            })
+            expect(response.status).toBe(400)
+            expect(response.data.message).toContain(`a ${status} purchase`)
+            expect((await fetchPurchase(purchase.id)).status).toBe(status)
+          }
+
+          expect(await stockedAt(shirt.inventory_item_id, location.id)).toBe(3)
+          expect(await allReceiptRowCounts()).toEqual(countsBefore)
+        })
+
+        it("rejects a variant with manage_inventory false (400) and changes nothing", async () => {
+          const location = await createStockLocation()
+          const stocked = await createStockedVariant("Stocked One")
+          await setStock(stocked.inventory_item_id, location.id, 2)
+          const unmanaged = await createVariant("Unmanaged Sticker")
+          const purchase = await orderedPurchase([
+            { variant_id: stocked.id, quantity: 5 },
+            { variant_id: unmanaged.id, quantity: 5 },
+          ])
+
+          const response = await receive(purchase.id, {
+            stock_location_id: location.id,
+            items: [
+              { purchase_item_id: itemFor(purchase, stocked.id), quantity: 1 },
+              { purchase_item_id: itemFor(purchase, unmanaged.id), quantity: 1 },
+            ],
+          })
+
+          expect(response.status).toBe(400)
+          expect(response.data.type).toBe("invalid_data")
+          expect(response.data.message).toContain("Unmanaged Sticker")
+          expect(response.data.message).toContain("does not manage inventory")
+          expect(await stockedAt(stocked.inventory_item_id, location.id)).toBe(2)
+          const fetched = await fetchPurchase(purchase.id)
+          expect(fetched.status).toBe("ordered")
+          expect(
+            fetched.items.map((i: any) => i.quantity_received)
+          ).toEqual([0, 0])
+          expect(await allReceiptRowCounts()).toEqual({ receipts: 0, items: 0 })
+          expect(await allStockLocationLinkCount()).toBe(0)
+        })
+
+        it("rejects a variant with no inventory item (400) and changes nothing", async () => {
+          const location = await createStockLocation()
+          const orphan = await createStockedVariant("Orphan Mug")
+          const link = getContainer().resolve(
+            ContainerRegistrationKeys.LINK
+          ) as any
+          await link.dismiss({
+            [Modules.PRODUCT]: { variant_id: orphan.id },
+            [Modules.INVENTORY]: { inventory_item_id: orphan.inventory_item_id },
+          })
+          const purchase = await orderedPurchase([
+            { variant_id: orphan.id, quantity: 5 },
+          ])
+
+          const response = await receive(purchase.id, {
+            stock_location_id: location.id,
+            items: [{ purchase_item_id: purchase.items[0].id, quantity: 2 }],
+          })
+
+          expect(response.status).toBe(400)
+          expect(response.data.type).toBe("invalid_data")
+          expect(response.data.message).toContain("Orphan Mug")
+          expect(response.data.message).toContain("no inventory item")
+          // No level was created at the location for the orphaned item.
+          expect(
+            await stockedAt(orphan.inventory_item_id, location.id)
+          ).toBeUndefined()
+          const fetched = await fetchPurchase(purchase.id)
+          expect(fetched.status).toBe("ordered")
+          expect(fetched.items[0].quantity_received).toBe(0)
+          expect(await allReceiptRowCounts()).toEqual({ receipts: 0, items: 0 })
+        })
+
+        it("rejects an unknown stock location (404) and changes nothing", async () => {
+          const location = await createStockLocation()
+          const shirt = await createStockedVariant()
+          await setStock(shirt.inventory_item_id, location.id, 1)
+          const purchase = await orderedPurchase([
+            { variant_id: shirt.id, quantity: 5 },
+          ])
+
+          const response = await receive(purchase.id, {
+            stock_location_id: "sloc_missing",
+            items: [{ purchase_item_id: purchase.items[0].id, quantity: 2 }],
+          })
+
+          expect(response.status).toBe(404)
+          expect(
+            await stockedAt(shirt.inventory_item_id, "sloc_missing")
+          ).toBeUndefined()
+          expect(await stockedAt(shirt.inventory_item_id, location.id)).toBe(1)
+          const fetched = await fetchPurchase(purchase.id)
+          expect(fetched.status).toBe("ordered")
+          expect(fetched.items[0].quantity_received).toBe(0)
+          expect(await allReceiptRowCounts()).toEqual({ receipts: 0, items: 0 })
+        })
+
+        it("unknown purchase id returns 404", async () => {
+          const location = await createStockLocation()
+
+          const response = await receive("pur_missing", {
+            stock_location_id: location.id,
+            items: [{ purchase_item_id: "pitem_x", quantity: 1 }],
+          })
+
+          expect(response.status).toBe(404)
+        })
+
+        it.each([
+          ["empty items", { items: [] }],
+          ["quantity 0", { items: [{ purchase_item_id: "x", quantity: 0 }] }],
+          ["quantity 1.5", { items: [{ purchase_item_id: "x", quantity: 1.5 }] }],
+          [
+            "missing stock_location_id",
+            {
+              stock_location_id: undefined,
+              items: [{ purchase_item_id: "x", quantity: 1 }],
+            },
+          ],
+        ])("rejects %s with 400", async (_name, body) => {
+          const location = await createStockLocation()
+          const shirt = await createStockedVariant()
+          const purchase = await orderedPurchase([
+            { variant_id: shirt.id, quantity: 5 },
+          ])
+
+          const response = await receive(purchase.id, {
+            stock_location_id: location.id,
+            ...body,
+          })
+
+          expect(response.status).toBe(400)
+          expect(await allReceiptRowCounts()).toEqual({ receipts: 0, items: 0 })
+        })
+
+        it("creates the inventory level when the location has none, ending at the received quantity", async () => {
+          const location = await createStockLocation()
+          const shirt = await createStockedVariant()
+          const purchase = await orderedPurchase([
+            { variant_id: shirt.id, quantity: 8 },
+          ])
+          expect(
+            await stockedAt(shirt.inventory_item_id, location.id)
+          ).toBeUndefined()
+
+          const response = await receive(purchase.id, {
+            stock_location_id: location.id,
+            items: [{ purchase_item_id: purchase.items[0].id, quantity: 6 }],
+          })
+
+          expect(response.status).toBe(200)
+          expect(response.data.purchase.status).toBe("partially_received")
+          expect(await stockedAt(shirt.inventory_item_id, location.id)).toBe(6)
+        })
+
+        it("two simultaneous receives that together exceed remaining: exactly one 200 and one 400, stock rises once, quantity_received equals the accepted quantity", async () => {
+          const location = await createStockLocation()
+          const shirt = await createStockedVariant()
+          await setStock(shirt.inventory_item_id, location.id, 10)
+          const purchase = await orderedPurchase([
+            { variant_id: shirt.id, quantity: 5 },
+          ])
+          const item = purchase.items[0].id
+
+          const responses = await Promise.all([
+            receive(purchase.id, {
+              stock_location_id: location.id,
+              items: [{ purchase_item_id: item, quantity: 3 }],
+            }),
+            receive(purchase.id, {
+              stock_location_id: location.id,
+              items: [{ purchase_item_id: item, quantity: 4 }],
+            }),
+          ])
+
+          const statuses = responses.map((r) => r.status).sort()
+          expect(statuses).toEqual([200, 400])
+          const accepted = responses.find((r) => r.status === 200)!
+          const acceptedQuantity = accepted.data.purchase.receipts[0].items[0]
+            .quantity as number
+          expect([3, 4]).toContain(acceptedQuantity)
+
+          const fetched = await fetchPurchase(purchase.id)
+          expect(fetched.status).toBe("partially_received")
+          expect(fetched.items[0].quantity_received).toBe(acceptedQuantity)
+          expect(await stockedAt(shirt.inventory_item_id, location.id)).toBe(
+            10 + acceptedQuantity
+          )
+          const rows = await receiptRows(purchase.id)
+          expect(rows.receipts).toHaveLength(1)
+          expect(rows.items).toHaveLength(1)
+          expect(rows.items[0].quantity).toBe(acceptedQuantity)
+          expect(await allStockLocationLinkCount()).toBe(1)
+        })
+
+        it("a failure after the receipt is recorded rolls everything back", async () => {
+          const location = await createStockLocation()
+          const shirt = await createStockedVariant()
+          const hat = await createStockedVariant("Hat")
+          await setStock(shirt.inventory_item_id, location.id, 9)
+          // The hat has no level at this location: the rollback must also
+          // remove the level the workflow created for it.
+          const purchase = await orderedPurchase([
+            { variant_id: shirt.id, quantity: 5 },
+            { variant_id: hat.id, quantity: 2 },
+          ])
+          const shirtItem = itemFor(purchase, shirt.id)
+          const hatItem = itemFor(purchase, hat.id)
+          const first = await receive(purchase.id, {
+            stock_location_id: location.id,
+            items: [{ purchase_item_id: shirtItem, quantity: 1 }],
+          })
+          expect(first.status).toBe(200)
+          expect(await stockedAt(shirt.inventory_item_id, location.id)).toBe(10)
+          const before = await fetchPurchase(purchase.id)
+          expect(before.status).toBe("partially_received")
+
+          // The stock adjustment is the last step: everything before it
+          // (level creation, receipt, quantities, status, link) has been
+          // written when it fails.
+          const inventoryModule = getContainer().resolve(
+            Modules.INVENTORY
+          ) as any
+          const spy = jest
+            .spyOn(inventoryModule, "adjustInventory")
+            .mockRejectedValueOnce(new Error("adjust failed"))
+
+          const response = await receive(purchase.id, {
+            stock_location_id: location.id,
+            items: [
+              { purchase_item_id: shirtItem, quantity: 4 },
+              { purchase_item_id: hatItem, quantity: 2 },
+            ],
+          })
+          const adjustCalls = spy.mock.calls.length
+          spy.mockRestore()
+
+          expect(adjustCalls).toBe(1)
+          expect(response.status).toBe(500)
+
+          const after = await fetchPurchase(purchase.id)
+          expect(after.status).toBe("partially_received")
+          const byId = (id: string) => after.items.find((i: any) => i.id === id)
+          expect(byId(shirtItem).quantity_received).toBe(1)
+          expect(byId(hatItem).quantity_received).toBe(0)
+          expect(after.receipts).toHaveLength(1)
+          expect(after.receipts[0].id).toBe(before.receipts[0].id)
+
+          const rows = await receiptRows(purchase.id)
+          expect(rows.receipts).toHaveLength(1)
+          expect(rows.items).toHaveLength(1)
+          expect(await allStockLocationLinkCount()).toBe(1)
+          expect(await stockedAt(shirt.inventory_item_id, location.id)).toBe(10)
+          expect(
+            await stockedAt(hat.inventory_item_id, location.id)
+          ).toBeUndefined()
+        })
+
+        it("a failure of the stock location link rolls back the receipt and restores the ordered status", async () => {
+          const location = await createStockLocation()
+          const shirt = await createStockedVariant()
+          await setStock(shirt.inventory_item_id, location.id, 3)
+          const purchase = await orderedPurchase([
+            { variant_id: shirt.id, quantity: 5 },
+          ])
+
+          const link = getContainer().resolve(
+            ContainerRegistrationKeys.LINK
+          ) as any
+          const spy = jest
+            .spyOn(link, "create")
+            .mockRejectedValueOnce(new Error("link create failed"))
+
+          const response = await receive(purchase.id, {
+            stock_location_id: location.id,
+            items: [{ purchase_item_id: purchase.items[0].id, quantity: 5 }],
+          })
+          spy.mockRestore()
+
+          expect(response.status).toBe(500)
+          const after = await fetchPurchase(purchase.id)
+          expect(after.status).toBe("ordered")
+          expect(after.items[0].quantity_received).toBe(0)
+          expect(after.receipts).toEqual([])
+          expect(await allReceiptRowCounts()).toEqual({ receipts: 0, items: 0 })
+          expect(await allStockLocationLinkCount()).toBe(0)
+          expect(await stockedAt(shirt.inventory_item_id, location.id)).toBe(3)
+        })
+      })
     })
   },
 })
