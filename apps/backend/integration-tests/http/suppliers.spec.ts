@@ -70,6 +70,47 @@ medusaIntegrationTestRunner({
         ).toEqual(["Alpha Traders", "Alpha Wholesale"])
       })
 
+      it("GET /admin/suppliers applies default limit 20 and offset 0", async () => {
+        const response = await api.get("/admin/suppliers", adminHeaders)
+
+        expect(response.status).toBe(200)
+        expect(response.data.limit).toBe(20)
+        expect(response.data.offset).toBe(0)
+      })
+
+      it("GET /admin/suppliers returns the right page for a valid limit and offset", async () => {
+        await createSupplier("P1")
+        await createSupplier("P2")
+        await createSupplier("P3")
+        await createSupplier("P4")
+
+        const response = await api.get(
+          "/admin/suppliers?limit=2&offset=1",
+          adminHeaders
+        )
+
+        expect(response.status).toBe(200)
+        expect(response.data.suppliers).toHaveLength(2)
+        expect(response.data.count).toBe(4)
+        expect(response.data.limit).toBe(2)
+        expect(response.data.offset).toBe(1)
+      })
+
+      it.each([
+        ["limit=abc"],
+        ["limit=0"],
+        ["limit=101"],
+        ["offset=-1"],
+        ["offset=abc"],
+        ["q=a&q=b"],
+      ])("GET /admin/suppliers?%s returns 400", async (qs) => {
+        const response = await api
+          .get(`/admin/suppliers?${qs}`, adminHeaders)
+          .catch((e) => e.response)
+
+        expect(response.status).toBe(400)
+      })
+
       it("GET /admin/suppliers/:id returns 404 for an unknown id", async () => {
         const response = await api
           .get("/admin/suppliers/sup_missing", adminHeaders)
