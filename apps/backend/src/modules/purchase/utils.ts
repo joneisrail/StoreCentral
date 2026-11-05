@@ -34,6 +34,17 @@ export const validateReceiveQuantities = (
     )
   }
 
+  const seen = new Set<string>()
+  for (const line of requested) {
+    if (seen.has(line.purchase_item_id)) {
+      throw new MedusaError(
+        MedusaError.Types.INVALID_DATA,
+        `Purchase item ${line.purchase_item_id} appears more than once`
+      )
+    }
+    seen.add(line.purchase_item_id)
+  }
+
   for (const line of requested) {
     const item = items.find((i) => i.id === line.purchase_item_id)
     if (!item) {

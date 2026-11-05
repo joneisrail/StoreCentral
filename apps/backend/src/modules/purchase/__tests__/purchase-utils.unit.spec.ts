@@ -90,6 +90,20 @@ describe("purchase utils", () => {
       ).toThrow(MedusaError)
     })
 
+    it("throws INVALID_DATA for duplicate purchase_item_id lines", () => {
+      expect.assertions(3)
+      try {
+        validateReceiveQuantities(items, [
+          { purchase_item_id: "i1", quantity: 4 },
+          { purchase_item_id: "i1", quantity: 4 },
+        ])
+      } catch (e: any) {
+        expect(e).toBeInstanceOf(MedusaError)
+        expect(e.type).toBe(MedusaError.Types.INVALID_DATA)
+        expect(e.message).toContain("i1")
+      }
+    })
+
     it("throws for an empty request", () => {
       expect(() => validateReceiveQuantities(items, [])).toThrow(MedusaError)
     })
