@@ -2,26 +2,13 @@ import { MedusaError } from "@medusajs/framework/utils"
 import { createStep, StepResponse } from "@medusajs/framework/workflows-sdk"
 import { PURCHASE_MODULE } from "../../modules/purchase"
 import PurchaseModuleService from "../../modules/purchase/service"
+import {
+  restorePurchaseStatus,
+  snapshotPurchaseStatus,
+} from "./purchase-status-restore"
 
 export type CancelPurchaseStepInput = {
   purchase_id: string
-}
-
-type PreviousState = {
-  id: string
-  status: string
-  ordered_at: Date | null
-}
-
-const restore = async (
-  purchaseModule: PurchaseModuleService,
-  previous: PreviousState
-) => {
-  await purchaseModule.updatePurchases({
-    id: previous.id,
-    status: previous.status,
-    ordered_at: previous.ordered_at,
-  } as never)
 }
 
 export const cancelPurchaseStep = createStep(
@@ -47,11 +34,7 @@ export const cancelPurchaseStep = createStep(
       )
     }
 
-    const previous: PreviousState = {
-      id: existing.id,
-      status: existing.status,
-      ordered_at: existing.ordered_at ? new Date(existing.ordered_at) : null,
-    }
+    const previous = snapshotPurchaseStatus(existing)
 
     // ordered_at is kept as history.
     await purchaseModule.updatePurchases({
@@ -66,7 +49,7 @@ export const cancelPurchaseStep = createStep(
       return
     }
 
-    await restore(
+    await restorePurchaseStatus(
       container.resolve<PurchaseModuleService>(PURCHASE_MODULE),
       previous
     )

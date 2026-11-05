@@ -740,6 +740,46 @@ medusaIntegrationTestRunner({
           expect(fetched.items[0].quantity_received).toBe(1)
         })
 
+        it("cancel rejects an ordered purchase when any item has quantity_received > 0 (400)", async () => {
+          const supplier = await createSupplier("Acme")
+          const variantA = await createVariant("Shirt A")
+          const variantB = await createVariant("Shirt B")
+          const created = await createPurchase({
+            supplier_id: supplier.id,
+            items: [
+              { variant_id: variantA.id, quantity: 3, unit_cost: 2 },
+              { variant_id: variantB.id, quantity: 5, unit_cost: 2 },
+            ],
+          })
+          const placed = await post(`/admin/purchases/${created.id}/order`)
+          expect(placed.status).toBe(200)
+          const purchaseModule = getContainer().resolve(PURCHASE_MODULE) as any
+          // Only the second item has received goods, status stays ordered so
+          // the received-quantity guard (not the status check) must reject.
+          const second = created.items.find(
+            (i: any) => i.variant_id === variantB.id
+          )
+          const first = created.items.find(
+            (i: any) => i.variant_id === variantA.id
+          )
+          await purchaseModule.updatePurchaseItems({
+            id: second.id,
+            quantity_received: 1,
+          })
+
+          const response = await post(`/admin/purchases/${created.id}/cancel`)
+
+          expect(response.status).toBe(400)
+          const fetched = await fetchPurchase(created.id)
+          expect(fetched.status).toBe("ordered")
+          expect(fetched.ordered_at).toBe(placed.data.purchase.ordered_at)
+          const byId = (id: string) =>
+            fetched.items.find((i: any) => i.id === id)
+          expect(byId(first.id).quantity_received).toBe(0)
+          expect(byId(second.id).quantity_received).toBe(1)
+          expect(byId(second.id).quantity).toBe(5)
+        })
+
         it("cancel rejects a received or already cancelled purchase (400)", async () => {
           const received = await draftPurchase()
           await setState(received.id, { status: "received" })
