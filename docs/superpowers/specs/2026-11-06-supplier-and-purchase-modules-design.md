@@ -91,7 +91,7 @@ Module names are camelCase (`supplier`, `purchase`).
 
 | Model | Fields |
 |---|---|
-| Purchase | `id`, `reference` (automatic, e.g. `PO-0001`, unique), `status` (`draft`, `ordered`, `partially_received`, `received`, `cancelled`), `currency_code` (fixed `usd`), `shipping_cost`, `tax`, `other_cost` (each default 0), `notes`, `ordered_at` |
+| Purchase | `id`, `display_id` (autoincrement; shown as the reference `PO-0001`), `status` (`draft`, `ordered`, `partially_received`, `received`, `cancelled`), `currency_code` (fixed `usd`), `shipping_cost`, `tax`, `other_cost` (each default 0), `notes`, `ordered_at` |
 | PurchaseItem | `id`, `purchase`, `variant_id`, `sku` and `title` (snapshots), `quantity` (ordered), `quantity_received` (default 0), `unit_cost` |
 | PurchaseReceipt | `id`, `purchase`, `stock_location_id`, `received_at`, `note` |
 | PurchaseReceiptItem | `id`, `receipt`, `purchase_item`, `quantity` |
@@ -99,8 +99,10 @@ Module names are camelCase (`supplier`, `purchase`).
 Amounts are plain dollar values (12.50 is stored as 12.50), never cents, as
 with Medusa prices. Not stored, computed on read: items subtotal (sum of
 `quantity * unit_cost`) and purchase total (subtotal + `shipping_cost` + `tax`
-+ `other_cost`). The purchase `reference` is generated from a sequence so two
-simultaneous purchases never share one.
++ `other_cost`). The purchase reference is derived on read from the autoincrement `display_id`
+(`PO-` plus the number zero-padded to 4 digits), so two simultaneous purchases
+never share one and no separate column is needed. Money columns use Medusa's
+`bigNumber` type.
 
 ### Module links
 
