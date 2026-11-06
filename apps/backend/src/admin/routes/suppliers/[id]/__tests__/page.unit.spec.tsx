@@ -5,7 +5,7 @@ import "../../../purchases/__tests__/text-encoder-polyfill"
 import { render, screen, fireEvent, waitFor } from "@testing-library/react"
 import "@testing-library/jest-dom"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { MemoryRouter, Route, Routes } from "react-router-dom"
+import { Link, MemoryRouter, Route, Routes } from "react-router-dom"
 
 const mockFetch = jest.fn()
 const mockToast = { success: jest.fn(), error: jest.fn() }
@@ -147,26 +147,83 @@ describe("SupplierDetailPage", () => {
     )
   })
 
+  // Behaves like a server: POSTs merge into the stored supplier and every
+  // response is a fresh object, so react-query sees real changes.
+  function useStatefulServer() {
+    let server = { ...supplier }
+    mockFetch.mockImplementation(
+      (_url: string, opts?: { method?: string; body?: object }) => {
+        if (opts?.method === "POST") {
+          server = { ...server, ...opts.body }
+        }
+        return Promise.resolve({ supplier: { ...server } })
+      }
+    )
+  }
+
   it("toggling Active keeps unsaved text edits and a later Save posts only them", async () => {
+    useStatefulServer()
     renderPage()
     const phone = await screen.findByLabelText("Phone")
     fireEvent.change(phone, { target: { value: "+1 555 7777" } })
 
     fireEvent.click(screen.getByRole("switch", { name: "Active" }))
     await waitFor(() =>
-      expect(mockToast.success).toHaveBeenCalledWith("Supplier updated")
-    )
-    await waitFor(() =>
-      expect(mockFetch.mock.calls.filter((c) => c[1] === undefined).length)
-        .toBeGreaterThan(1)
+      expect(screen.getByRole("switch", { name: "Active" })).not.toBeChecked()
     )
     expect(screen.getByLabelText("Phone")).toHaveValue("+1 555 7777")
 
     fireEvent.click(screen.getByRole("button", { name: "Save" }))
-    await waitFor(() =>
-      expect(postCalls()).toHaveLength(2)
-    )
+    await waitFor(() => expect(postCalls()).toHaveLength(2))
     expect(postCalls()[1][1].body).toEqual({ phone: "+1 555 7777" })
+  })
+
+  it("a second Save with no edits makes no second POST", async () => {
+    useStatefulServer()
+    renderPage()
+    fireEvent.change(await screen.findByLabelText("Phone"), {
+      target: { value: "+1 555 7777" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+    await waitFor(() => expect(mockToast.success).toHaveBeenCalled())
+    await waitFor(() =>
+      expect(mockFetch.mock.calls.filter((c) => !c[1]?.method).length)
+        .toBeGreaterThan(1)
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+    expect(postCalls()).toHaveLength(1)
+  })
+
+  it("switching to another cached supplier shows its values", async () => {
+    const other = { ...supplier, id: "sup_2", name: "Globex Oils", phone: "+1 555 0200" }
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    queryClient.setQueryData(["admin", "suppliers", "detail", "sup_2"], {
+      supplier: other,
+    })
+    mockFetch.mockImplementation((url: string) =>
+      Promise.resolve({ supplier: url.endsWith("sup_2") ? other : supplier })
+    )
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/suppliers/sup_1"]}>
+          <Link to="/suppliers/sup_2">go</Link>
+          <Routes>
+            <Route path="/suppliers/:id" element={<SupplierDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>
+    )
+    expect(await screen.findByLabelText("Name")).toHaveValue("Acme Perfumes")
+
+    fireEvent.click(screen.getByText("go"))
+
+    await waitFor(() =>
+      expect(screen.getByLabelText("Name")).toHaveValue("Globex Oils")
+    )
+    expect(screen.getByLabelText("Phone")).toHaveValue("+1 555 0200")
   })
 
   it("does not post when nothing changed", async () => {

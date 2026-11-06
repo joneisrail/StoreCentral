@@ -67,7 +67,7 @@ const SupplierDetailPage = () => {
         </Tabs.List>
         <div className="pt-4">
           <Tabs.Content value="details">
-            <DetailsTab supplier={supplier} />
+            <DetailsTab key={supplier.id} supplier={supplier} />
           </Tabs.Content>
           <Tabs.Content value="products">
             <ProductsTab supplierId={supplier.id} />
