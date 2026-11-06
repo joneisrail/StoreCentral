@@ -1,9 +1,11 @@
 /**
  * @jest-environment jsdom
  */
+import "../../purchases/__tests__/text-encoder-polyfill"
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/react"
 import "@testing-library/jest-dom"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { MemoryRouter } from "react-router-dom"
 
 const mockFetch = jest.fn()
 
@@ -23,7 +25,9 @@ function renderPage() {
   })
   return render(
     <QueryClientProvider client={queryClient}>
-      <SuppliersPage />
+      <MemoryRouter>
+        <SuppliersPage />
+      </MemoryRouter>
     </QueryClientProvider>
   )
 }
@@ -35,6 +39,7 @@ const acme = {
   phone: "+1 555 0100",
   address: "1 Main St",
   notes: null,
+  is_active: true,
   created_at: "2026-10-01T00:00:00.000Z",
 }
 
@@ -45,6 +50,7 @@ const globex = {
   phone: "+1 555 0200",
   address: null,
   notes: null,
+  is_active: false,
   created_at: "2026-10-02T00:00:00.000Z",
 }
 
@@ -152,29 +158,64 @@ describe("SuppliersPage", () => {
     expect(await screen.findByText("Globex Oils")).toBeInTheDocument()
   })
 
-  it("editing posts the changed fields to /admin/suppliers/:id", async () => {
-    mockFetch.mockImplementation((_url: string, opts?: { method?: string }) => {
-      if (opts?.method === "POST") {
-        return Promise.resolve({ supplier: { ...acme, phone: "+1 555 9999" } })
-      }
-      return Promise.resolve(listResponse([acme]))
-    })
+  it("rows link to the supplier detail page", async () => {
+    mockFetch.mockResolvedValue(listResponse([acme]))
+
+    renderPage()
+
+    const link = await screen.findByRole("link", { name: "Acme Perfumes" })
+    expect(link).toHaveAttribute("href", "/suppliers/sup_1")
+  })
+
+  it("the status select adds is_active to the request", async () => {
+    mockFetch.mockResolvedValue(listResponse([acme]))
 
     renderPage()
     await screen.findByText("Acme Perfumes")
 
-    fireEvent.click(screen.getByRole("button", { name: "Edit" }))
-    const phone = await screen.findByLabelText("Phone")
-    expect(phone).toHaveValue("+1 555 0100")
-    fireEvent.change(phone, { target: { value: "+1 555 9999" } })
-    fireEvent.click(screen.getByRole("button", { name: "Save" }))
-
+    fireEvent.change(screen.getByLabelText("Status"), {
+      target: { value: "false" },
+    })
     await waitFor(() =>
-      expect(mockFetch).toHaveBeenCalledWith("/admin/suppliers/sup_1", {
-        method: "POST",
-        body: { phone: "+1 555 9999" },
+      expect(lastListCall()[1].query).toEqual({
+        limit: 20,
+        offset: 0,
+        is_active: "false",
       })
     )
+
+    fireEvent.change(screen.getByLabelText("Status"), {
+      target: { value: "true" },
+    })
+    await waitFor(() =>
+      expect(lastListCall()[1].query).toMatchObject({ is_active: "true" })
+    )
+
+    fireEvent.change(screen.getByLabelText("Status"), {
+      target: { value: "all" },
+    })
+    await waitFor(() =>
+      expect(lastListCall()[1].query).toEqual({ limit: 20, offset: 0 })
+    )
+  })
+
+  it("marks inactive suppliers with an Inactive badge", async () => {
+    mockFetch.mockResolvedValue(listResponse([acme, globex]))
+
+    renderPage()
+    await screen.findByText("Globex Oils")
+
+    const table = screen.getByRole("table")
+    expect(within(table).getAllByText("Inactive")).toHaveLength(1)
+  })
+
+  it("has no edit action any more", async () => {
+    mockFetch.mockResolvedValue(listResponse([acme]))
+
+    renderPage()
+    await screen.findByText("Acme Perfumes")
+
+    expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument()
   })
 
   it("deleting asks for confirmation and removes the row", async () => {

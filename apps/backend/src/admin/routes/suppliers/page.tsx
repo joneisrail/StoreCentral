@@ -2,6 +2,7 @@ import { useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { defineRouteConfig } from "@medusajs/admin-sdk"
 import {
+  Badge,
   Button,
   Container,
   Drawer,
@@ -14,17 +15,9 @@ import {
   toast,
   usePrompt,
 } from "@medusajs/ui"
+import { Link } from "react-router-dom"
 import { sdk } from "../../lib/sdk"
-
-type Supplier = {
-  id: string
-  name: string
-  email: string | null
-  phone: string | null
-  address: string | null
-  notes: string | null
-  created_at: string
-}
+import type { Supplier } from "./types"
 
 type SuppliersResponse = {
   suppliers: Supplier[]
@@ -37,18 +30,30 @@ type FormValues = {
   name: string
   email: string
   phone: string
+  contact_name: string
+  website: string
+  tax_id: string
+  payment_terms: string
+  lead_time_days: string
   address: string
   notes: string
 }
 
 type FormField = keyof FormValues
 
+type StatusFilter = "all" | "true" | "false"
+
 const LIMIT = 20
 
 const FORM_FIELDS: { key: FormField; label: string; multiline?: boolean }[] = [
   { key: "name", label: "Name" },
+  { key: "contact_name", label: "Contact name" },
   { key: "email", label: "Email" },
   { key: "phone", label: "Phone" },
+  { key: "website", label: "Website" },
+  { key: "tax_id", label: "Tax ID" },
+  { key: "payment_terms", label: "Payment terms" },
+  { key: "lead_time_days", label: "Lead time (days)" },
   { key: "address", label: "Address" },
   { key: "notes", label: "Notes", multiline: true },
 ]
@@ -57,18 +62,13 @@ const EMPTY_FORM: FormValues = {
   name: "",
   email: "",
   phone: "",
+  contact_name: "",
+  website: "",
+  tax_id: "",
+  payment_terms: "",
+  lead_time_days: "",
   address: "",
   notes: "",
-}
-
-function toFormValues(supplier: Supplier): FormValues {
-  return {
-    name: supplier.name,
-    email: supplier.email ?? "",
-    phone: supplier.phone ?? "",
-    address: supplier.address ?? "",
-    notes: supplier.notes ?? "",
-  }
 }
 
 function errorMessage(error: unknown, fallback: string) {
@@ -81,8 +81,8 @@ function errorMessage(error: unknown, fallback: string) {
 const SuppliersPage = () => {
   const [q, setQ] = useState("")
   const [offset, setOffset] = useState(0)
+  const [status, setStatus] = useState<StatusFilter>("all")
   const [drawerOpen, setDrawerOpen] = useState(false)
-  const [editing, setEditing] = useState<Supplier | null>(null)
   const [form, setForm] = useState<FormValues>(EMPTY_FORM)
   const [formError, setFormError] = useState<string | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
@@ -90,11 +90,14 @@ const SuppliersPage = () => {
   const prompt = usePrompt()
 
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ["admin", "suppliers", q, offset],
+    queryKey: ["admin", "suppliers", q, offset, status],
     queryFn: () => {
       const query: Record<string, unknown> = { limit: LIMIT, offset }
       if (q) {
         query.q = q
+      }
+      if (status !== "all") {
+        query.is_active = status
       }
       return sdk.client.fetch<SuppliersResponse>("/admin/suppliers", { query })
     },
@@ -104,15 +107,10 @@ const SuppliersPage = () => {
     queryClient.invalidateQueries({ queryKey: ["admin", "suppliers"] })
 
   const saveSupplier = useMutation({
-    mutationFn: (body: Partial<FormValues>) =>
-      editing
-        ? sdk.client.fetch(`/admin/suppliers/${editing.id}`, {
-            method: "POST",
-            body,
-          })
-        : sdk.client.fetch("/admin/suppliers", { method: "POST", body }),
+    mutationFn: (body: Record<string, unknown>) =>
+      sdk.client.fetch("/admin/suppliers", { method: "POST", body }),
     onSuccess: () => {
-      toast.success(editing ? "Supplier updated" : "Supplier created")
+      toast.success("Supplier created")
       setDrawerOpen(false)
       invalidateSuppliers()
     },
@@ -136,15 +134,7 @@ const SuppliersPage = () => {
   })
 
   const openCreate = () => {
-    setEditing(null)
     setForm(EMPTY_FORM)
-    setFormError(null)
-    setDrawerOpen(true)
-  }
-
-  const openEdit = (supplier: Supplier) => {
-    setEditing(supplier)
-    setForm(toFormValues(supplier))
     setFormError(null)
     setDrawerOpen(true)
   }
@@ -153,38 +143,27 @@ const SuppliersPage = () => {
     event.preventDefault()
     setFormError(null)
 
-    const values: FormValues = {
-      name: form.name.trim(),
-      email: form.email.trim(),
-      phone: form.phone.trim(),
-      address: form.address.trim(),
-      notes: form.notes.trim(),
-    }
-
-    if (!values.name) {
+    if (!form.name.trim()) {
       setFormError("Name is required.")
       return
     }
 
-    const body: Partial<FormValues> = {}
-    if (editing) {
-      // Only send the fields that changed.
-      const original = toFormValues(editing)
-      for (const { key } of FORM_FIELDS) {
-        if (values[key] !== original[key]) {
-          body[key] = values[key]
-        }
+    // Only send the fields that were filled in.
+    const body: Record<string, unknown> = {}
+    for (const { key } of FORM_FIELDS) {
+      const value = form[key].trim()
+      if (!value) {
+        continue
       }
-      if (Object.keys(body).length === 0) {
-        setDrawerOpen(false)
-        return
-      }
-    } else {
-      // Only send the fields that were filled in.
-      for (const { key } of FORM_FIELDS) {
-        if (values[key]) {
-          body[key] = values[key]
+      if (key === "lead_time_days") {
+        const days = Number(value)
+        if (!Number.isInteger(days) || days < 0) {
+          setFormError("Lead time must be a whole number of days.")
+          return
         }
+        body[key] = days
+      } else {
+        body[key] = value
       }
     }
 
@@ -209,6 +188,11 @@ const SuppliersPage = () => {
     setOffset(0)
   }
 
+  const handleStatus = (value: string) => {
+    setStatus(value as StatusFilter)
+    setOffset(0)
+  }
+
   return (
     <Container>
       <div className="flex items-center justify-between">
@@ -218,13 +202,24 @@ const SuppliersPage = () => {
         </Button>
       </div>
 
-      <div className="py-4">
+      <div className="flex items-center gap-2 py-4">
         <Input
           type="search"
           placeholder="Search suppliers"
           value={q}
           onChange={(event) => handleSearch(event.target.value)}
         />
+        <Label htmlFor="supplier-status-filter">Status</Label>
+        <select
+          id="supplier-status-filter"
+          className="bg-ui-bg-field text-ui-fg-base shadow-borders-base rounded-md px-2 py-1.5 text-sm"
+          value={status}
+          onChange={(event) => handleStatus(event.target.value)}
+        >
+          <option value="all">All</option>
+          <option value="true">Active</option>
+          <option value="false">Inactive</option>
+        </select>
       </div>
 
       {isLoading && <Text>Loading...</Text>}
@@ -257,18 +252,16 @@ const SuppliersPage = () => {
           <Table.Body>
             {data.suppliers.map((supplier) => (
               <Table.Row key={supplier.id}>
-                <Table.Cell>{supplier.name}</Table.Cell>
+                <Table.Cell>
+                  <div className="flex items-center gap-2">
+                    <Link to={`/suppliers/${supplier.id}`}>{supplier.name}</Link>
+                    {!supplier.is_active && <Badge color="grey">Inactive</Badge>}
+                  </div>
+                </Table.Cell>
                 <Table.Cell>{supplier.email ?? "—"}</Table.Cell>
                 <Table.Cell>{supplier.phone ?? "—"}</Table.Cell>
                 <Table.Cell>
                   <div className="flex gap-2">
-                    <Button
-                      size="small"
-                      variant="secondary"
-                      onClick={() => openEdit(supplier)}
-                    >
-                      Edit
-                    </Button>
                     <Button
                       size="small"
                       variant="danger"
@@ -316,7 +309,7 @@ const SuppliersPage = () => {
           <form onSubmit={handleSubmit} className="flex h-full flex-col">
             <Drawer.Header>
               <Drawer.Title>
-                {editing ? "Edit supplier" : "Create supplier"}
+                Create supplier
               </Drawer.Title>
             </Drawer.Header>
             <Drawer.Body className="flex flex-col gap-4">
