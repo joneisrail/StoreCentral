@@ -24,6 +24,9 @@ module.exports = defineConfig({
       resolve: './src/modules/purchase',
     },
     {
+      resolve: './src/modules/accounting',
+    },
+    {
       // Registering the Fulfillment Module explicitly (rather than letting
       // Medusa fall back to its implicit default) so we can add the
       // EasyPost provider alongside the existing manual one. The manual
