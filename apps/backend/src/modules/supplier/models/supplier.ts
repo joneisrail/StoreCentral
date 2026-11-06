@@ -1,4 +1,5 @@
 import { model } from "@medusajs/framework/utils"
+import SupplierProduct from "./supplier-product"
 
 const Supplier = model.define("supplier", {
   id: model.id().primaryKey(),
@@ -13,6 +14,7 @@ const Supplier = model.define("supplier", {
   payment_terms: model.text().nullable(),
   lead_time_days: model.number().nullable(),
   is_active: model.boolean().default(true),
+  products: model.hasMany(() => SupplierProduct, { mappedBy: "supplier" }),
 })
 
 export default Supplier
