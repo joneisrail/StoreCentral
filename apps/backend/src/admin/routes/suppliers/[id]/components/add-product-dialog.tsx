@@ -11,7 +11,7 @@ type VariantResult = {
   product?: { title: string | null } | null
 }
 
-const VARIANT_LIMIT = 10
+const VARIANT_LIMIT = 5
 const SEARCH_DEBOUNCE_MS = 300
 
 function variantLabel(variant: VariantResult) {
@@ -153,37 +153,44 @@ export const AddProductDialog = ({
                 <Text>No variants match your search.</Text>
               )}
               <ul className="flex flex-col gap-1">
-                {variants.data.variants.map((variant: VariantResult) => {
-                  const label = variantLabel(variant)
-                  return (
-                    <li
-                      key={variant.id}
-                      className={`flex items-center justify-between gap-2 rounded-md px-2 py-1 ${
-                        selected?.id === variant.id
-                          ? "bg-ui-bg-highlight font-medium"
-                          : ""
-                      }`}
-                    >
-                      <Text
-                        className="flex-1 cursor-pointer"
-                        onClick={() => setSelected(variant)}
+                {variants.data.variants
+                  .slice(0, VARIANT_LIMIT)
+                  .map((variant: VariantResult) => {
+                    const label = variantLabel(variant)
+                    return (
+                      <li
+                        key={variant.id}
+                        className={`flex items-center justify-between gap-2 rounded-md px-2 py-1 ${
+                          selected?.id === variant.id
+                            ? "bg-ui-bg-highlight font-medium"
+                            : ""
+                        }`}
                       >
-                        {label}
-                      </Text>
-                      <Button
-                        type="button"
-                        size="small"
-                        variant="secondary"
-                        aria-label={`Select ${label}`}
-                        disabled={selected?.id === variant.id}
-                        onClick={() => setSelected(variant)}
-                      >
-                        {selected?.id === variant.id ? "Selected" : "Select"}
-                      </Button>
-                    </li>
-                  )
-                })}
+                        <Text
+                          className="flex-1 cursor-pointer"
+                          onClick={() => setSelected(variant)}
+                        >
+                          {label}
+                        </Text>
+                        <Button
+                          type="button"
+                          size="small"
+                          variant="secondary"
+                          aria-label={`Select ${label}`}
+                          disabled={selected?.id === variant.id}
+                          onClick={() => setSelected(variant)}
+                        >
+                          {selected?.id === variant.id ? "Selected" : "Select"}
+                        </Button>
+                      </li>
+                    )
+                  })}
               </ul>
+              {(variants.data.count ?? 0) > VARIANT_LIMIT && (
+                <Text size="small" className="text-ui-fg-subtle">
+                  Showing the first {VARIANT_LIMIT} — type to narrow the results
+                </Text>
+              )}
             </>
           )}
 

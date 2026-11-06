@@ -220,7 +220,7 @@ describe("ProductsTab", () => {
 
     await pickVariant(dialog)
     expect(mockVariantList).toHaveBeenCalledWith({
-      limit: 10,
+      limit: 5,
       fields: "id,title,sku,product.title",
     })
 
@@ -314,7 +314,7 @@ describe("ProductsTab", () => {
     ).toBeInTheDocument()
     expect(mockVariantList).toHaveBeenCalledTimes(1)
     expect(mockVariantList).toHaveBeenCalledWith({
-      limit: 10,
+      limit: 5,
       fields: "id,title,sku,product.title",
     })
     expect(mockVariantList.mock.calls[0][0]).not.toHaveProperty("q")
@@ -354,7 +354,7 @@ describe("ProductsTab", () => {
     ).not.toBeInTheDocument()
     expect(mockVariantList).toHaveBeenLastCalledWith({
       q: "zed",
-      limit: 10,
+      limit: 5,
       fields: "id,title,sku,product.title",
     })
   })
@@ -440,6 +440,26 @@ describe("ProductsTab", () => {
     expect(
       within(dialog).queryByText("Older - O (S-O)")
     ).not.toBeInTheDocument()
+  })
+
+  it("renders at most 5 variants and hints when more match", async () => {
+    useStatefulServer([])
+    mockVariantList.mockImplementation(() =>
+      Promise.resolve({
+        count: 8,
+        variants: Array.from({ length: 8 }, (_, i) => ({
+          id: `v_${i}`,
+          title: `T${i}`,
+          sku: `S${i}`,
+          product: { title: "Prod" },
+        })),
+      })
+    )
+    renderTab()
+    const dialog = await openAddDialog()
+    await within(dialog).findByText("Prod - T0 (S0)")
+    expect(within(dialog).getAllByRole("listitem")).toHaveLength(5)
+    expect(within(dialog).getByText(/Showing the first 5/)).toBeInTheDocument()
   })
 
   it("shows a server 400 (duplicate code) inside the dialog", async () => {
