@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 import "../../../purchases/__tests__/text-encoder-polyfill"
-import { render, screen, fireEvent, waitFor } from "@testing-library/react"
+import { act, render, screen, fireEvent, waitFor } from "@testing-library/react"
 import "@testing-library/jest-dom"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { Link, MemoryRouter, Route, Routes } from "react-router-dom"
@@ -181,17 +181,19 @@ describe("SupplierDetailPage", () => {
   it("a second Save with no edits makes no second POST", async () => {
     useStatefulServer()
     renderPage()
-    fireEvent.change(await screen.findByLabelText("Phone"), {
-      target: { value: "+1 555 7777" },
+    fireEvent.change(await screen.findByLabelText("Name"), {
+      target: { value: "Acme Renamed" },
     })
     fireEvent.click(screen.getByRole("button", { name: "Save" }))
     await waitFor(() => expect(mockToast.success).toHaveBeenCalled())
-    await waitFor(() =>
-      expect(mockFetch.mock.calls.filter((c) => !c[1]?.method).length)
-        .toBeGreaterThan(1)
-    )
+    // The heading only changes once the refetched supplier has rendered.
+    expect(
+      await screen.findByRole("heading", { name: "Acme Renamed" })
+    ).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole("button", { name: "Save" }))
+    await act(async () => {})
+
     expect(postCalls()).toHaveLength(1)
   })
 
