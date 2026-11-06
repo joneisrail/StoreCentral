@@ -2,6 +2,7 @@ import type { MedusaContainer } from "@medusajs/framework/types"
 import { createStep, StepResponse } from "@medusajs/framework/workflows-sdk"
 import { createSupplierProductWorkflow } from "../create-supplier-product"
 import { deleteSupplierProductWorkflow } from "../delete-supplier-product"
+import type { ResolvedInvoiceLines } from "./resolve-invoice-lines"
 
 export type RememberSupplierCodesStepInput = {
   supplier_id: string
@@ -14,10 +15,20 @@ export type RememberSupplierCodesStepOutput = {
 
 type Created = { supplier_id: string; ids: string[] }
 
-const forgetCodes = async (
-  container: MedusaContainer,
-  created: Created
-) => {
+// The step input for the resolved lines that asked to remember their code.
+export const toRememberInput = (
+  resolved: ResolvedInvoiceLines
+): RememberSupplierCodesStepInput => ({
+  supplier_id: resolved.supplier.id,
+  entries: resolved.items
+    .filter((item) => item.remember_code)
+    .map((item) => ({
+      variant_id: item.variant_id,
+      supplier_sku: item.supplier_sku,
+    })),
+})
+
+const forgetCodes = async (container: MedusaContainer, created: Created) => {
   // Newest first, so a failure part-way leaves the oldest entries.
   for (const id of [...created.ids].reverse()) {
     await deleteSupplierProductWorkflow(container).run({

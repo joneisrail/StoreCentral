@@ -7,7 +7,10 @@ import {
 } from "@medusajs/framework/workflows-sdk"
 import { createRemoteLinkStep } from "@medusajs/medusa/core-flows"
 import { createInvoiceStep } from "./steps/create-invoice"
-import { rememberSupplierCodesStep } from "./steps/remember-supplier-codes"
+import {
+  rememberSupplierCodesStep,
+  toRememberInput,
+} from "./steps/remember-supplier-codes"
 import {
   InvoiceLineInput,
   resolveInvoiceLinesStep,
@@ -36,15 +39,7 @@ export const createInvoiceWorkflow = createWorkflow(
     // Runs before the invoice is created; a later failure removes the
     // entries again through this step's compensation.
     rememberSupplierCodesStep(
-      transform({ resolved }, ({ resolved }) => ({
-        supplier_id: resolved.supplier.id,
-        entries: resolved.items
-          .filter((item) => item.remember_code)
-          .map((item) => ({
-            variant_id: item.variant_id,
-            supplier_sku: item.supplier_sku,
-          })),
-      }))
+      transform({ resolved }, ({ resolved }) => toRememberInput(resolved))
     )
 
     const invoice = createInvoiceStep(
@@ -68,12 +63,10 @@ export const createInvoiceWorkflow = createWorkflow(
           accounting: { invoice_id: invoice.id },
           purchase: { purchase_id: resolved.purchase.id },
         },
-        ...invoice.items.map(
-          (item): LinkDefinition => ({
-            accounting: { invoice_item_id: item.id },
-            [Modules.PRODUCT]: { product_variant_id: item.variant_id },
-          })
-        ),
+        ...invoice.items.map((item): LinkDefinition => ({
+          accounting: { invoice_item_id: item.id },
+          [Modules.PRODUCT]: { product_variant_id: item.variant_id },
+        })),
       ]
       return definitions
     })

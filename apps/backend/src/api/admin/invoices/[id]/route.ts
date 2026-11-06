@@ -1,7 +1,13 @@
-import type { MedusaRequest, MedusaResponse } from "@medusajs/framework/http"
+import type {
+  AuthenticatedMedusaRequest,
+  MedusaRequest,
+  MedusaResponse,
+} from "@medusajs/framework/http"
 import { ContainerRegistrationKeys } from "@medusajs/framework/utils"
+import { updateInvoiceWorkflow } from "../../../../workflows/update-invoice"
 import { retrieveAdminPurchase } from "../../purchases/retrieve-admin-purchase"
 import { compareInvoice } from "../compare-invoice"
+import type { UpdateInvoiceSchema } from "../middlewares"
 import { retrieveAdminInvoice } from "../retrieve-admin-invoice"
 
 export async function GET(req: MedusaRequest, res: MedusaResponse) {
@@ -58,4 +64,17 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
   })
 
   res.json({ invoice, comparison })
+}
+
+export async function POST(
+  req: AuthenticatedMedusaRequest<UpdateInvoiceSchema>,
+  res: MedusaResponse
+) {
+  const { result } = await updateInvoiceWorkflow(req.scope).run({
+    input: { ...req.validatedBody, id: req.params.id },
+  })
+
+  const invoice = await retrieveAdminInvoice(req.scope, result.invoice.id)
+
+  res.json({ invoice })
 }

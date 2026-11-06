@@ -43,23 +43,68 @@ const isUniqueViolation = (err: unknown): boolean => {
 const hasLiveInvoice = async (
   service: AccountingModuleService,
   supplierId: string,
-  invoiceNumberKey: string
+  invoiceNumberKey: string,
+  excludeId?: string
 ): Promise<boolean> => {
   const [existing] = await service.listInvoices(
     {
       supplier_id: supplierId,
       invoice_number_key: invoiceNumberKey,
       status: { $ne: "void" },
+      ...(excludeId ? { id: { $ne: excludeId } } : {}),
     },
     { select: ["id"], take: 1 }
   )
   return !!existing
 }
 
+export type InvoiceNumberGuardInput = {
+  supplier: { id: string; name: string }
+  number: { invoice_number: string; invoice_number_key: string }
+  // The invoice being edited, which may keep its own number.
+  exclude_id?: string
+}
+
+// Runs `write` only if no other live invoice of the supplier holds the number,
+// and reports a violation of the partial unique index (raw 23505, or Medusa's
+// INVALID_DATA mapping of it) with the same message after re-checking. The
+// caller holds invoiceLockKey for the number.
+export const guardInvoiceNumber = async <T>(
+  accounting: AccountingModuleService,
+  input: InvoiceNumberGuardInput,
+  write: () => Promise<T>
+): Promise<T> => {
+  const taken = () =>
+    hasLiveInvoice(
+      accounting,
+      input.supplier.id,
+      input.number.invoice_number_key,
+      input.exclude_id
+    )
+  const duplicate = () =>
+    new MedusaError(
+      MedusaError.Types.INVALID_DATA,
+      duplicateInvoiceNumber(input.supplier.name, input.number.invoice_number)
+    )
+
+  if (await taken()) {
+    throw duplicate()
+  }
+  try {
+    return await write()
+  } catch (err) {
+    const mapped =
+      err instanceof MedusaError && err.type === MedusaError.Types.INVALID_DATA
+    if ((isUniqueViolation(err) || mapped) && (await taken())) {
+      throw duplicate()
+    }
+    throw err
+  }
+}
+
 // Creates a draft invoice with its items. The duplicate check and the insert
 // run under one lock per supplier number; the partial unique index backs it
-// up, and a violation of that index (raw 23505, or Medusa's INVALID_DATA
-// mapping of it) is reported with the same message after re-checking.
+// up.
 export const createInvoiceStep = createStep(
   "create-invoice",
   async (input: CreateInvoiceStepInput, { container }) => {
@@ -68,64 +113,36 @@ export const createInvoiceStep = createStep(
     const locking = container.resolve(Modules.LOCKING)
 
     const number = normalizeInvoiceNumber(input.invoice_number)
-    const duplicate = () =>
-      new MedusaError(
-        MedusaError.Types.INVALID_DATA,
-        duplicateInvoiceNumber(input.supplier.name, number.invoice_number)
-      )
 
     const invoice = await locking.execute(
       [invoiceLockKey(input.supplier.id, number.invoice_number_key)],
-      async () => {
-        if (
-          await hasLiveInvoice(
-            accounting,
-            input.supplier.id,
-            number.invoice_number_key
-          )
-        ) {
-          throw duplicate()
-        }
-
-        try {
-          return await accounting.createInvoices({
-            supplier_id: input.supplier.id,
-            purchase_id: input.purchase_id,
-            ...number,
-            invoice_date: new Date(input.invoice_date),
-            due_date: input.due_date ? new Date(input.due_date) : null,
-            shipping_cost: input.shipping_cost ?? 0,
-            tax: input.tax ?? 0,
-            other_cost: input.other_cost ?? 0,
-            notes: input.notes ?? null,
-            // Nested create of plain objects keeps the write atomic; the
-            // generated DTO types the relation as ids.
-            items: input.items.map((item) => ({
-              purchase_item_id: item.purchase_item_id,
-              variant_id: item.variant_id,
-              supplier_sku: item.supplier_sku,
-              description: item.description,
-              quantity: item.quantity,
-              unit_cost: item.unit_cost,
-            })) as never,
-          })
-        } catch (err) {
-          const mapped =
-            err instanceof MedusaError &&
-            err.type === MedusaError.Types.INVALID_DATA
-          if (
-            (isUniqueViolation(err) || mapped) &&
-            (await hasLiveInvoice(
-              accounting,
-              input.supplier.id,
-              number.invoice_number_key
-            ))
-          ) {
-            throw duplicate()
-          }
-          throw err
-        }
-      }
+      () =>
+        guardInvoiceNumber(
+          accounting,
+          { supplier: input.supplier, number },
+          () =>
+            accounting.createInvoices({
+              supplier_id: input.supplier.id,
+              purchase_id: input.purchase_id,
+              ...number,
+              invoice_date: new Date(input.invoice_date),
+              due_date: input.due_date ? new Date(input.due_date) : null,
+              shipping_cost: input.shipping_cost ?? 0,
+              tax: input.tax ?? 0,
+              other_cost: input.other_cost ?? 0,
+              notes: input.notes ?? null,
+              // Nested create of plain objects keeps the write atomic; the
+              // generated DTO types the relation as ids.
+              items: input.items.map((item) => ({
+                purchase_item_id: item.purchase_item_id,
+                variant_id: item.variant_id,
+                supplier_sku: item.supplier_sku,
+                description: item.description,
+                quantity: item.quantity,
+                unit_cost: item.unit_cost,
+              })) as never,
+            })
+        )
     )
 
     const items = await accounting.listInvoiceItems(

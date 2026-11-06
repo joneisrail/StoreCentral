@@ -39,6 +39,15 @@ export const CreateInvoiceSchema = z.object({
 })
 export type CreateInvoiceSchema = z.infer<typeof CreateInvoiceSchema>
 
+// Every create field but purchase_id is optional; unknown keys (purchase_id
+// included) are rejected. `items`, when given, replaces every line.
+export const UpdateInvoiceSchema = CreateInvoiceSchema.omit({
+  purchase_id: true,
+})
+  .partial()
+  .strict()
+export type UpdateInvoiceSchema = z.infer<typeof UpdateInvoiceSchema>
+
 export const ListInvoicesQuerySchema = z.object({
   purchase_id: z.string().optional(),
   supplier_id: z.string().optional(),
@@ -64,5 +73,10 @@ export const invoiceMiddlewares: MiddlewareRoute[] = [
     matcher: "/admin/invoices",
     method: "POST",
     middlewares: [validateAndTransformBody(CreateInvoiceSchema)],
+  },
+  {
+    matcher: "/admin/invoices/:id",
+    method: "POST",
+    middlewares: [validateAndTransformBody(UpdateInvoiceSchema)],
   },
 ]

@@ -3,6 +3,10 @@ import { ContainerRegistrationKeys, Modules } from "@medusajs/framework/utils"
 import { ACCOUNTING_MODULE } from "../../src/modules/accounting"
 import { createAdminUser } from "../helpers/create-admin-user"
 
+// Entry point of src/links/invoice-item-variant.ts (importing the link file
+// here would define it before Medusa is loaded).
+const INVOICE_ITEM_VARIANT_LINK = "invoice_item_product_variant"
+
 jest.setTimeout(300000)
 
 medusaIntegrationTestRunner({
@@ -786,6 +790,409 @@ medusaIntegrationTestRunner({
         const response = await api
           .get("/admin/invoices/inv_missing", adminHeaders)
           .catch((e) => e.response)
+        expect(response.status).toBe(404)
+      })
+    })
+
+    describe("POST /admin/invoices/:id", () => {
+      const update = (id: string, body: Record<string, unknown>) =>
+        api
+          .post(`/admin/invoices/${id}`, body, adminHeaders)
+          .catch((e) => e.response)
+
+      const detail = async (id: string) =>
+        (await api.get(`/admin/invoices/${id}`, adminHeaders)).data.invoice
+
+      // Item-to-variant link rows for the given invoice items.
+      const itemLinks = async (itemIds: string[]) => {
+        const query = getContainer().resolve(ContainerRegistrationKeys.QUERY)
+        const { data } = await query.graph({
+          entity: INVOICE_ITEM_VARIANT_LINK,
+          fields: ["invoice_item_id", "product_variant_id"],
+          filters: { invoice_item_id: itemIds },
+        })
+        return (data as any[])
+          .map((row) => ({
+            invoice_item_id: row.invoice_item_id as string,
+            product_variant_id: row.product_variant_id as string,
+          }))
+          .sort((a, b) => a.invoice_item_id.localeCompare(b.invoice_item_id))
+      }
+
+      // A draft invoice with one line resolved from the supplier code.
+      const draft = async (supplierName = "Acme") => {
+        const ctx = await setup(supplierName)
+        const response = await post(
+          header(ctx.purchase.id, {
+            shipping_cost: 1,
+            notes: "original",
+            items: [{ supplier_sku: "AC-100", quantity: 4, unit_cost: 2 }],
+          })
+        )
+        expect(response.status).toBe(200)
+        return { ...ctx, invoice: response.data.invoice }
+      }
+
+      it("edits header fields only and leaves the lines unchanged", async () => {
+        const { invoice, variant } = await draft()
+
+        const response = await update(invoice.id, {
+          invoice_date: "2026-11-03",
+          due_date: "2026-12-03",
+          shipping_cost: 3,
+          tax: 0.5,
+          other_cost: 0.25,
+          notes: "edited",
+        })
+
+        expect(response.status).toBe(200)
+        expect(response.data.invoice).toMatchObject({
+          id: invoice.id,
+          status: "draft",
+          invoice_number: "A-1",
+          invoice_date: "2026-11-03",
+          due_date: "2026-12-03",
+          shipping_cost: 3,
+          tax: 0.5,
+          other_cost: 0.25,
+          notes: "edited",
+          subtotal: 8,
+          total: 11.75,
+        })
+        expect(response.data.invoice.items).toEqual(invoice.items)
+        expect(await itemLinks([invoice.items[0].id])).toEqual([
+          { invoice_item_id: invoice.items[0].id, product_variant_id: variant.id },
+        ])
+      })
+
+      it("replaces every line when items are given, and the totals and links follow", async () => {
+        const { invoice, purchase, variant } = await draft()
+        const other = await createVariant("Off list")
+
+        const response = await update(invoice.id, {
+          items: [
+            { variant_id: variant.id, quantity: 10, unit_cost: 3 },
+            { variant_id: other.id, quantity: 1, unit_cost: 5, description: "Extra" },
+          ],
+        })
+
+        expect(response.status).toBe(200)
+        const updated = response.data.invoice
+        expect(updated).toMatchObject({ subtotal: 35, total: 36, notes: "original" })
+        expect(updated.items).toHaveLength(2)
+        expect(updated.items.map((i: any) => i.id)).not.toContain(
+          invoice.items[0].id
+        )
+        expect(updated.items).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              variant_id: variant.id,
+              purchase_item_id: purchase.items[0].id,
+              supplier_sku: "AC-100",
+              quantity: 10,
+              unit_cost: 3,
+            }),
+            expect.objectContaining({
+              variant_id: other.id,
+              purchase_item_id: null,
+              description: "Extra",
+              quantity: 1,
+              unit_cost: 5,
+            }),
+          ])
+        )
+
+        // The replaced line's link is gone; each new line is linked.
+        expect(await itemLinks([invoice.items[0].id])).toEqual([])
+        expect(await itemLinks(updated.items.map((i: any) => i.id))).toEqual(
+          updated.items
+            .map((i: any) => ({
+              invoice_item_id: i.id,
+              product_variant_id: i.variant_id,
+            }))
+            .sort((a: any, b: any) =>
+              a.invoice_item_id.localeCompare(b.invoice_item_id)
+            )
+        )
+        const [, itemCount] = await accounting().listAndCountInvoiceItems({})
+        expect(itemCount).toBe(2)
+      })
+
+      describe("invoice number", () => {
+        it("rejects a number another invoice of the supplier uses, naming supplier and number", async () => {
+          const { invoice, purchase } = await draft()
+          const other = await post(
+            header(purchase.id, {
+              invoice_number: "Taken-1",
+              items: [{ supplier_sku: "AC-100", quantity: 1, unit_cost: 1 }],
+            })
+          )
+          expect(other.status).toBe(200)
+
+          const response = await update(invoice.id, {
+            invoice_number: " taken-1 ",
+            notes: "should not stick",
+          })
+
+          expect(response.status).toBe(400)
+          expect(response.data.message).toBe(
+            'Invoice number "taken-1" already exists for supplier Acme'
+          )
+          expect(await detail(invoice.id)).toMatchObject({
+            invoice_number: "A-1",
+            notes: "original",
+          })
+        })
+
+        it("accepts the invoice's own number (any case), a voided number and another supplier's number", async () => {
+          const { invoice, purchase } = await draft("Acme")
+          const beta = await setup("Beta")
+          const line = [{ supplier_sku: "AC-100", quantity: 1, unit_cost: 1 }]
+          const voided = await post(
+            header(purchase.id, { invoice_number: "OLD-1", items: line })
+          )
+          await accounting().updateInvoices({
+            id: voided.data.invoice.id,
+            status: "void",
+          })
+          expect(
+            (await post(header(beta.purchase.id, { invoice_number: "B-1", items: line })))
+              .status
+          ).toBe(200)
+
+          const own = await update(invoice.id, { invoice_number: " a-1 " })
+          expect(own.status).toBe(200)
+          expect(own.data.invoice.invoice_number).toBe("a-1")
+
+          const reused = await update(invoice.id, { invoice_number: "old-1" })
+          expect(reused.status).toBe(200)
+
+          const crossSupplier = await update(invoice.id, { invoice_number: "B-1" })
+          expect(crossSupplier.status).toBe(200)
+          expect(crossSupplier.data.invoice.invoice_number).toBe("B-1")
+        })
+      })
+
+      it.each([
+        ["purchase_id", { purchase_id: "pur_other" }],
+        ["an unknown key", { bogus: true }],
+        ["empty items", { items: [] }],
+        ["a blank invoice number", { invoice_number: "  " }],
+        ["a negative tax", { tax: -1 }],
+      ])("rejects %s with 400", async (_name, body) => {
+        const { invoice } = await draft()
+        const response = await update(invoice.id, body)
+        expect(response.status).toBe(400)
+        expect(await detail(invoice.id)).toEqual(invoice)
+      })
+
+      it.each(["posted", "void"])(
+        "refuses to edit a %s invoice with 400 locked and changes nothing",
+        async (status) => {
+          const { invoice, supplier, variant } = await draft()
+          await accounting().updateInvoices({ id: invoice.id, status })
+          const before = await detail(invoice.id)
+
+          const response = await update(invoice.id, {
+            notes: "nope",
+            items: [
+              {
+                variant_id: variant.id,
+                supplier_sku: "NEW-CODE",
+                remember_code: true,
+                quantity: 1,
+                unit_cost: 1,
+              },
+            ],
+          })
+
+          expect(response.status).toBe(400)
+          expect(response.data.message).toContain("locked")
+          expect(await detail(invoice.id)).toEqual(before)
+          expect(await itemLinks([invoice.items[0].id])).toHaveLength(1)
+          expect(await listSupplierProducts(supplier.id)).toHaveLength(1)
+        }
+      )
+
+      it("restores the old lines, header and links when replacing the lines fails", async () => {
+        const { invoice, variant } = await draft()
+        const other = await createVariant("Other")
+        const before = await detail(invoice.id)
+
+        // The first delete is the one removing the replaced lines, after the
+        // new lines and the header were written.
+        const spy = jest
+          .spyOn(accounting(), "deleteInvoiceItems")
+          .mockRejectedValueOnce(new Error("delete failed"))
+        let response: any
+        let calls = 0
+        try {
+          response = await update(invoice.id, {
+            invoice_number: "CHANGED",
+            notes: "changed",
+            shipping_cost: 9,
+            items: [{ variant_id: other.id, quantity: 1, unit_cost: 1 }],
+          })
+        } finally {
+          calls = spy.mock.calls.length
+          spy.mockRestore()
+        }
+
+        expect(response.status).toBe(500)
+        expect(calls).toBeGreaterThan(0)
+        expect(await detail(invoice.id)).toEqual(before)
+        const [, itemCount] = await accounting().listAndCountInvoiceItems({})
+        expect(itemCount).toBe(1)
+        expect(await itemLinks([invoice.items[0].id])).toEqual([
+          { invoice_item_id: invoice.items[0].id, product_variant_id: variant.id },
+        ])
+      })
+
+      it("restores the old lines (same ids), header and links when linking the new lines fails", async () => {
+        const { invoice, variant } = await draft()
+        const other = await createVariant("Other")
+        const before = await detail(invoice.id)
+        const link = getContainer().resolve(ContainerRegistrationKeys.LINK) as any
+
+        const spy = jest
+          .spyOn(link, "create")
+          .mockRejectedValueOnce(new Error("link failed"))
+        let response: any
+        let calls = 0
+        try {
+          response = await update(invoice.id, {
+            notes: "changed",
+            items: [{ variant_id: other.id, quantity: 1, unit_cost: 1 }],
+          })
+        } finally {
+          calls = spy.mock.calls.length
+          spy.mockRestore()
+        }
+
+        expect(response.status).toBe(500)
+        expect(calls).toBeGreaterThan(0)
+        expect(await detail(invoice.id)).toEqual(before)
+        const items = await accounting().listInvoiceItems({})
+        expect(items.map((i: any) => i.id)).toEqual([invoice.items[0].id])
+        const query = getContainer().resolve(ContainerRegistrationKeys.QUERY)
+        const { data } = await query.graph({
+          entity: INVOICE_ITEM_VARIANT_LINK,
+          fields: ["invoice_item_id", "product_variant_id"],
+        })
+        expect(
+          (data as any[]).map((row) => ({
+            invoice_item_id: row.invoice_item_id,
+            product_variant_id: row.product_variant_id,
+          }))
+        ).toEqual([
+          { invoice_item_id: invoice.items[0].id, product_variant_id: variant.id },
+        ])
+      })
+
+      it("remembers a code on update", async () => {
+        const { invoice, supplier } = await draft()
+        const other = await createVariant("Red Small")
+
+        const response = await update(invoice.id, {
+          items: [
+            {
+              variant_id: other.id,
+              supplier_sku: "RS-9",
+              remember_code: true,
+              quantity: 2,
+              unit_cost: 3,
+            },
+          ],
+        })
+
+        expect(response.status).toBe(200)
+        expect(response.data.invoice.items[0]).toMatchObject({
+          variant_id: other.id,
+          supplier_sku: "RS-9",
+        })
+        expect(
+          (await listSupplierProducts(supplier.id)).map((p) => p.supplier_sku).sort()
+        ).toEqual(["AC-100", "RS-9"])
+      })
+
+      it("rolls a remembered code back with a failed update", async () => {
+        const { invoice, supplier } = await draft()
+        const other = await createVariant("Red Small")
+        const before = await detail(invoice.id)
+
+        const spy = jest
+          .spyOn(accounting(), "createInvoiceItems")
+          .mockRejectedValueOnce(new Error("item create failed"))
+        let response: any
+        let calls = 0
+        try {
+          response = await update(invoice.id, {
+            notes: "changed",
+            items: [
+              {
+                variant_id: other.id,
+                supplier_sku: "RS-9",
+                remember_code: true,
+                quantity: 2,
+                unit_cost: 3,
+              },
+            ],
+          })
+        } finally {
+          calls = spy.mock.calls.length
+          spy.mockRestore()
+        }
+
+        expect(response.status).toBe(500)
+        expect(calls).toBeGreaterThan(0)
+        expect(await detail(invoice.id)).toEqual(before)
+        expect(
+          (await listSupplierProducts(supplier.id)).map((p) => p.supplier_sku)
+        ).toEqual(["AC-100"])
+      })
+
+      it("rejects a code listed for a different variant with 400", async () => {
+        const { invoice, supplier } = await draft()
+        const other = await createVariant("Red Small")
+        await addSupplierProduct(supplier.id, {
+          variant_id: other.id,
+          supplier_sku: "RS-1",
+        })
+        const third = await createVariant("Green")
+
+        const response = await update(invoice.id, {
+          items: [
+            { variant_id: third.id, supplier_sku: "rs-1", quantity: 1, unit_cost: 1 },
+          ],
+        })
+
+        expect(response.status).toBe(400)
+        expect(response.data.message).toContain("listed for a different product")
+        expect(await detail(invoice.id)).toEqual(invoice)
+      })
+
+      it("rejects a purchase_item_id whose variant differs from the line's with 400", async () => {
+        const { invoice, purchase } = await draft()
+        const other = await createVariant("Red Small")
+
+        const response = await update(invoice.id, {
+          items: [
+            {
+              variant_id: other.id,
+              purchase_item_id: purchase.items[0].id,
+              quantity: 1,
+              unit_cost: 1,
+            },
+          ],
+        })
+
+        expect(response.status).toBe(400)
+        expect(response.data.message).toContain("different product")
+        expect(await detail(invoice.id)).toEqual(invoice)
+      })
+
+      it("returns 404 for an unknown id", async () => {
+        const response = await update("inv_missing", { notes: "x" })
         expect(response.status).toBe(404)
       })
     })
