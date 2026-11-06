@@ -38,6 +38,16 @@ type ItemRow = {
   label: string
   quantity: string
   unit_cost: string
+  // Set once the admin edits the cost, so a late lookup never overwrites it.
+  cost_touched?: boolean
+  supplier_sku?: string
+}
+
+type SupplierProductsResponse = {
+  supplier_products: {
+    supplier_sku: string
+    unit_cost: number | string | null
+  }[]
 }
 
 const SUPPLIER_LIMIT = 100
@@ -83,7 +93,7 @@ const NewPurchasePage = () => {
     queryKey: ["admin", "suppliers", "options"],
     queryFn: () =>
       sdk.client.fetch<SuppliersResponse>("/admin/suppliers", {
-        query: { limit: SUPPLIER_LIMIT },
+        query: { limit: SUPPLIER_LIMIT, is_active: true },
       }),
   })
 
@@ -145,7 +155,44 @@ const NewPurchasePage = () => {
     }
   )
 
+  // Best effort: a failed lookup leaves the row as added, with its default cost.
+  const lookupSupplierProduct = async (supplier: string, variantId: string) => {
+    try {
+      const response = await sdk.client.fetch<SupplierProductsResponse>(
+        `/admin/suppliers/${supplier}/products`,
+        { query: { variant_id: variantId } }
+      )
+      const entry = response.supplier_products?.[0]
+      if (!entry) {
+        return
+      }
+      const cost =
+        entry.unit_cost === null || entry.unit_cost === undefined
+          ? null
+          : Number(entry.unit_cost)
+      setItems((current) =>
+        current.map((item) =>
+          item.variant_id === variantId
+            ? {
+                ...item,
+                supplier_sku: entry.supplier_sku,
+                unit_cost:
+                  cost !== null && Number.isFinite(cost) && !item.cost_touched
+                    ? String(cost)
+                    : item.unit_cost,
+              }
+            : item
+        )
+      )
+    } catch {
+      // Ignored on purpose: the admin can still enter the cost by hand.
+    }
+  }
+
   const addVariant = (variant: VariantResult) => {
+    if (supplierId !== "" && !items.some((i) => i.variant_id === variant.id)) {
+      void lookupSupplierProduct(supplierId, variant.id)
+    }
     setItems((current) =>
       current.some((item) => item.variant_id === variant.id)
         ? current
@@ -168,7 +215,13 @@ const NewPurchasePage = () => {
   ) => {
     setItems((current) =>
       current.map((item) =>
-        item.variant_id === variantId ? { ...item, [field]: value } : item
+        item.variant_id === variantId
+          ? {
+              ...item,
+              [field]: value,
+              ...(field === "unit_cost" ? { cost_touched: true } : {}),
+            }
+          : item
       )
     )
   }
@@ -314,7 +367,14 @@ const NewPurchasePage = () => {
               <Table.Body>
                 {items.map((item) => (
                   <Table.Row key={item.variant_id}>
-                    <Table.Cell>{item.label}</Table.Cell>
+                    <Table.Cell>
+                      {item.label}
+                      {item.supplier_sku && (
+                        <Text size="small" className="text-ui-fg-subtle">
+                          {item.supplier_sku}
+                        </Text>
+                      )}
+                    </Table.Cell>
                     <Table.Cell>
                       <Input
                         type="number"
