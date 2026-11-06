@@ -156,10 +156,6 @@ async function openAddDialog() {
 }
 
 async function pickVariant(dialog: HTMLElement) {
-  fireEvent.change(within(dialog).getByPlaceholderText("Search variants"), {
-    target: { value: "amber" },
-  })
-  fireEvent.click(within(dialog).getByRole("button", { name: "Search" }))
   fireEvent.click(
     await within(dialog).findByRole("button", {
       name: "Select Amber Night - 50ml (SKU-50)",
@@ -217,14 +213,13 @@ describe("ProductsTab", () => {
     )
   })
 
-  it("adds a product: searches variants, requires a code, posts and refreshes", async () => {
+  it("adds a product: picks a variant, requires a code, posts and refreshes", async () => {
     useStatefulServer([oud])
     renderTab()
     const dialog = await openAddDialog()
 
     await pickVariant(dialog)
     expect(mockVariantList).toHaveBeenCalledWith({
-      q: "amber",
       limit: 10,
       fields: "id,title,sku,product.title",
     })
@@ -249,15 +244,18 @@ describe("ProductsTab", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Save" }))
 
     await waitFor(() =>
-      expect(mockFetch).toHaveBeenCalledWith("/admin/suppliers/sup_1/products", {
-        method: "POST",
-        body: {
-          variant_id: "variant_2",
-          supplier_sku: "AC-AMB-50",
-          supplier_title: "Acme Amber 50ml",
-          unit_cost: 8.25,
-        },
-      })
+      expect(mockFetch).toHaveBeenCalledWith(
+        "/admin/suppliers/sup_1/products",
+        {
+          method: "POST",
+          body: {
+            variant_id: "variant_2",
+            supplier_sku: "AC-AMB-50",
+            supplier_title: "Acme Amber 50ml",
+            unit_cost: 8.25,
+          },
+        }
+      )
     )
     // The refreshed list shows the new row once the dialog has closed.
     expect(await screen.findByText("AC-AMB-50")).toBeInTheDocument()
@@ -293,10 +291,155 @@ describe("ProductsTab", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Save" }))
 
     expect(
-      await within(dialog).findByText("Pick one of our variants first.")
+      await within(dialog).findByText(
+        "Select a product from the list above first."
+      )
     ).toBeInTheDocument()
     await act(async () => {})
     expect(writeCalls()).toHaveLength(0)
+  })
+
+  it("shows the initial variants on open without searching or a q argument", async () => {
+    useStatefulServer([])
+    renderTab()
+    const dialog = await openAddDialog()
+
+    expect(
+      await within(dialog).findByText("Amber Night - 50ml (SKU-50)")
+    ).toBeInTheDocument()
+    expect(
+      within(dialog).getByText(
+        "Search and select the product you want to link, then enter the supplier's code."
+      )
+    ).toBeInTheDocument()
+    expect(mockVariantList).toHaveBeenCalledTimes(1)
+    expect(mockVariantList).toHaveBeenCalledWith({
+      limit: 10,
+      fields: "id,title,sku,product.title",
+    })
+    expect(mockVariantList.mock.calls[0][0]).not.toHaveProperty("q")
+  })
+
+  it("narrows the list after the debounce and sends q", async () => {
+    useStatefulServer([])
+    mockVariantList.mockImplementation((args: { q?: string }) =>
+      Promise.resolve({
+        variants: args.q
+          ? [
+              {
+                id: "variant_9",
+                title: "9ml",
+                sku: "SKU-9",
+                product: { title: "Zed" },
+              },
+            ]
+          : searchResults.map((v) => ({ ...v })),
+      })
+    )
+    renderTab()
+    const dialog = await openAddDialog()
+    await within(dialog).findByText("Amber Night - 50ml (SKU-50)")
+
+    fireEvent.change(within(dialog).getByPlaceholderText("Search variants"), {
+      target: { value: "zed" },
+    })
+    // Not yet: the debounce has not elapsed.
+    expect(mockVariantList).toHaveBeenCalledTimes(1)
+
+    expect(
+      await within(dialog).findByText("Zed - 9ml (SKU-9)")
+    ).toBeInTheDocument()
+    expect(
+      within(dialog).queryByText("Amber Night - 50ml (SKU-50)")
+    ).not.toBeInTheDocument()
+    expect(mockVariantList).toHaveBeenLastCalledWith({
+      q: "zed",
+      limit: 10,
+      fields: "id,title,sku,product.title",
+    })
+  })
+
+  it("clicking a variant name selects it and Save posts that variant_id", async () => {
+    useStatefulServer([])
+    renderTab()
+    const dialog = await openAddDialog()
+
+    fireEvent.click(
+      await within(dialog).findByText("Amber Night - 50ml (SKU-50)")
+    )
+    expect(
+      await within(dialog).findByText("Linking to: Amber Night - 50ml (SKU-50)")
+    ).toBeInTheDocument()
+    expect(
+      within(dialog).getByRole("button", { name: /^Select/ })
+    ).toHaveTextContent("Selected")
+    fireEvent.change(within(dialog).getByLabelText("Supplier code"), {
+      target: { value: "AC-AMB-50" },
+    })
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save" }))
+
+    await waitFor(() => expect(writeCalls()).toHaveLength(1))
+    expect(writeCalls()[0][1].body).toEqual({
+      variant_id: "variant_2",
+      supplier_sku: "AC-AMB-50",
+    })
+  })
+
+  it("does not render undefined for variants with null titles", async () => {
+    useStatefulServer([])
+    mockVariantList.mockImplementation(() =>
+      Promise.resolve({
+        variants: [{ id: "v_x", title: null, sku: null, product: null }],
+      })
+    )
+    renderTab()
+    const dialog = await openAddDialog()
+    expect(
+      await within(dialog).findByText("Untitled variant (no SKU)")
+    ).toBeInTheDocument()
+  })
+
+  it("a stale slower response does not replace the newer result", async () => {
+    useStatefulServer([])
+    let resolveInitial: (v: unknown) => void = () => {}
+    mockVariantList.mockImplementation((args: { q?: string }) =>
+      args.q
+        ? Promise.resolve({
+            variants: [
+              {
+                id: "v_new",
+                title: "N",
+                sku: "S-N",
+                product: { title: "Newer" },
+              },
+            ],
+          })
+        : new Promise((resolve) => {
+            resolveInitial = resolve
+          })
+    )
+    renderTab()
+    const dialog = await openAddDialog()
+
+    fireEvent.change(within(dialog).getByPlaceholderText("Search variants"), {
+      target: { value: "new" },
+    })
+    fireEvent.click(within(dialog).getByRole("button", { name: "Search" }))
+    expect(
+      await within(dialog).findByText("Newer - N (S-N)")
+    ).toBeInTheDocument()
+
+    await act(async () => {
+      resolveInitial({
+        variants: [
+          { id: "v_old", title: "O", sku: "S-O", product: { title: "Older" } },
+        ],
+      })
+    })
+    expect(within(dialog).getByText("Newer - N (S-N)")).toBeInTheDocument()
+    expect(
+      within(dialog).queryByText("Older - O (S-O)")
+    ).not.toBeInTheDocument()
   })
 
   it("shows a server 400 (duplicate code) inside the dialog", async () => {
@@ -312,7 +455,9 @@ describe("ProductsTab", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Save" }))
 
     expect(
-      await within(dialog).findByText("Supplier code AC-OUD-100 is already used")
+      await within(dialog).findByText(
+        "Supplier code AC-OUD-100 is already used"
+      )
     ).toBeInTheDocument()
     expect(screen.getByRole("dialog")).toBeInTheDocument()
   })

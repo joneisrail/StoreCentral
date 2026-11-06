@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Button, Drawer, Input, Label, Text, toast } from "@medusajs/ui"
 import { sdk } from "../../../../lib/sdk"
@@ -12,11 +12,12 @@ type VariantResult = {
 }
 
 const VARIANT_LIMIT = 10
+const SEARCH_DEBOUNCE_MS = 300
 
 function variantLabel(variant: VariantResult) {
-  const name = [variant.product?.title, variant.title]
-    .filter(Boolean)
-    .join(" - ")
+  const name =
+    [variant.product?.title, variant.title].filter(Boolean).join(" - ") ||
+    "Untitled variant"
   return `${name} (${variant.sku ?? "no SKU"})`
 }
 
@@ -46,14 +47,26 @@ export const AddProductDialog = ({
 
   const variants = useQuery({
     queryKey: ["admin", "supplier-variant-search", submittedQuery],
-    enabled: submittedQuery !== "",
     queryFn: () =>
       sdk.admin.productVariant.list({
-        q: submittedQuery,
+        ...(submittedQuery ? { q: submittedQuery } : {}),
         limit: VARIANT_LIMIT,
         fields: "id,title,sku,product.title",
       }),
   })
+
+  // Search as you type, after a short pause.
+  useEffect(() => {
+    const trimmed = variantQuery.trim()
+    if (trimmed === submittedQuery) {
+      return
+    }
+    const timer = setTimeout(
+      () => setSubmittedQuery(trimmed),
+      SEARCH_DEBOUNCE_MS
+    )
+    return () => clearTimeout(timer)
+  }, [variantQuery, submittedQuery])
 
   const create = useMutation({
     mutationFn: (body: Record<string, unknown>) =>
@@ -79,7 +92,7 @@ export const AddProductDialog = ({
   const handleSave = () => {
     setError(null)
     if (!selected) {
-      setError("Pick one of our variants first.")
+      setError("Select a product from the list above first.")
       return
     }
     if (!code.trim()) {
@@ -112,6 +125,10 @@ export const AddProductDialog = ({
           <Drawer.Title>Add product</Drawer.Title>
         </Drawer.Header>
         <Drawer.Body className="flex flex-col gap-4">
+          <Text size="small" className="text-ui-fg-subtle">
+            Search and select the product you want to link, then enter the
+            supplier's code.
+          </Text>
           <form onSubmit={handleSearch} className="flex gap-2">
             <Input
               type="search"
@@ -141,9 +158,18 @@ export const AddProductDialog = ({
                   return (
                     <li
                       key={variant.id}
-                      className="flex items-center justify-between gap-2"
+                      className={`flex items-center justify-between gap-2 rounded-md px-2 py-1 ${
+                        selected?.id === variant.id
+                          ? "bg-ui-bg-highlight font-medium"
+                          : ""
+                      }`}
                     >
-                      <Text>{label}</Text>
+                      <Text
+                        className="flex-1 cursor-pointer"
+                        onClick={() => setSelected(variant)}
+                      >
+                        {label}
+                      </Text>
                       <Button
                         type="button"
                         size="small"
@@ -190,10 +216,13 @@ export const AddProductDialog = ({
               onChange={(event) => setCost(event.target.value)}
             />
           </div>
-
-          {error && <Text className="text-ui-fg-error">{error}</Text>}
         </Drawer.Body>
         <Drawer.Footer>
+          {error && (
+            <Text role="alert" className="mr-auto text-ui-fg-error">
+              {error}
+            </Text>
+          )}
           <Drawer.Close asChild>
             <Button type="button" variant="secondary">
               Cancel
