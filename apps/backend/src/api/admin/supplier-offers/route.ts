@@ -44,6 +44,7 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
     entity: "product_variant",
     fields: ["id", "title", "sku"],
     filters: { product_id },
+    pagination: { order: { variant_rank: "ASC", created_at: "ASC", id: "ASC" } },
   })
   const variantRows = variants as unknown as VariantRow[]
 
@@ -62,6 +63,7 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
         "created_at",
       ],
       filters: { variant_id: variantRows.map((v) => v.id) },
+      pagination: { order: { created_at: "ASC", id: "ASC" } },
     })
     offerRows = offers as unknown as OfferRow[]
 

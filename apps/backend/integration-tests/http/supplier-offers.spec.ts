@@ -169,6 +169,22 @@ medusaIntegrationTestRunner({
         })
       })
 
+      it("keeps equally priced offers in creation order and marks both lowest", async () => {
+        const product = await createProduct(["T-1"])
+        const variant = product.variants[0]
+        const first = await createSupplier({ name: "First" })
+        const second = await createSupplier({ name: "Second" })
+        await offer(first.id, variant.id, { supplier_sku: "F-1", unit_cost: 5 })
+        await offer(second.id, variant.id, { supplier_sku: "S-1", unit_cost: 5 })
+
+        for (let i = 0; i < 3; i++) {
+          const response = await get(`?product_id=${product.id}`)
+          const offers = response.data.variants[0].offers
+          expect(offers.map((o: any) => o.supplier_sku)).toEqual(["F-1", "S-1"])
+          expect(offers.map((o: any) => o.is_lowest)).toEqual([true, true])
+        }
+      })
+
       it("returns 404 for an unknown product", async () => {
         const response = await get("?product_id=prod_missing")
         expect(response.status).toBe(404)

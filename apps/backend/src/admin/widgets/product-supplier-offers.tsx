@@ -125,7 +125,9 @@ const ProductSupplierOffers = ({ data }: DetailWidgetProps<AdminProduct>) => {
                     <Table.Cell>
                       {offer.supplier.lead_time_days === null
                         ? "—"
-                        : `${offer.supplier.lead_time_days} days`}
+                        : `${offer.supplier.lead_time_days} ${
+                            offer.supplier.lead_time_days === 1 ? "day" : "days"
+                          }`}
                     </Table.Cell>
                     <Table.Cell>
                       {offer.supplier.payment_terms ?? "—"}

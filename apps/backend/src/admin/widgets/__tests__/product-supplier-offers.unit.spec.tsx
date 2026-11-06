@@ -118,6 +118,36 @@ describe("ProductSupplierOffers widget", () => {
     )
   })
 
+  it("pluralises lead time", async () => {
+    mockFetch.mockImplementation(() =>
+      Promise.resolve({
+        variants: [
+          {
+            variant_id: "v",
+            title: "t",
+            sku: "s",
+            offers: [
+              offer({
+                supplier_product_id: "a",
+                supplier_sku: "ONE",
+                supplier: { ...offer().supplier, id: "a", lead_time_days: 1 },
+              }),
+              offer({
+                supplier_product_id: "b",
+                supplier_sku: "TWO",
+                supplier: { ...offer().supplier, id: "b", lead_time_days: 14 },
+              }),
+            ],
+          },
+        ],
+      })
+    )
+    renderWidget()
+    expect(await screen.findByText("1 day")).toBeInTheDocument()
+    expect(screen.getByText("14 days")).toBeInTheDocument()
+    expect(screen.queryByText("1 days")).not.toBeInTheDocument()
+  })
+
   it("shows the Lowest badge only on the flagged offer", async () => {
     useServer()
     renderWidget()
