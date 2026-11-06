@@ -555,5 +555,199 @@ medusaIntegrationTestRunner({
         expect(before[0].stocked_quantity).toBe(7)
       })
     })
+
+    describe("GET /admin/invoices", () => {
+      const lineFor = (n = 1) => [
+        { supplier_sku: "AC-100", quantity: n, unit_cost: 2 },
+      ]
+      const create = async (
+        purchaseId: string,
+        invoiceNumber: string,
+        n = 1
+      ) =>
+        (
+          await post(
+            header(purchaseId, {
+              invoice_number: invoiceNumber,
+              items: lineFor(n),
+            })
+          )
+        ).data.invoice as { id: string }
+      const list = (qs = "") =>
+        api.get(`/admin/invoices${qs}`, adminHeaders).catch((e) => e.response)
+
+      it("lists newest first with items, supplier and purchase, and counts", async () => {
+        const { supplier, purchase } = await setup()
+        const a = await create(purchase.id, "N-1")
+        const b = await create(purchase.id, "N-2")
+
+        const response = await list()
+
+        expect(response.status).toBe(200)
+        expect(response.data.count).toBe(2)
+        expect(response.data.offset).toBe(0)
+        expect(response.data.limit).toBe(20)
+        expect(response.data.invoices.map((i: any) => i.id)).toEqual([b.id, a.id])
+        expect(response.data.invoices[0]).toMatchObject({
+          supplier: { id: supplier.id, name: "Acme" },
+          purchase: { id: purchase.id, reference: purchase.reference },
+          items: [expect.objectContaining({ quantity: 1 })],
+          total: 2,
+        })
+      })
+
+      it("filters by purchase_id, supplier_id and status", async () => {
+        const a = await setup("Acme")
+        const b = await setup("Beta")
+        const ia = await create(a.purchase.id, "F-1")
+        const ib = await create(b.purchase.id, "F-1")
+        await accounting().updateInvoices({ id: ib.id, status: "posted" })
+
+        const ids = async (qs: string) =>
+          (await list(qs)).data.invoices.map((i: any) => i.id)
+        expect(await ids(`?purchase_id=${a.purchase.id}`)).toEqual([ia.id])
+        expect(await ids(`?supplier_id=${b.supplier.id}`)).toEqual([ib.id])
+        expect(await ids("?status=posted")).toEqual([ib.id])
+        expect(await ids("?status=draft")).toEqual([ia.id])
+        expect((await list("?status=bogus")).status).toBe(400)
+      })
+
+      it("finds by invoice number case-insensitively, matching % and _ literally", async () => {
+        const { purchase } = await setup()
+        const plain = await create(purchase.id, "ABC-100")
+        const pct = await create(purchase.id, "50%-OFF")
+        const under = await create(purchase.id, "A_B")
+        await create(purchase.id, "AXB")
+
+        const ids = async (q: string) =>
+          (await list(`?q=${encodeURIComponent(q)}`)).data.invoices
+            .map((i: any) => i.id)
+            .sort()
+        expect(await ids("abc-1")).toEqual([plain.id])
+        expect(await ids("%")).toEqual([pct.id])
+        expect(await ids("a_b")).toEqual([under.id])
+        expect(await ids("  ABC  ")).toEqual([plain.id])
+      })
+
+      it("ignores a whitespace-only q", async () => {
+        const { purchase } = await setup()
+        await create(purchase.id, "W-1")
+        const response = await list("?q=%20%20")
+        expect(response.data.count).toBe(1)
+      })
+
+      it("paginates and validates limit and offset", async () => {
+        const { purchase } = await setup()
+        const ids: string[] = []
+        for (const n of ["P-1", "P-2", "P-3"]) {
+          ids.push((await create(purchase.id, n)).id)
+        }
+
+        const page = await list("?limit=2&offset=1")
+        expect(page.data.count).toBe(3)
+        expect(page.data.limit).toBe(2)
+        expect(page.data.offset).toBe(1)
+        expect(page.data.invoices.map((i: any) => i.id)).toEqual([
+          ids[1],
+          ids[0],
+        ])
+
+        for (const qs of ["?limit=0", "?limit=101", "?limit=x", "?offset=-1"]) {
+          expect((await list(qs)).status).toBe(400)
+        }
+      })
+    })
+
+    describe("GET /admin/invoices/:id", () => {
+      it("returns the comparison across two posted invoices", async () => {
+        const { variant, purchase } = await setup()
+        const make = async (num: string, qty: number, cost: number) =>
+          (
+            await post(
+              header(purchase.id, {
+                invoice_number: num,
+                items: [{ variant_id: variant.id, quantity: qty, unit_cost: cost }],
+              })
+            )
+          ).data.invoice as { id: string }
+        const first = await make("C-1", 6, 2)
+        const second = await make("C-2", 7, 2.5)
+        const draft = await make("C-3", 50, 2)
+        const voided = await make("C-4", 50, 2)
+        await accounting().updateInvoices({ id: first.id, status: "posted" })
+        await accounting().updateInvoices({ id: second.id, status: "posted" })
+        await accounting().updateInvoices({ id: voided.id, status: "void" })
+        expect(draft.id).toBeDefined()
+
+        const response = await api.get(`/admin/invoices/${second.id}`, adminHeaders)
+
+        expect(response.status).toBe(200)
+        expect(response.data.invoice.id).toBe(second.id)
+        expect(response.data.comparison).toEqual({
+          items: [
+            {
+              purchase_item_id: purchase.items[0].id,
+              variant_id: variant.id,
+              title: purchase.items[0].title,
+              ordered_quantity: 10,
+              received_quantity: 0,
+              invoiced_quantity: 7,
+              invoiced_quantity_total: 13,
+              ordered_unit_cost: 2,
+              invoiced_unit_cost: 2.5,
+              flags: {
+                price_difference: true,
+                over_received: true,
+                over_ordered: true,
+                not_on_purchase: false,
+              },
+            },
+          ],
+          purchase_total: 20,
+          invoice_total: 17.5,
+          difference: -2.5,
+        })
+      })
+
+      it("still returns 200 when the variant left the catalog", async () => {
+        const { variant, purchase } = await setup()
+        const invoice = (
+          await post(
+            header(purchase.id, {
+              items: [{ variant_id: variant.id, quantity: 2, unit_cost: 2 }],
+            })
+          )
+        ).data.invoice
+        const query = getContainer().resolve(ContainerRegistrationKeys.QUERY)
+        const { data } = await query.graph({
+          entity: "product_variant",
+          fields: ["id", "product_id"],
+          filters: { id: variant.id },
+        })
+        await api.delete(
+          `/admin/products/${(data[0] as any).product_id}`,
+          adminHeaders
+        )
+
+        const response = await api
+          .get(`/admin/invoices/${invoice.id}`, adminHeaders)
+          .catch((e) => e.response)
+
+        expect(response.status).toBe(200)
+        expect(response.data.invoice.items).toHaveLength(1)
+        expect(response.data.comparison.items[0]).toMatchObject({
+          purchase_item_id: purchase.items[0].id,
+          title: purchase.items[0].title,
+          invoiced_quantity: 2,
+        })
+      })
+
+      it("returns 404 for an unknown id", async () => {
+        const response = await api
+          .get("/admin/invoices/inv_missing", adminHeaders)
+          .catch((e) => e.response)
+        expect(response.status).toBe(404)
+      })
+    })
   },
 })

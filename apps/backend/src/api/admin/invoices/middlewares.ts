@@ -1,6 +1,7 @@
 import {
   MiddlewareRoute,
   validateAndTransformBody,
+  validateAndTransformQuery,
 } from "@medusajs/framework/http"
 import { z } from "@medusajs/framework/zod"
 
@@ -38,7 +39,27 @@ export const CreateInvoiceSchema = z.object({
 })
 export type CreateInvoiceSchema = z.infer<typeof CreateInvoiceSchema>
 
+export const ListInvoicesQuerySchema = z.object({
+  purchase_id: z.string().optional(),
+  supplier_id: z.string().optional(),
+  status: z.enum(["draft", "posted", "void"]).optional(),
+  q: z.string().optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+  offset: z.coerce.number().int().min(0).default(0),
+})
+export type ListInvoicesQuerySchema = z.infer<typeof ListInvoicesQuerySchema>
+
 export const invoiceMiddlewares: MiddlewareRoute[] = [
+  {
+    matcher: "/admin/invoices",
+    method: "GET",
+    middlewares: [
+      validateAndTransformQuery(ListInvoicesQuerySchema, {
+        defaults: ["id"],
+        isList: true,
+      }),
+    ],
+  },
   {
     matcher: "/admin/invoices",
     method: "POST",
