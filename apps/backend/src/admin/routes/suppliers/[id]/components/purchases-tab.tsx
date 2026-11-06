@@ -18,6 +18,9 @@ const LIMIT = 20
 
 const STATUSES = Object.keys(STATUS_LABELS) as PurchaseStatus[]
 
+const labelFor = (status: string) =>
+  (STATUS_LABELS as Record<string, string>)[status] ?? status
+
 function Card({
   label,
   value,
@@ -94,11 +97,14 @@ export const PurchasesTab = ({ supplierId }: { supplierId: string }) => {
 
       {summary && (
         <div className="grid grid-cols-2 gap-3 py-4 md:grid-cols-4">
-          {STATUSES.map((status) => (
+          {[
+            ...STATUSES,
+            ...Object.keys(summary.counts).filter((k) => !(k in STATUS_LABELS)),
+          ].map((status) => (
             <Card
               key={status}
               testId={`count-${status}`}
-              label={STATUS_LABELS[status]}
+              label={labelFor(status)}
               value={String(summary.counts[status] ?? 0)}
             />
           ))}
@@ -158,7 +164,7 @@ export const PurchasesTab = ({ supplierId }: { supplierId: string }) => {
                   </Link>
                 </Table.Cell>
                 <Table.Cell>
-                  <Badge>{STATUS_LABELS[purchase.status]}</Badge>
+                  <Badge>{labelFor(purchase.status)}</Badge>
                 </Table.Cell>
                 <Table.Cell>{formatUsd(purchase.total)}</Table.Cell>
                 <Table.Cell>

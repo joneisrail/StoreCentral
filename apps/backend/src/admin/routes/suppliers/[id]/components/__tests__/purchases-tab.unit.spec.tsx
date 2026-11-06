@@ -166,3 +166,26 @@ describe("PurchasesTab", () => {
     expect(screen.getByRole("button", { name: "Previous" })).toBeDisabled()
   })
 })
+
+describe("PurchasesTab unknown statuses", () => {
+  beforeEach(() => mockFetch.mockReset())
+
+  it("shows a card and badge for a status without a label", async () => {
+    serve({
+      purchases: [{ ...makePurchase(1), status: "mystery" }],
+      summary: {
+        counts: { ordered: 1, mystery: 3 },
+        total_ordered: 0,
+        total_received: 0,
+        outstanding: 0,
+      },
+    })
+    renderTab()
+
+    const card = await screen.findByTestId("count-mystery")
+    expect(within(card).getByText("3")).toBeInTheDocument()
+    expect(within(card).getByText("mystery")).toBeInTheDocument()
+    const row = screen.getByRole("link", { name: "PO-1" }).closest("tr")!
+    expect(within(row).getByText("mystery")).toBeInTheDocument()
+  })
+})
