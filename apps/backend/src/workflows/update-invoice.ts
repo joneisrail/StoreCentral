@@ -24,11 +24,11 @@ export type UpdateInvoiceWorkflowInput = {
   id: string
   invoice_number?: string
   invoice_date?: string
-  due_date?: string
+  due_date?: string | null
   shipping_cost?: number
   tax?: number
   other_cost?: number
-  notes?: string
+  notes?: string | null
   // When given, replaces every line of the invoice.
   items?: InvoiceLineInput[]
 }

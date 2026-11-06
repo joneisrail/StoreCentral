@@ -86,11 +86,11 @@ export type UpdateInvoiceStepInput = {
   supplier: { id: string; name: string }
   invoice_number?: string
   invoice_date?: string
-  due_date?: string
+  due_date?: string | null
   shipping_cost?: number
   tax?: number
   other_cost?: number
-  notes?: string
+  notes?: string | null
   // When given, replaces every existing line.
   items?: ResolvedInvoiceLine[]
 }
@@ -182,6 +182,8 @@ export const updateInvoiceStep = createStep(
       input.invoice_number !== undefined
         ? normalizeInvoiceNumber(input.invoice_number)
         : null
+    // Lock order: anyone taking both keys must take the status key before the
+    // number key (post and void only ever take the status key).
     const keys = [invoiceStatusLockKey(input.id)]
     if (number) {
       keys.push(invoiceLockKey(input.supplier.id, number.invoice_number_key))
@@ -229,7 +231,8 @@ export const updateInvoiceStep = createStep(
         changes.invoice_date = new Date(input.invoice_date)
       }
       if (input.due_date !== undefined) {
-        changes.due_date = new Date(input.due_date)
+        changes.due_date =
+          input.due_date === null ? null : new Date(input.due_date)
       }
       for (const key of [
         "shipping_cost",

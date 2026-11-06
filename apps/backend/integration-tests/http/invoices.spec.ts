@@ -117,7 +117,10 @@ medusaIntegrationTestRunner({
       return { supplier, variant, purchase }
     }
 
-    const header = (purchaseId: string, over: Record<string, unknown> = {}) => ({
+    const header = (
+      purchaseId: string,
+      over: Record<string, unknown> = {}
+    ) => ({
       purchase_id: purchaseId,
       invoice_number: "A-1",
       invoice_date: "2026-11-01",
@@ -224,7 +227,10 @@ medusaIntegrationTestRunner({
         const listed = await listSupplierProducts(supplier.id)
         expect(listed).toEqual(
           expect.arrayContaining([
-            expect.objectContaining({ variant_id: other.id, supplier_sku: "RS-1" }),
+            expect.objectContaining({
+              variant_id: other.id,
+              supplier_sku: "RS-1",
+            }),
           ])
         )
         expect(listed).toHaveLength(2)
@@ -399,14 +405,35 @@ medusaIntegrationTestRunner({
 
       it.each([
         ["blank invoice number", { invoice_number: "   " }],
-        ["zero quantity", { items: [{ supplier_sku: "AC-100", quantity: 0, unit_cost: 1 }] }],
-        ["negative unit cost", { items: [{ supplier_sku: "AC-100", quantity: 1, unit_cost: -1 }] }],
+        [
+          "zero quantity",
+          { items: [{ supplier_sku: "AC-100", quantity: 0, unit_cost: 1 }] },
+        ],
+        [
+          "negative unit cost",
+          { items: [{ supplier_sku: "AC-100", quantity: 1, unit_cost: -1 }] },
+        ],
         ["negative shipping", { shipping_cost: -1 }],
         ["bad invoice date", { invoice_date: "2026-13-45" }],
         ["bad due date", { due_date: "tomorrow" }],
         ["no items", { items: [] }],
-        ["line with neither code nor variant", { items: [{ quantity: 1, unit_cost: 1 }] }],
-        ["remember_code without a variant", { items: [{ supplier_sku: "X", remember_code: true, quantity: 1, unit_cost: 1 }] }],
+        [
+          "line with neither code nor variant",
+          { items: [{ quantity: 1, unit_cost: 1 }] },
+        ],
+        [
+          "remember_code without a variant",
+          {
+            items: [
+              {
+                supplier_sku: "X",
+                remember_code: true,
+                quantity: 1,
+                unit_cost: 1,
+              },
+            ],
+          },
+        ],
       ])("rejects %s with 400", async (_name, over) => {
         const { purchase } = await setup()
         const response = await post(
@@ -442,10 +469,18 @@ medusaIntegrationTestRunner({
           const a = await setup("Acme")
           const b = await setup("Beta")
           expect(
-            (await post(header(a.purchase.id, { invoice_number: "X-1", items: line }))).status
+            (
+              await post(
+                header(a.purchase.id, { invoice_number: "X-1", items: line })
+              )
+            ).status
           ).toBe(200)
           expect(
-            (await post(header(b.purchase.id, { invoice_number: "X-1", items: line }))).status
+            (
+              await post(
+                header(b.purchase.id, { invoice_number: "X-1", items: line })
+              )
+            ).status
           ).toBe(200)
         })
 
@@ -581,7 +616,7 @@ medusaIntegrationTestRunner({
           )
         ).data.invoice as { id: string }
       }
-      const list =(qs = "") =>
+      const list = (qs = "") =>
         api.get(`/admin/invoices${qs}`, adminHeaders).catch((e) => e.response)
 
       it("lists newest first with items, supplier and purchase, and counts", async () => {
@@ -595,7 +630,10 @@ medusaIntegrationTestRunner({
         expect(response.data.count).toBe(2)
         expect(response.data.offset).toBe(0)
         expect(response.data.limit).toBe(20)
-        expect(response.data.invoices.map((i: any) => i.id)).toEqual([b.id, a.id])
+        expect(response.data.invoices.map((i: any) => i.id)).toEqual([
+          b.id,
+          a.id,
+        ])
         expect(response.data.invoices[0]).toMatchObject({
           supplier: { id: supplier.id, name: "Acme" },
           purchase: { id: purchase.id, reference: purchase.reference },
@@ -674,7 +712,9 @@ medusaIntegrationTestRunner({
             await post(
               header(purchase.id, {
                 invoice_number: num,
-                items: [{ variant_id: variant.id, quantity: qty, unit_cost: cost }],
+                items: [
+                  { variant_id: variant.id, quantity: qty, unit_cost: cost },
+                ],
               })
             )
           ).data.invoice as { id: string }
@@ -687,7 +727,10 @@ medusaIntegrationTestRunner({
         await accounting().updateInvoices({ id: voided.id, status: "void" })
         expect(draft.id).toBeDefined()
 
-        const response = await api.get(`/admin/invoices/${second.id}`, adminHeaders)
+        const response = await api.get(
+          `/admin/invoices/${second.id}`,
+          adminHeaders
+        )
 
         expect(response.status).toBe(200)
         expect(response.data.invoice.id).toBe(second.id)
@@ -747,10 +790,15 @@ medusaIntegrationTestRunner({
         }))
         await accounting().createInvoices(siblings)
 
-        const response = await api.get(`/admin/invoices/${mine.id}`, adminHeaders)
+        const response = await api.get(
+          `/admin/invoices/${mine.id}`,
+          adminHeaders
+        )
 
         expect(response.status).toBe(200)
-        expect(response.data.comparison.items[0].invoiced_quantity_total).toBe(61)
+        expect(response.data.comparison.items[0].invoiced_quantity_total).toBe(
+          61
+        )
       })
 
       it("still returns 200 when the variant left the catalog", async () => {
@@ -861,7 +909,10 @@ medusaIntegrationTestRunner({
         })
         expect(response.data.invoice.items).toEqual(invoice.items)
         expect(await itemLinks([invoice.items[0].id])).toEqual([
-          { invoice_item_id: invoice.items[0].id, product_variant_id: variant.id },
+          {
+            invoice_item_id: invoice.items[0].id,
+            product_variant_id: variant.id,
+          },
         ])
       })
 
@@ -872,13 +923,22 @@ medusaIntegrationTestRunner({
         const response = await update(invoice.id, {
           items: [
             { variant_id: variant.id, quantity: 10, unit_cost: 3 },
-            { variant_id: other.id, quantity: 1, unit_cost: 5, description: "Extra" },
+            {
+              variant_id: other.id,
+              quantity: 1,
+              unit_cost: 5,
+              description: "Extra",
+            },
           ],
         })
 
         expect(response.status).toBe(200)
         const updated = response.data.invoice
-        expect(updated).toMatchObject({ subtotal: 35, total: 36, notes: "original" })
+        expect(updated).toMatchObject({
+          subtotal: 35,
+          total: 36,
+          notes: "original",
+        })
         expect(updated.items).toHaveLength(2)
         expect(updated.items.map((i: any) => i.id)).not.toContain(
           invoice.items[0].id
@@ -956,8 +1016,11 @@ medusaIntegrationTestRunner({
             status: "void",
           })
           expect(
-            (await post(header(beta.purchase.id, { invoice_number: "B-1", items: line })))
-              .status
+            (
+              await post(
+                header(beta.purchase.id, { invoice_number: "B-1", items: line })
+              )
+            ).status
           ).toBe(200)
 
           const own = await update(invoice.id, { invoice_number: " a-1 " })
@@ -967,7 +1030,9 @@ medusaIntegrationTestRunner({
           const reused = await update(invoice.id, { invoice_number: "old-1" })
           expect(reused.status).toBe(200)
 
-          const crossSupplier = await update(invoice.id, { invoice_number: "B-1" })
+          const crossSupplier = await update(invoice.id, {
+            invoice_number: "B-1",
+          })
           expect(crossSupplier.status).toBe(200)
           expect(crossSupplier.data.invoice.invoice_number).toBe("B-1")
         })
@@ -1044,7 +1109,10 @@ medusaIntegrationTestRunner({
         const [, itemCount] = await accounting().listAndCountInvoiceItems({})
         expect(itemCount).toBe(1)
         expect(await itemLinks([invoice.items[0].id])).toEqual([
-          { invoice_item_id: invoice.items[0].id, product_variant_id: variant.id },
+          {
+            invoice_item_id: invoice.items[0].id,
+            product_variant_id: variant.id,
+          },
         ])
       })
 
@@ -1052,7 +1120,9 @@ medusaIntegrationTestRunner({
         const { invoice, variant } = await draft()
         const other = await createVariant("Other")
         const before = await detail(invoice.id)
-        const link = getContainer().resolve(ContainerRegistrationKeys.LINK) as any
+        const link = getContainer().resolve(
+          ContainerRegistrationKeys.LINK
+        ) as any
 
         const spy = jest
           .spyOn(link, "create")
@@ -1085,7 +1155,10 @@ medusaIntegrationTestRunner({
             product_variant_id: row.product_variant_id,
           }))
         ).toEqual([
-          { invoice_item_id: invoice.items[0].id, product_variant_id: variant.id },
+          {
+            invoice_item_id: invoice.items[0].id,
+            product_variant_id: variant.id,
+          },
         ])
       })
 
@@ -1111,7 +1184,9 @@ medusaIntegrationTestRunner({
           supplier_sku: "RS-9",
         })
         expect(
-          (await listSupplierProducts(supplier.id)).map((p) => p.supplier_sku).sort()
+          (await listSupplierProducts(supplier.id))
+            .map((p) => p.supplier_sku)
+            .sort()
         ).toEqual(["AC-100", "RS-9"])
       })
 
@@ -1162,12 +1237,19 @@ medusaIntegrationTestRunner({
 
         const response = await update(invoice.id, {
           items: [
-            { variant_id: third.id, supplier_sku: "rs-1", quantity: 1, unit_cost: 1 },
+            {
+              variant_id: third.id,
+              supplier_sku: "rs-1",
+              quantity: 1,
+              unit_cost: 1,
+            },
           ],
         })
 
         expect(response.status).toBe(400)
-        expect(response.data.message).toContain("listed for a different product")
+        expect(response.data.message).toContain(
+          "listed for a different product"
+        )
         expect(await detail(invoice.id)).toEqual(invoice)
       })
 
@@ -1194,6 +1276,390 @@ medusaIntegrationTestRunner({
       it("returns 404 for an unknown id", async () => {
         const response = await update("inv_missing", { notes: "x" })
         expect(response.status).toBe(404)
+      })
+    })
+
+    describe("POST /admin/invoices/:id/post and /void", () => {
+      const act = (id: string, action: "post" | "void") =>
+        api
+          .post(`/admin/invoices/${id}/${action}`, {}, adminHeaders)
+          .catch((e) => e.response)
+
+      const detail = async (id: string) =>
+        (await api.get(`/admin/invoices/${id}`, adminHeaders)).data.invoice
+
+      const lineFor = (variantId: string, quantity = 4) => [
+        { variant_id: variantId, quantity, unit_cost: 2 },
+      ]
+
+      const draft = async (
+        number = "P-1",
+        ctx?: Awaited<ReturnType<typeof setup>>
+      ) => {
+        const c = ctx ?? (await setup())
+        const response = await post(
+          header(c.purchase.id, {
+            invoice_number: number,
+            items: lineFor(c.variant.id),
+          })
+        )
+        expect(response.status).toBe(200)
+        return { ...c, invoice: response.data.invoice }
+      }
+
+      it("posts a draft invoice and sets status and posted_at", async () => {
+        const { invoice } = await draft()
+        const before = Date.now()
+
+        const response = await act(invoice.id, "post")
+
+        expect(response.status).toBe(200)
+        expect(response.data.invoice.id).toBe(invoice.id)
+        expect(response.data.invoice.status).toBe("posted")
+        expect(response.data.invoice.voided_at).toBeNull()
+        expect(
+          new Date(response.data.invoice.posted_at).getTime()
+        ).toBeGreaterThanOrEqual(before - 1000)
+        expect((await detail(invoice.id)).status).toBe("posted")
+      })
+
+      it("rejects posting an invoice with no lines", async () => {
+        const { invoice } = await draft()
+        await accounting().deleteInvoiceItems(
+          invoice.items.map((item: any) => item.id)
+        )
+
+        const response = await act(invoice.id, "post")
+
+        expect(response.status).toBe(400)
+        expect(response.data.message).toContain("no lines")
+        expect((await detail(invoice.id)).status).toBe("draft")
+      })
+
+      it("rejects posting against a cancelled purchase", async () => {
+        const { invoice, purchase } = await draft()
+        await api.post(
+          `/admin/purchases/${purchase.id}/cancel`,
+          {},
+          adminHeaders
+        )
+
+        const response = await act(invoice.id, "post")
+
+        expect(response.status).toBe(400)
+        expect(response.data.message).toContain("purchase is cancelled")
+        const after = await detail(invoice.id)
+        expect(after.status).toBe("draft")
+        expect(after.posted_at).toBeNull()
+      })
+
+      it("rejects posting against a draft purchase", async () => {
+        const supplier = await createSupplier("Acme")
+        const variant = await createVariant("Blue")
+        const created = (
+          await api.post(
+            "/admin/purchases",
+            {
+              supplier_id: supplier.id,
+              items: [{ variant_id: variant.id, quantity: 10, unit_cost: 2 }],
+            },
+            adminHeaders
+          )
+        ).data.purchase
+        const made = await post(
+          header(created.id, { items: lineFor(variant.id) })
+        )
+        expect(made.status).toBe(200)
+
+        const response = await act(made.data.invoice.id, "post")
+
+        expect(response.status).toBe(400)
+        expect(response.data.message).toContain("purchase is draft")
+        expect((await detail(made.data.invoice.id)).status).toBe("draft")
+      })
+
+      it("rejects posting twice and leaves posted_at unchanged", async () => {
+        const { invoice } = await draft()
+        const first = await act(invoice.id, "post")
+        expect(first.status).toBe(200)
+
+        const second = await act(invoice.id, "post")
+
+        expect(second.status).toBe(400)
+        const after = await detail(invoice.id)
+        expect(after.status).toBe("posted")
+        expect(after.posted_at).toBe(first.data.invoice.posted_at)
+      })
+
+      it("refuses edits after posting", async () => {
+        const { invoice } = await draft()
+        await act(invoice.id, "post")
+
+        const response = await api
+          .post(
+            `/admin/invoices/${invoice.id}`,
+            { notes: "late" },
+            adminHeaders
+          )
+          .catch((e) => e.response)
+
+        expect(response.status).toBe(400)
+        expect((await detail(invoice.id)).notes).toBeNull()
+      })
+
+      it("voids a draft invoice, sets voided_at and frees the number", async () => {
+        const ctx = await draft("V-1")
+
+        const response = await act(ctx.invoice.id, "void")
+
+        expect(response.status).toBe(200)
+        expect(response.data.invoice.status).toBe("void")
+        expect(response.data.invoice.posted_at).toBeNull()
+        expect(response.data.invoice.voided_at).toEqual(expect.any(String))
+        const again = await post(
+          header(ctx.purchase.id, {
+            invoice_number: "V-1",
+            items: lineFor(ctx.variant.id),
+          })
+        )
+        expect(again.status).toBe(200)
+      })
+
+      it("voids a posted invoice and keeps posted_at as history", async () => {
+        const { invoice } = await draft("V-2")
+        const posted = await act(invoice.id, "post")
+
+        const response = await act(invoice.id, "void")
+
+        expect(response.status).toBe(200)
+        expect(response.data.invoice.status).toBe("void")
+        expect(response.data.invoice.posted_at).toBe(
+          posted.data.invoice.posted_at
+        )
+        expect(response.data.invoice.voided_at).toEqual(expect.any(String))
+      })
+
+      it("rejects voiding a void invoice and leaves voided_at unchanged", async () => {
+        const { invoice } = await draft()
+        const first = await act(invoice.id, "void")
+
+        const second = await act(invoice.id, "void")
+
+        expect(second.status).toBe(400)
+        expect((await detail(invoice.id)).voided_at).toBe(
+          first.data.invoice.voided_at
+        )
+      })
+
+      it("rejects posting a void invoice", async () => {
+        const { invoice } = await draft()
+        await act(invoice.id, "void")
+
+        const response = await act(invoice.id, "post")
+
+        expect(response.status).toBe(400)
+        const after = await detail(invoice.id)
+        expect(after.status).toBe("void")
+        expect(after.posted_at).toBeNull()
+      })
+
+      it("returns 404 for an unknown id", async () => {
+        expect((await act("inv_missing", "post")).status).toBe(404)
+        expect((await act("inv_missing", "void")).status).toBe(404)
+      })
+
+      // Void is allowed from draft and posted, so a post racing a void either
+      // loses (400, void went first) or runs first and is then voided (200).
+      // Either way the invoice ends void and posted_at is set only when the
+      // post request reported success.
+      it("a concurrent post and void end void and stay consistent", async () => {
+        for (let i = 0; i < 3; i++) {
+          const { invoice } = await draft(`R-${i}`)
+
+          const [posted, voided] = await Promise.all([
+            act(invoice.id, "post"),
+            act(invoice.id, "void"),
+          ])
+
+          expect(voided.status).toBe(200)
+          expect([200, 400]).toContain(posted.status)
+          const after = await detail(invoice.id)
+          expect(after.status).toBe("void")
+          expect(after.voided_at).toEqual(expect.any(String))
+          if (posted.status === 200) {
+            expect(after.posted_at).toEqual(expect.any(String))
+          } else {
+            expect(after.posted_at).toBeNull()
+          }
+        }
+      })
+
+      it("two concurrent posts yield exactly one 200 and one 400", async () => {
+        const { invoice } = await draft()
+
+        const responses = await Promise.all([
+          act(invoice.id, "post"),
+          act(invoice.id, "post"),
+        ])
+
+        expect(responses.map((r) => r.status).sort()).toEqual([200, 400])
+        expect((await detail(invoice.id)).status).toBe("posted")
+      })
+
+      it("two concurrent voids yield exactly one 200 and one 400", async () => {
+        const { invoice } = await draft()
+
+        const responses = await Promise.all([
+          act(invoice.id, "void"),
+          act(invoice.id, "void"),
+        ])
+
+        expect(responses.map((r) => r.status).sort()).toEqual([200, 400])
+        expect((await detail(invoice.id)).status).toBe("void")
+      })
+
+      it("counts a posted invoice toward another invoice's invoiced_quantity_total, a void one not", async () => {
+        const ctx = await draft("S-1")
+        const other = await post(
+          header(ctx.purchase.id, {
+            invoice_number: "S-2",
+            items: lineFor(ctx.variant.id, 3),
+          })
+        )
+        const otherId = other.data.invoice.id as string
+        const total = async () =>
+          (await api.get(`/admin/invoices/${otherId}`, adminHeaders)).data
+            .comparison.items[0].invoiced_quantity_total
+
+        expect(await total()).toBe(3)
+        await act(ctx.invoice.id, "post")
+        expect(await total()).toBe(7)
+        await act(ctx.invoice.id, "void")
+        expect(await total()).toBe(3)
+      })
+
+      it("leaves stock levels unchanged by post and void", async () => {
+        const supplier = await createSupplier("Acme")
+        const variant = await createVariant("Stocked", true)
+        const location = (
+          await api.post(
+            "/admin/stock-locations",
+            { name: "Main" },
+            adminHeaders
+          )
+        ).data.stock_location
+        const query = getContainer().resolve(ContainerRegistrationKeys.QUERY)
+        const { data } = await query.graph({
+          entity: "product_variant",
+          fields: ["id", "inventory_items.inventory_item_id"],
+          filters: { id: variant.id },
+        })
+        const inventoryItemId = (data[0] as any).inventory_items[0]
+          .inventory_item_id as string
+        await api.post(
+          `/admin/inventory-items/${inventoryItemId}/location-levels`,
+          { location_id: location.id, stocked_quantity: 7 },
+          adminHeaders
+        )
+        const levels = async () => {
+          const inventory = getContainer().resolve(Modules.INVENTORY) as any
+          const rows = await inventory.listInventoryLevels({
+            inventory_item_id: inventoryItemId,
+          })
+          return rows.map((r: any) => ({
+            stocked_quantity: Number(r.stocked_quantity),
+            reserved_quantity: Number(r.reserved_quantity),
+            incoming_quantity: Number(r.incoming_quantity),
+          }))
+        }
+        const purchase = await orderedPurchase(supplier.id, [
+          { variant_id: variant.id, quantity: 5, unit_cost: 2 },
+        ])
+        const made = await post(
+          header(purchase.id, { items: lineFor(variant.id, 5) })
+        )
+        const before = await levels()
+
+        expect((await act(made.data.invoice.id, "post")).status).toBe(200)
+        expect(await levels()).toEqual(before)
+        expect((await act(made.data.invoice.id, "void")).status).toBe(200)
+        expect(await levels()).toEqual(before)
+        expect(before[0].stocked_quantity).toBe(7)
+      })
+    })
+
+    describe("POST /admin/invoices/:id (clearing due_date and notes)", () => {
+      const update = (id: string, body: Record<string, unknown>) =>
+        api
+          .post(`/admin/invoices/${id}`, body, adminHeaders)
+          .catch((e) => e.response)
+      const detail = async (id: string) =>
+        (await api.get(`/admin/invoices/${id}`, adminHeaders)).data.invoice
+
+      const withDates = async () => {
+        const ctx = await setup()
+        const made = await post(
+          header(ctx.purchase.id, {
+            due_date: "2026-12-01",
+            notes: "keep me",
+            items: [{ variant_id: ctx.variant.id, quantity: 2, unit_cost: 2 }],
+          })
+        )
+        expect(made.status).toBe(200)
+        return { ...ctx, invoice: made.data.invoice }
+      }
+
+      it("stores null for due_date and notes when null is sent", async () => {
+        const { invoice } = await withDates()
+        expect((await detail(invoice.id)).due_date).toBe("2026-12-01")
+
+        const response = await update(invoice.id, {
+          due_date: null,
+          notes: null,
+        })
+
+        expect(response.status).toBe(200)
+        expect(response.data.invoice.due_date).toBeNull()
+        expect(response.data.invoice.notes).toBeNull()
+        const after = await detail(invoice.id)
+        expect(after.due_date).toBeNull()
+        expect(after.notes).toBeNull()
+      })
+
+      it("restores due_date and notes when an update that clears them fails", async () => {
+        const { invoice, variant } = await withDates()
+        const before = await detail(invoice.id)
+        const spy = jest
+          .spyOn(accounting(), "deleteInvoiceItems")
+          .mockRejectedValueOnce(new Error("delete failed"))
+        let response: any
+        try {
+          response = await update(invoice.id, {
+            due_date: null,
+            notes: null,
+            items: [{ variant_id: variant.id, quantity: 1, unit_cost: 1 }],
+          })
+        } finally {
+          spy.mockRestore()
+        }
+
+        expect(response.status).toBe(500)
+        const after = await detail(invoice.id)
+        expect(after.due_date).toBe("2026-12-01")
+        expect(after.notes).toBe("keep me")
+        expect(after).toEqual(before)
+      })
+
+      it("rejects null for invoice_date and invoice_number", async () => {
+        const { invoice } = await withDates()
+
+        expect((await update(invoice.id, { invoice_date: null })).status).toBe(
+          400
+        )
+        expect(
+          (await update(invoice.id, { invoice_number: null })).status
+        ).toBe(400)
+        expect((await detail(invoice.id)).invoice_number).toBe("A-1")
       })
     })
   },

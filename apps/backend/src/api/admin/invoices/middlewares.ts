@@ -44,6 +44,11 @@ export type CreateInvoiceSchema = z.infer<typeof CreateInvoiceSchema>
 export const UpdateInvoiceSchema = CreateInvoiceSchema.omit({
   purchase_id: true,
 })
+  // null clears these two on update; the other fields cannot be cleared.
+  .extend({
+    due_date: z.iso.date().nullable().optional(),
+    notes: z.string().nullable().optional(),
+  })
   .partial()
   .strict()
 export type UpdateInvoiceSchema = z.infer<typeof UpdateInvoiceSchema>
