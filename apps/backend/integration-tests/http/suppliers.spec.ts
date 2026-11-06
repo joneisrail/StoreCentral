@@ -305,5 +305,141 @@ medusaIntegrationTestRunner({
         expect(fetched.status).toBe(200)
       })
     })
+
+    describe("GET /admin/suppliers/:id/summary", () => {
+      let counter = 0
+
+      const createVariant = async () => {
+        counter += 1
+        const product = (
+          await api.post(
+            "/admin/products",
+            {
+              title: `Summary product ${counter}`,
+              options: [{ title: "size", values: ["large"] }],
+              variants: [
+                {
+                  title: "V",
+                  sku: `SUM-${counter}`,
+                  manage_inventory: true,
+                  prices: [{ currency_code: "usd", amount: 100 }],
+                  options: { size: "large" },
+                },
+              ],
+            },
+            adminHeaders
+          )
+        ).data.product
+        return product.variants[0] as { id: string }
+      }
+
+      const createPurchase = async (
+        supplierId: string,
+        body: Record<string, unknown>
+      ) =>
+        (
+          await api.post(
+            "/admin/purchases",
+            { supplier_id: supplierId, ...body },
+            adminHeaders
+          )
+        ).data.purchase
+
+      const order = async (purchaseId: string) =>
+        (await api.post(`/admin/purchases/${purchaseId}/order`, {}, adminHeaders))
+          .data.purchase
+
+      it("summarizes a supplier's purchases and leaves other suppliers alone", async () => {
+        const acme = await createSupplier("Summary Acme")
+        const other = await createSupplier("Summary Other")
+        const variant = await createVariant()
+        const location = (
+          await api.post(
+            "/admin/stock-locations",
+            { name: "Summary warehouse" },
+            adminHeaders
+          )
+        ).data.stock_location
+
+        // Draft: counted, no money.
+        await createPurchase(acme.id, {
+          items: [{ variant_id: variant.id, quantity: 100, unit_cost: 9 }],
+        })
+
+        // Ordered then partially received: 10 @ 2.50 + 5 shipping.
+        const ordered = await createPurchase(acme.id, {
+          items: [{ variant_id: variant.id, quantity: 10, unit_cost: 2.5 }],
+          shipping_cost: 5,
+        })
+        const placed = await order(ordered.id)
+        await api.post(
+          `/admin/purchases/${ordered.id}/receive`,
+          {
+            stock_location_id: location.id,
+            items: [{ purchase_item_id: placed.items[0].id, quantity: 4 }],
+          },
+          adminHeaders
+        )
+
+        // Cancelled: counted, no money.
+        const toCancel = await createPurchase(acme.id, {
+          items: [{ variant_id: variant.id, quantity: 7, unit_cost: 3 }],
+        })
+        await api.post(
+          `/admin/purchases/${toCancel.id}/cancel`,
+          {},
+          adminHeaders
+        )
+
+        // Another supplier's purchase must not leak in.
+        const foreign = await createPurchase(other.id, {
+          items: [{ variant_id: variant.id, quantity: 1, unit_cost: 50 }],
+        })
+        await order(foreign.id)
+
+        const response = await api.get(
+          `/admin/suppliers/${acme.id}/summary`,
+          adminHeaders
+        )
+        expect(response.status).toBe(200)
+        expect(response.data.summary).toEqual({
+          counts: { draft: 1, partially_received: 1, cancelled: 1 },
+          total_ordered: 30,
+          total_received: 10,
+          outstanding: 15,
+        })
+
+        const otherSummary = (
+          await api.get(`/admin/suppliers/${other.id}/summary`, adminHeaders)
+        ).data.summary
+        expect(otherSummary).toEqual({
+          counts: { ordered: 1 },
+          total_ordered: 50,
+          total_received: 0,
+          outstanding: 50,
+        })
+      })
+
+      it("returns zeros for a supplier with no purchases", async () => {
+        const supplier = await createSupplier("Summary Empty")
+        const response = await api.get(
+          `/admin/suppliers/${supplier.id}/summary`,
+          adminHeaders
+        )
+        expect(response.data.summary).toEqual({
+          counts: {},
+          total_ordered: 0,
+          total_received: 0,
+          outstanding: 0,
+        })
+      })
+
+      it("returns 404 for an unknown supplier", async () => {
+        const response = await api
+          .get("/admin/suppliers/sup_missing/summary", adminHeaders)
+          .catch((e) => e.response)
+        expect(response.status).toBe(404)
+      })
+    })
   },
 })
