@@ -26,13 +26,20 @@ export const resolvePurchaseItemsStep = createStep(
 
     const { data: suppliers } = await query.graph({
       entity: "supplier",
-      fields: ["id"],
+      fields: ["id", "name", "is_active"],
       filters: { id: input.supplier_id },
     })
     if (!suppliers.length) {
       throw new MedusaError(
         MedusaError.Types.NOT_FOUND,
         `Supplier with id: ${input.supplier_id} was not found`
+      )
+    }
+
+    if (!suppliers[0].is_active) {
+      throw new MedusaError(
+        MedusaError.Types.NOT_ALLOWED,
+        `Supplier ${suppliers[0].name} is inactive and cannot be used for new purchases`
       )
     }
 

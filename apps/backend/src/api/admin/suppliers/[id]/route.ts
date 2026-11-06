@@ -2,6 +2,7 @@ import type { MedusaRequest, MedusaResponse } from "@medusajs/framework/http"
 import { ContainerRegistrationKeys, MedusaError } from "@medusajs/framework/utils"
 import { deleteSupplierWorkflow } from "../../../../workflows/delete-supplier"
 import { updateSupplierWorkflow } from "../../../../workflows/update-supplier"
+import { SUPPLIER_FIELDS } from "../fields"
 import type { UpdateSupplierSchema } from "../middlewares"
 
 export async function GET(req: MedusaRequest, res: MedusaResponse) {
@@ -9,7 +10,7 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
 
   const { data } = await query.graph({
     entity: "supplier",
-    fields: ["id", "name", "email", "phone", "address", "notes", "created_at"],
+    fields: SUPPLIER_FIELDS,
     filters: { id: req.params.id },
   })
 

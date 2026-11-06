@@ -1,6 +1,8 @@
 import type { MedusaRequest, MedusaResponse } from "@medusajs/framework/http"
 import { ContainerRegistrationKeys } from "@medusajs/framework/utils"
+import { escapeLike } from "../../../modules/supplier/utils"
 import { createSupplierWorkflow } from "../../../workflows/create-supplier"
+import { SUPPLIER_FIELDS } from "./fields"
 import type {
   CreateSupplierSchema,
   ListSuppliersQuerySchema,
@@ -9,17 +11,20 @@ import type {
 export async function GET(req: MedusaRequest, res: MedusaResponse) {
   const query = req.scope.resolve(ContainerRegistrationKeys.QUERY)
 
-  const { q, limit, offset } =
+  const { q, is_active, limit, offset } =
     req.validatedQuery as unknown as ListSuppliersQuerySchema
 
   const filters: Record<string, unknown> = {}
-  if (q) {
-    filters.name = { $ilike: `%${q}%` }
+  if (q?.trim()) {
+    filters.name = { $ilike: `%${escapeLike(q)}%` }
+  }
+  if (is_active) {
+    filters.is_active = is_active === "true"
   }
 
   const { data, metadata } = await query.graph({
     entity: "supplier",
-    fields: ["id", "name", "email", "phone", "address", "notes", "created_at"],
+    fields: SUPPLIER_FIELDS,
     filters,
     pagination: { take: limit, skip: offset, order: { created_at: "DESC" } },
   })

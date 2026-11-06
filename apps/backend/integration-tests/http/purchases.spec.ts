@@ -68,6 +68,31 @@ medusaIntegrationTestRunner({
     const ids = (purchases: { id: string }[]) => purchases.map((p) => p.id)
 
     describe("/admin/purchases", () => {
+      it("POST rejects an inactive supplier with 400 mentioning inactive and writes nothing", async () => {
+        const supplier = await createSupplier("Dormant")
+        await api.post(
+          `/admin/suppliers/${supplier.id}`,
+          { is_active: false },
+          adminHeaders
+        )
+        const variant = await createVariant()
+
+        const response = await api
+          .post(
+            "/admin/purchases",
+            {
+              supplier_id: supplier.id,
+              items: [{ variant_id: variant.id, quantity: 1, unit_cost: 1 }],
+            },
+            adminHeaders
+          )
+          .catch((e) => e.response)
+
+        expect(response.status).toBe(400)
+        expect(response.data.message).toContain("inactive")
+        expect(await countPurchases()).toBe(0)
+      })
+
       it("POST /admin/purchases creates a draft with a PO- reference, linked supplier and item snapshots (sku and title copied from the variant)", async () => {
         const supplier = await createSupplier("Acme")
         const variant = await createVariant()
@@ -1573,6 +1598,29 @@ medusaIntegrationTestRunner({
           expect(await allReceiptRowCounts()).toEqual({ receipts: 0, items: 0 })
           expect(await allStockLocationLinkCount()).toBe(0)
           expect(await stockedAt(shirt.inventory_item_id, location.id)).toBe(3)
+        })
+
+        it("still receives goods on an existing purchase after its supplier is made inactive", async () => {
+          const location = await createStockLocation()
+          const shirt = await createStockedVariant()
+          await setStock(shirt.inventory_item_id, location.id, 3)
+          const purchase = await orderedPurchase([
+            { variant_id: shirt.id, quantity: 5 },
+          ])
+          const supplierId = (await fetchPurchase(purchase.id)).supplier.id
+          await api.post(
+            `/admin/suppliers/${supplierId}`,
+            { is_active: false },
+            adminHeaders
+          )
+
+          const response = await receive(purchase.id, {
+            stock_location_id: location.id,
+            items: [{ purchase_item_id: purchase.items[0].id, quantity: 5 }],
+          })
+
+          expect(response.status).toBe(200)
+          expect(await stockedAt(shirt.inventory_item_id, location.id)).toBe(8)
         })
       })
     })

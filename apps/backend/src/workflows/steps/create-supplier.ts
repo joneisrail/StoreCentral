@@ -8,6 +8,12 @@ export type CreateSupplierStepInput = {
   phone?: string
   address?: string
   notes?: string
+  contact_name?: string
+  website?: string
+  tax_id?: string
+  payment_terms?: string
+  lead_time_days?: number
+  is_active?: boolean
 }
 
 export const createSupplierStep = createStep(

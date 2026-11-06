@@ -14,6 +14,19 @@ moduleIntegrationTestRunner<SupplierModuleService>({
         expect(supplier.phone).toBeNull()
         expect(supplier.address).toBeNull()
         expect(supplier.notes).toBeNull()
+        expect(supplier.contact_name).toBeNull()
+        expect(supplier.website).toBeNull()
+        expect(supplier.tax_id).toBeNull()
+        expect(supplier.payment_terms).toBeNull()
+        expect(supplier.lead_time_days).toBeNull()
+        expect(supplier.is_active).toBe(true)
+      })
+
+      it("persists is_active false", async () => {
+        const supplier = await service.createSuppliers({ name: "Acme" })
+        await service.updateSuppliers({ id: supplier.id, is_active: false })
+        const fetched = await service.retrieveSupplier(supplier.id)
+        expect(fetched.is_active).toBe(false)
       })
 
       it("rejects a supplier without a name", async () => {

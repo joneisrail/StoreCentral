@@ -5,10 +5,16 @@ import SupplierModuleService from "../../modules/supplier/service"
 export type UpdateSupplierStepInput = {
   id: string
   name?: string
-  email?: string
-  phone?: string
-  address?: string
-  notes?: string
+  email?: string | null
+  phone?: string | null
+  address?: string | null
+  notes?: string | null
+  contact_name?: string | null
+  website?: string | null
+  tax_id?: string | null
+  payment_terms?: string | null
+  lead_time_days?: number | null
+  is_active?: boolean
 }
 
 export const updateSupplierStep = createStep(
@@ -29,6 +35,12 @@ export const updateSupplierStep = createStep(
       phone: existing.phone,
       address: existing.address,
       notes: existing.notes,
+      contact_name: existing.contact_name,
+      website: existing.website,
+      tax_id: existing.tax_id,
+      payment_terms: existing.payment_terms,
+      lead_time_days: existing.lead_time_days,
+      is_active: existing.is_active,
     })
   },
   async (previous, { container }) => {

@@ -43,6 +43,12 @@ export const deleteSupplierStep = createStep(
         phone: existing.phone,
         address: existing.address,
         notes: existing.notes,
+        contact_name: existing.contact_name,
+        website: existing.website,
+        tax_id: existing.tax_id,
+        payment_terms: existing.payment_terms,
+        lead_time_days: existing.lead_time_days,
+        is_active: existing.is_active,
       }
     )
   },

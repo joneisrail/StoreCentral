@@ -1,0 +1,15 @@
+export const SUPPLIER_FIELDS = [
+  "id",
+  "name",
+  "email",
+  "phone",
+  "address",
+  "notes",
+  "contact_name",
+  "website",
+  "tax_id",
+  "payment_terms",
+  "lead_time_days",
+  "is_active",
+  "created_at",
+]
