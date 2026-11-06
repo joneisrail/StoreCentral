@@ -67,4 +67,16 @@ describe("summarizePurchases", () => {
     expect(result.total_ordered).toBe(0.3)
     expect(result.outstanding).toBe(0.3)
   })
+
+  it("rounds total_received at the boundary", () => {
+    const result = summarizePurchases([
+      purchase({
+        shipping_cost: 0,
+        status: "received",
+        items: [{ quantity: 3, quantity_received: 3, unit_cost: 0.1 }],
+      }),
+    ])
+    expect(result.total_received).toBe(0.3)
+    expect(result.outstanding).toBe(0)
+  })
 })

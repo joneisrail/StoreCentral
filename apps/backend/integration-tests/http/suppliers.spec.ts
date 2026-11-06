@@ -420,6 +420,48 @@ medusaIntegrationTestRunner({
         })
       })
 
+      it("includes every purchase for a supplier with more than 50", async () => {
+        const container = getContainer()
+        const supplier = await createSupplier("Summary Many")
+        const purchaseModule = container.resolve(PURCHASE_MODULE) as any
+        const link = container.resolve(ContainerRegistrationKeys.LINK) as any
+
+        const total = 60
+        const created = await purchaseModule.createPurchases(
+          Array.from({ length: total }, () => ({
+            status: "ordered",
+            shipping_cost: 1,
+            items: [
+              {
+                variant_id: "variant_x",
+                sku: "S",
+                title: "T",
+                quantity: 2,
+                quantity_received: 1,
+                unit_cost: 3,
+              },
+            ],
+          }))
+        )
+        await link.create(
+          created.map((p: { id: string }) => ({
+            [PURCHASE_MODULE]: { purchase_id: p.id },
+            [SUPPLIER_MODULE]: { supplier_id: supplier.id },
+          }))
+        )
+
+        const response = await api.get(
+          `/admin/suppliers/${supplier.id}/summary`,
+          adminHeaders
+        )
+        expect(response.data.summary).toEqual({
+          counts: { ordered: total },
+          total_ordered: total * 7,
+          total_received: total * 3,
+          outstanding: total * 3,
+        })
+      })
+
       it("returns zeros for a supplier with no purchases", async () => {
         const supplier = await createSupplier("Summary Empty")
         const response = await api.get(
