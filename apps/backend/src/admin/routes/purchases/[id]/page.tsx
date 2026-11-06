@@ -178,6 +178,10 @@ const PurchaseDetailPage = () => {
   const canPlaceOrder = purchase.status === "draft"
   const canReceive =
     purchase.status === "ordered" || purchase.status === "partially_received"
+  const canRecordInvoice =
+    purchase.status === "ordered" ||
+    purchase.status === "partially_received" ||
+    purchase.status === "received"
   const canCancel = purchase.status === "draft" || purchase.status === "ordered"
 
   return (
@@ -189,11 +193,13 @@ const PurchaseDetailPage = () => {
             <Badge data-testid="status">{STATUS_LABELS[purchase.status]}</Badge>
           </div>
           <div className="flex gap-2">
-            <Button size="small" variant="secondary" asChild>
-              <Link to={`/accounting/invoices/new?purchase_id=${purchase.id}`}>
-                Record invoice
-              </Link>
-            </Button>
+            {canRecordInvoice && (
+              <Button size="small" variant="secondary" asChild>
+                <Link to={`/accounting/invoices/new?purchase_id=${purchase.id}`}>
+                  Record invoice
+                </Link>
+              </Button>
+            )}
             {canPlaceOrder && (
               <Button
                 size="small"

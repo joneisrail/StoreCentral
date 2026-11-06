@@ -64,6 +64,13 @@ const InvoiceView = ({
   const prompt = usePrompt()
   const [editing, setEditing] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
+  const [dirty, setDirty] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const closeEditor = () => {
+    setEditing(false)
+    setDirty(false)
+    setSaving(false)
+  }
 
   const runAction = useMutation({
     mutationFn: (action: Action) =>
@@ -113,6 +120,8 @@ const InvoiceView = ({
   }
 
   const isDraft = invoice.status === "draft"
+  const unsavedEdits = isDraft && editing && dirty
+  const busy = runAction.isPending || saving
   const canVoid = invoice.status === "draft" || invoice.status === "posted"
   const postedAt = formatTimestamp(invoice.posted_at)
   const voidedAt = formatTimestamp(invoice.voided_at)
@@ -140,6 +149,7 @@ const InvoiceView = ({
               <Button
                 size="small"
                 variant="secondary"
+                disabled={busy}
                 onClick={() => setEditing(true)}
               >
                 Edit
@@ -149,7 +159,7 @@ const InvoiceView = ({
               <Button
                 size="small"
                 isLoading={runAction.isPending}
-                disabled={runAction.isPending}
+                disabled={busy || unsavedEdits}
                 onClick={handlePost}
               >
                 Post
@@ -159,7 +169,7 @@ const InvoiceView = ({
               <Button
                 size="small"
                 variant="danger"
-                disabled={runAction.isPending}
+                disabled={busy}
                 onClick={handleVoid}
               >
                 Void
@@ -167,6 +177,11 @@ const InvoiceView = ({
             )}
           </div>
         </div>
+        {unsavedEdits && (
+          <Text size="small" className="pt-2 text-ui-fg-subtle">
+            Save or cancel your edits first
+          </Text>
+        )}
         {actionError && (
           <Text role="alert" className="pt-2 text-ui-fg-error">
             {actionError}
@@ -222,7 +237,13 @@ const InvoiceView = ({
 
       {isDraft && editing && (
         <Container>
-          <EditForm invoice={invoice} onClose={() => setEditing(false)} />
+          <EditForm
+            invoice={invoice}
+            onClose={closeEditor}
+            onDirtyChange={setDirty}
+            onSavingChange={setSaving}
+            actionPending={runAction.isPending}
+          />
         </Container>
       )}
 

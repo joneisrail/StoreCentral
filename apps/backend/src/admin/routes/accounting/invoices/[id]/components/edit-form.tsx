@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import {
   Button,
@@ -139,9 +139,16 @@ export function buildUpdateBody(
 export const EditForm = ({
   invoice,
   onClose,
+  onDirtyChange,
+  onSavingChange,
+  actionPending,
 }: {
   invoice: AdminInvoice
   onClose: () => void
+  onDirtyChange: (dirty: boolean) => void
+  onSavingChange: (saving: boolean) => void
+  // True while Post or Void is in flight.
+  actionPending: boolean
 }) => {
   const queryClient = useQueryClient()
   const [form, setForm] = useState<FormValues>(() => toFormValues(invoice))
@@ -173,6 +180,16 @@ export const EditForm = ({
     },
   })
 
+  // Unreadable input counts as an unsaved edit too.
+  const probe = buildUpdateBody(invoice, form)
+  const dirty = !probe.ok || Object.keys(probe.body).length > 0
+  useEffect(() => {
+    onDirtyChange(dirty)
+  }, [dirty, onDirtyChange])
+  useEffect(() => {
+    onSavingChange(save.isPending)
+  }, [save.isPending, onSavingChange])
+
   const setField = (key: keyof Omit<FormValues, "lines">, value: string) =>
     setForm((current) => ({ ...current, [key]: value }))
 
@@ -190,7 +207,7 @@ export const EditForm = ({
 
   const handleSubmit = (event: React.FormEvent) => {
     event.preventDefault()
-    if (save.isPending) {
+    if (save.isPending || actionPending) {
       return
     }
     setError(null)
@@ -321,10 +338,19 @@ export const EditForm = ({
       {notice && <Text size="small">{notice}</Text>}
 
       <div className="flex gap-2">
-        <Button type="button" variant="secondary" onClick={onClose}>
+        <Button
+          type="button"
+          variant="secondary"
+          disabled={actionPending || save.isPending}
+          onClick={onClose}
+        >
           Cancel
         </Button>
-        <Button type="submit" isLoading={save.isPending} disabled={save.isPending}>
+        <Button
+          type="submit"
+          isLoading={save.isPending}
+          disabled={save.isPending || actionPending}
+        >
           Save
         </Button>
       </div>

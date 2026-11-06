@@ -193,9 +193,6 @@ describe("PurchaseDetailPage", () => {
       if (url === "/admin/invoices") {
         return invoicesResult()
       }
-      if (url === "/admin/invoices") {
-        return invoicesResult()
-      }
       if (url === "/admin/purchases/pur_1/order" && opts?.method === "POST") {
         current = withStatus("ordered")
         return Promise.resolve({ purchase: current })
@@ -284,6 +281,28 @@ describe("PurchaseDetailPage", () => {
       "href",
       "/accounting/invoices/new?purchase_id=pur_1"
     )
+  })
+
+  it("shows Record invoice only for ordered, partly received and received purchases", async () => {
+    const expected: Record<string, boolean> = {
+      draft: false,
+      ordered: true,
+      partially_received: true,
+      received: true,
+      cancelled: false,
+    }
+    for (const [status, shown] of Object.entries(expected)) {
+      mockPurchase(withStatus(status))
+      const { unmount } = renderPage()
+      await screen.findByText("PO-0001")
+      const link = screen.queryByRole("link", { name: "Record invoice" })
+      if (shown) {
+        expect(link).toBeInTheDocument()
+      } else {
+        expect(link).not.toBeInTheDocument()
+      }
+      unmount()
+    }
   })
 
   it("lists the purchase's invoices with reference, number, total and status", async () => {

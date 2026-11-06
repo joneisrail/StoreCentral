@@ -612,15 +612,15 @@ describe("InvoiceDetailPage", () => {
       expect(screen.getByLabelText("Invoice number")).toHaveValue("SUP-TYPED")
     })
 
-    it("keeps unsaved edits when Post fails with a toast", async () => {
+    it("keeps unsaved edits when Void fails with a toast", async () => {
       const server = startServer({ invoice: makeInvoice(), comparison: null })
       const field = await openEditor()
       fireEvent.change(field, { target: { value: "SUP-TYPED" } })
 
-      server.failPost = "Cannot post"
-      fireEvent.click(screen.getByRole("button", { name: "Post" }))
-      await confirmDialog("Post invoice")
-      await screen.findByText("Cannot post")
+      server.failPost = "Cannot void"
+      fireEvent.click(screen.getByRole("button", { name: "Void" }))
+      await confirmDialog("Void invoice")
+      await screen.findByText("Cannot void")
 
       expect(screen.getByLabelText("Invoice number")).toHaveValue("SUP-TYPED")
     })
@@ -641,6 +641,83 @@ describe("InvoiceDetailPage", () => {
       await screen.findByText("No changes to save.")
       await flush()
       expect(postCalls()).toHaveLength(1)
+    })
+
+    it("disables Post with a hint while edits are unsaved, and re-enables it after Save or Cancel", async () => {
+      startServer({ invoice: makeInvoice(), comparison: null })
+      const field = await openEditor()
+      const post = () => screen.getByRole("button", { name: "Post" })
+      expect(post()).toBeEnabled()
+      expect(screen.queryByText("Save or cancel your edits first")).not.toBeInTheDocument()
+
+      fireEvent.change(field, { target: { value: "SUP-78" } })
+      expect(post()).toBeDisabled()
+      expect(screen.getByText("Save or cancel your edits first")).toBeInTheDocument()
+      fireEvent.click(post())
+      await flush()
+      expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
+      expect(postCalls()).toHaveLength(0)
+
+      fireEvent.click(screen.getByRole("button", { name: "Save" }))
+      await waitFor(() => expect(post()).toBeEnabled())
+      expect(screen.queryByText("Save or cancel your edits first")).not.toBeInTheDocument()
+
+      fireEvent.change(screen.getByLabelText("Invoice number"), {
+        target: { value: "SUP-79" },
+      })
+      expect(post()).toBeDisabled()
+      fireEvent.click(screen.getByRole("button", { name: "Cancel" }))
+      await waitFor(() => expect(post()).toBeEnabled())
+      expect(screen.queryByText("Save or cancel your edits first")).not.toBeInTheDocument()
+    })
+
+    it("disables Post, Void and Edit while a Save is in flight", async () => {
+      const server = startServer({ invoice: makeInvoice(), comparison: null })
+      const base = mockFetch.getMockImplementation()!
+      let release: () => void = () => {}
+      mockFetch.mockImplementation((url: string, opts?: any) => {
+        if (opts?.method === "POST") {
+          return new Promise((resolve) => {
+            release = () => resolve(base(url, opts))
+          })
+        }
+        return base(url, opts)
+      })
+      const field = await openEditor()
+      fireEvent.change(field, { target: { value: "SUP-78" } })
+      fireEvent.click(screen.getByRole("button", { name: "Save" }))
+
+      await waitFor(() => expect(postCalls()).toHaveLength(1))
+      await waitFor(() => expect(screen.getByRole("button", { name: "Void" })).toBeDisabled())
+      expect(screen.getByRole("button", { name: "Post" })).toBeDisabled()
+      release()
+      await waitFor(() => expect(screen.getByRole("button", { name: "Void" })).toBeEnabled())
+      expect(server.invoice.invoice_number).toBe("SUP-78")
+    })
+
+    it("disables Save and Cancel while Post is in flight", async () => {
+      startServer({ invoice: makeInvoice(), comparison: null })
+      const base = mockFetch.getMockImplementation()!
+      let release: () => void = () => {}
+      mockFetch.mockImplementation((url: string, opts?: any) => {
+        if (opts?.method === "POST") {
+          return new Promise((resolve) => {
+            release = () => resolve(base(url, opts))
+          })
+        }
+        return base(url, opts)
+      })
+      await openEditor()
+      fireEvent.click(screen.getByRole("button", { name: "Post" }))
+      await confirmDialog("Post invoice")
+
+      await waitFor(() => expect(postCalls()).toHaveLength(1))
+      expect(screen.getByRole("button", { name: "Save" })).toBeDisabled()
+      expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled()
+      release()
+      await waitFor(() =>
+        expect(screen.getByTestId("status")).toHaveTextContent("Posted")
+      )
     })
 
     it("has no editor on a posted invoice", async () => {
