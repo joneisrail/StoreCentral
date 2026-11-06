@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query"
 import { Badge, Button, Container, Heading, Tabs, Text } from "@medusajs/ui"
 import { Link, useParams } from "react-router-dom"
-import { sdk } from "../../../lib/sdk"
+import { sdk } from "../../../../lib/sdk"
 import type { Supplier } from "../types"
 import { DetailsTab } from "./components/details-tab"
 import { ProductsTab } from "./components/products-tab"
@@ -29,7 +29,7 @@ const SupplierDetailPage = () => {
     return (
       <Container>
         <Text>Supplier not found</Text>
-        <Link to="/suppliers">Back to suppliers</Link>
+        <Link to="/purchases/suppliers">Back to suppliers</Link>
       </Container>
     )
   }
@@ -54,7 +54,7 @@ const SupplierDetailPage = () => {
           <Heading level="h1">{supplier.name}</Heading>
           {!supplier.is_active && <Badge color="grey">Inactive</Badge>}
         </div>
-        <Link to="/suppliers">
+        <Link to="/purchases/suppliers">
           <Text size="small">Back to suppliers</Text>
         </Link>
       </Container>

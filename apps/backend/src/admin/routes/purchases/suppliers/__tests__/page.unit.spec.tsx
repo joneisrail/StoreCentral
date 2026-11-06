@@ -1,7 +1,7 @@
 /**
  * @jest-environment jsdom
  */
-import "../../purchases/__tests__/text-encoder-polyfill"
+import "../../__tests__/text-encoder-polyfill"
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/react"
 import "@testing-library/jest-dom"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
@@ -9,7 +9,7 @@ import { MemoryRouter } from "react-router-dom"
 
 const mockFetch = jest.fn()
 
-jest.mock("../../../lib/sdk", () => ({
+jest.mock("../../../../lib/sdk", () => ({
   sdk: {
     client: {
       fetch: (...args: unknown[]) => mockFetch(...args),
@@ -164,7 +164,7 @@ describe("SuppliersPage", () => {
     renderPage()
 
     const link = await screen.findByRole("link", { name: "Acme Perfumes" })
-    expect(link).toHaveAttribute("href", "/suppliers/sup_1")
+    expect(link).toHaveAttribute("href", "/purchases/suppliers/sup_1")
   })
 
   it("the status select adds is_active to the request", async () => {

@@ -16,7 +16,7 @@ import {
   usePrompt,
 } from "@medusajs/ui"
 import { Link } from "react-router-dom"
-import { sdk } from "../../lib/sdk"
+import { sdk } from "../../../lib/sdk"
 import type { Supplier } from "./types"
 
 type SuppliersResponse = {
@@ -254,7 +254,7 @@ const SuppliersPage = () => {
               <Table.Row key={supplier.id}>
                 <Table.Cell>
                   <div className="flex items-center gap-2">
-                    <Link to={`/suppliers/${supplier.id}`}>{supplier.name}</Link>
+                    <Link to={`/purchases/suppliers/${supplier.id}`}>{supplier.name}</Link>
                     {!supplier.is_active && <Badge color="grey">Inactive</Badge>}
                   </div>
                 </Table.Cell>

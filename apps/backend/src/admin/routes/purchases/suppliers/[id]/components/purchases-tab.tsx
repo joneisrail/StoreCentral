@@ -2,9 +2,9 @@ import { useEffect, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { Badge, Button, Container, Heading, Table, Text } from "@medusajs/ui"
 import { Link } from "react-router-dom"
-import { sdk } from "../../../../lib/sdk"
-import { formatUsd, STATUS_LABELS } from "../../../purchases/format"
-import type { AdminPurchase, PurchaseStatus } from "../../../purchases/types"
+import { sdk } from "../../../../../lib/sdk"
+import { formatUsd, STATUS_LABELS } from "../../../format"
+import type { AdminPurchase, PurchaseStatus } from "../../../types"
 import type { SupplierSummary } from "../../types"
 
 type PurchasesResponse = {

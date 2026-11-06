@@ -1,7 +1,7 @@
 /**
  * @jest-environment jsdom
  */
-import "../../../../purchases/__tests__/text-encoder-polyfill"
+import "../../../../__tests__/text-encoder-polyfill"
 import {
   act,
   render,
@@ -16,7 +16,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 const mockFetch = jest.fn()
 const mockVariantList = jest.fn()
 
-jest.mock("../../../../../lib/sdk", () => ({
+jest.mock("../../../../../../lib/sdk", () => ({
   sdk: {
     client: {
       fetch: (...args: unknown[]) => mockFetch(...args),

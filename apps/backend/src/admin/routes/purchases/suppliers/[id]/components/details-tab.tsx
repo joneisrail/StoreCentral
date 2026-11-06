@@ -10,7 +10,7 @@ import {
   Textarea,
   toast,
 } from "@medusajs/ui"
-import { sdk } from "../../../../lib/sdk"
+import { sdk } from "../../../../../lib/sdk"
 import type { Supplier } from "../../types"
 
 type TextField =

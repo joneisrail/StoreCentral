@@ -118,6 +118,7 @@ const FulfillmentQueuePage = () => {
 
 export const config = defineRouteConfig({
   label: "Fulfillment Queue",
+  nested: "/orders",
 })
 
 export default FulfillmentQueuePage

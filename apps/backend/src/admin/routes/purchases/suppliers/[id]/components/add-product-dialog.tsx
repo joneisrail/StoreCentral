@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Button, Drawer, Input, Label, Text, toast } from "@medusajs/ui"
-import { sdk } from "../../../../lib/sdk"
+import { sdk } from "../../../../../lib/sdk"
 import type { SupplierProductRow } from "../../types"
 
 type VariantResult = {

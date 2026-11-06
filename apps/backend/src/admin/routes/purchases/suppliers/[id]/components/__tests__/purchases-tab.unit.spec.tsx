@@ -1,7 +1,7 @@
 /**
  * @jest-environment jsdom
  */
-import "../../../../purchases/__tests__/text-encoder-polyfill"
+import "../../../../__tests__/text-encoder-polyfill"
 import {
   render,
   screen,
@@ -15,7 +15,7 @@ import { MemoryRouter } from "react-router-dom"
 
 const mockFetch = jest.fn()
 
-jest.mock("../../../../../lib/sdk", () => ({
+jest.mock("../../../../../../lib/sdk", () => ({
   sdk: {
     client: {
       fetch: (...args: unknown[]) => mockFetch(...args),

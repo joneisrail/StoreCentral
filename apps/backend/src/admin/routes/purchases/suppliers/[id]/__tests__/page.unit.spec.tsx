@@ -1,7 +1,7 @@
 /**
  * @jest-environment jsdom
  */
-import "../../../purchases/__tests__/text-encoder-polyfill"
+import "../../../__tests__/text-encoder-polyfill"
 import { act, render, screen, fireEvent, waitFor } from "@testing-library/react"
 import "@testing-library/jest-dom"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
@@ -10,7 +10,7 @@ import { Link, MemoryRouter, Route, Routes } from "react-router-dom"
 const mockFetch = jest.fn()
 const mockToast = { success: jest.fn(), error: jest.fn() }
 
-jest.mock("../../../../lib/sdk", () => ({
+jest.mock("../../../../../lib/sdk", () => ({
   sdk: {
     client: {
       fetch: (...args: unknown[]) => mockFetch(...args),
@@ -41,9 +41,9 @@ function renderPage() {
   })
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={["/suppliers/sup_1"]}>
+      <MemoryRouter initialEntries={["/purchases/suppliers/sup_1"]}>
         <Routes>
-          <Route path="/suppliers/:id" element={<SupplierDetailPage />} />
+          <Route path="/purchases/suppliers/:id" element={<SupplierDetailPage />} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>
@@ -210,10 +210,10 @@ describe("SupplierDetailPage", () => {
     )
     render(
       <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={["/suppliers/sup_1"]}>
-          <Link to="/suppliers/sup_2">go</Link>
+        <MemoryRouter initialEntries={["/purchases/suppliers/sup_1"]}>
+          <Link to="/purchases/suppliers/sup_2">go</Link>
           <Routes>
-            <Route path="/suppliers/:id" element={<SupplierDetailPage />} />
+            <Route path="/purchases/suppliers/:id" element={<SupplierDetailPage />} />
           </Routes>
         </MemoryRouter>
       </QueryClientProvider>

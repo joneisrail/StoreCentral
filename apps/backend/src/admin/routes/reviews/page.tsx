@@ -232,6 +232,7 @@ const ReviewsPage = () => {
 
 export const config = defineRouteConfig({
   label: "Reviews",
+  nested: "/products",
 })
 
 export default ReviewsPage

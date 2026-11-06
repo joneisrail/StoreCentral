@@ -110,7 +110,7 @@ describe("ProductSupplierOffers widget", () => {
     expect(screen.getByText("Prepaid")).toBeInTheDocument()
     expect(screen.getByRole("link", { name: "Cheap Co" })).toHaveAttribute(
       "href",
-      "/suppliers/sup_cheap"
+      "/purchases/suppliers/sup_cheap"
     )
     expect(mockFetch).toHaveBeenCalledWith(
       "/admin/supplier-offers",

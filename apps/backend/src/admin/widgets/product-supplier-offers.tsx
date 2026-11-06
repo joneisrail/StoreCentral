@@ -96,7 +96,7 @@ const ProductSupplierOffers = ({ data }: DetailWidgetProps<AdminProduct>) => {
                     <Table.Cell>
                       <div className="flex items-center gap-2">
                         <Link
-                          to={`/suppliers/${offer.supplier.id}`}
+                          to={`/purchases/suppliers/${offer.supplier.id}`}
                           className="text-ui-fg-interactive"
                         >
                           {offer.supplier.name}
