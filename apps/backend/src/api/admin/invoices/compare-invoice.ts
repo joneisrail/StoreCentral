@@ -102,7 +102,7 @@ export const compareInvoice = (input: CompareInput): Comparison => {
       invoiced_unit_cost,
       flags: {
         price_difference,
-        over_received: invoiced_quantity > pi.quantity_received,
+        over_received: invoiced_quantity_total > pi.quantity_received,
         over_ordered: invoiced_quantity_total > pi.quantity,
         not_on_purchase: false,
       },

@@ -54,6 +54,8 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
       entity: "supplier",
       fields: ["id", "name"],
       filters: { id: supplierIds },
+      // take: null reads every row (typed as number only).
+    pagination: { take: null as unknown as undefined },
     })
     for (const s of found as unknown as { id: string; name: string }[]) {
       suppliers.set(s.id, { id: s.id, name: s.name })

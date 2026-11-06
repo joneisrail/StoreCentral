@@ -19,6 +19,8 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
     entity: "invoice",
     fields: ["id", "items.purchase_item_id", "items.quantity"],
     filters: { purchase_id: purchase.id, status: "posted" },
+    // take: null reads every row (typed as number only).
+    pagination: { take: null as unknown as undefined },
   })
   const other_invoiced = (
     siblings as unknown as {

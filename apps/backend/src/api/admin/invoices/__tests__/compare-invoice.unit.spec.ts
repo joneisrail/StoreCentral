@@ -149,6 +149,39 @@ describe("compareInvoice", () => {
     expect(result.items[0].flags.over_ordered).toBe(true)
   })
 
+  it("counts other posted invoices toward over_received", () => {
+    const result = run({
+      purchase_items: [purchaseItem({ quantity: 20, quantity_received: 8 })],
+      lines: [line({ quantity: 5 })],
+      other_invoiced: [{ purchase_item_id: "pi_1", quantity: 4 }],
+    })
+    expect(result.items[0].flags).toEqual({ ...noFlags, over_received: true })
+  })
+
+  it("does not flag when the total equals received or ordered", () => {
+    const received = run({
+      purchase_items: [purchaseItem({ quantity: 20, quantity_received: 9 })],
+      lines: [line({ quantity: 5 })],
+      other_invoiced: [{ purchase_item_id: "pi_1", quantity: 4 }],
+    })
+    expect(received.items[0].invoiced_quantity_total).toBe(9)
+    expect(received.items[0].flags).toEqual(noFlags)
+
+    const ordered = run({
+      purchase_items: [purchaseItem({ quantity: 9, quantity_received: 9 })],
+      lines: [line({ quantity: 5 })],
+      other_invoiced: [{ purchase_item_id: "pi_1", quantity: 4 }],
+    })
+    expect(ordered.items[0].flags).toEqual(noFlags)
+  })
+
+  it("averages differing costs weighted by quantity", () => {
+    const result = run({
+      lines: [line({ quantity: 4, unit_cost: 2 }), line({ quantity: 6, unit_cost: 3 })],
+    })
+    expect(result.items[0].invoiced_unit_cost).toBe(2.6)
+  })
+
   it("compares prices at two decimals", () => {
     const result = run({
       purchase_items: [purchaseItem({ unit_cost: 0.3 })],

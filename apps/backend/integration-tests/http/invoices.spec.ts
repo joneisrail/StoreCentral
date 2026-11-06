@@ -564,8 +564,11 @@ medusaIntegrationTestRunner({
         purchaseId: string,
         invoiceNumber: string,
         n = 1
-      ) =>
-        (
+      ) => {
+        // A small gap keeps created_at distinct so the newest-first order
+        // never depends on the id tiebreak.
+        await new Promise((resolve) => setTimeout(resolve, 20))
+        return (
           await post(
             header(purchaseId, {
               invoice_number: invoiceNumber,
@@ -573,7 +576,8 @@ medusaIntegrationTestRunner({
             })
           )
         ).data.invoice as { id: string }
-      const list = (qs = "") =>
+      }
+      const list =(qs = "") =>
         api.get(`/admin/invoices${qs}`, adminHeaders).catch((e) => e.response)
 
       it("lists newest first with items, supplier and purchase, and counts", async () => {
@@ -707,6 +711,42 @@ medusaIntegrationTestRunner({
           invoice_total: 17.5,
           difference: -2.5,
         })
+      })
+
+      it("counts every posted sibling invoice (no default page cap)", async () => {
+        const { supplier, variant, purchase } = await setup()
+        const mine = (
+          await post(
+            header(purchase.id, {
+              invoice_number: "BIG-0",
+              items: [{ variant_id: variant.id, quantity: 1, unit_cost: 2 }],
+            })
+          )
+        ).data.invoice as { id: string }
+        const siblings = Array.from({ length: 60 }, (_, i) => ({
+          supplier_id: supplier.id,
+          purchase_id: purchase.id,
+          invoice_number: `SIB-${i}`,
+          invoice_number_key: `sib-${i}`,
+          status: "posted",
+          invoice_date: new Date("2026-11-01"),
+          items: [
+            {
+              purchase_item_id: purchase.items[0].id,
+              variant_id: variant.id,
+              supplier_sku: "AC-100",
+              description: "x",
+              quantity: 1,
+              unit_cost: 2,
+            },
+          ],
+        }))
+        await accounting().createInvoices(siblings)
+
+        const response = await api.get(`/admin/invoices/${mine.id}`, adminHeaders)
+
+        expect(response.status).toBe(200)
+        expect(response.data.comparison.items[0].invoiced_quantity_total).toBe(61)
       })
 
       it("still returns 200 when the variant left the catalog", async () => {
