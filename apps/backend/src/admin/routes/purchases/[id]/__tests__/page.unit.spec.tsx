@@ -85,13 +85,39 @@ function withStatus(status: string) {
   return { ...basePurchase, status }
 }
 
+let invoicesResponse: unknown = { invoices: [], count: 0 }
+let invoicesError: Error | null = null
+
+function invoicesResult() {
+  return invoicesError
+    ? Promise.reject(invoicesError)
+    : Promise.resolve(JSON.parse(JSON.stringify(invoicesResponse)))
+}
+
 function mockPurchase(purchase: unknown) {
-  mockFetch.mockResolvedValue({ purchase })
+  mockFetch.mockImplementation((url: string) =>
+    url === "/admin/invoices"
+      ? invoicesResult()
+      : Promise.resolve({ purchase })
+  )
+}
+
+function makeInvoice(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "inv_1",
+    reference: "INV-0001",
+    status: "draft",
+    invoice_number: "SUP-77",
+    total: 73.75,
+    ...overrides,
+  }
 }
 
 describe("PurchaseDetailPage", () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    invoicesResponse = { invoices: [], count: 0 }
+    invoicesError = null
   })
 
   it("shows items with ordered, received and unit cost, the extra costs, subtotal and total", async () => {
@@ -164,6 +190,12 @@ describe("PurchaseDetailPage", () => {
   it("Place order and Cancel call their endpoints and refresh", async () => {
     let current: unknown = withStatus("draft")
     mockFetch.mockImplementation((url: string, opts?: { method?: string }) => {
+      if (url === "/admin/invoices") {
+        return invoicesResult()
+      }
+      if (url === "/admin/invoices") {
+        return invoicesResult()
+      }
       if (url === "/admin/purchases/pur_1/order" && opts?.method === "POST") {
         current = withStatus("ordered")
         return Promise.resolve({ purchase: current })
@@ -209,7 +241,10 @@ describe("PurchaseDetailPage", () => {
   })
 
   it("a server error from an action is shown", async () => {
-    mockFetch.mockImplementation((_url: string, opts?: { method?: string }) => {
+    mockFetch.mockImplementation((url: string, opts?: { method?: string }) => {
+      if (url === "/admin/invoices") {
+        return invoicesResult()
+      }
       if (opts?.method === "POST") {
         return Promise.reject(new Error("Purchase has no items"))
       }
@@ -231,9 +266,98 @@ describe("PurchaseDetailPage", () => {
 
     renderPage()
 
-    expect(await screen.findByText(/something went wrong/i)).toBeInTheDocument()
+    expect(
+      await screen.findByText(/something went wrong loading this purchase/i)
+    ).toBeInTheDocument()
     mockPurchase(withStatus("draft"))
     fireEvent.click(screen.getByRole("button", { name: "Retry" }))
     expect(await screen.findByText("PO-0001")).toBeInTheDocument()
+  })
+
+  it("links Record invoice to the new invoice page for this purchase", async () => {
+    mockPurchase(withStatus("ordered"))
+
+    renderPage()
+    await screen.findByText("PO-0001")
+
+    expect(screen.getByRole("link", { name: "Record invoice" })).toHaveAttribute(
+      "href",
+      "/accounting/invoices/new?purchase_id=pur_1"
+    )
+  })
+
+  it("lists the purchase's invoices with reference, number, total and status", async () => {
+    invoicesResponse = {
+      invoices: [
+        makeInvoice(),
+        makeInvoice({
+          id: "inv_2",
+          reference: "INV-0002",
+          invoice_number: "SUP-78",
+          total: 10,
+          status: "posted",
+        }),
+        makeInvoice({ id: "inv_3", reference: "INV-0003", status: "weird" }),
+      ],
+      count: 3,
+    }
+    mockPurchase(withStatus("ordered"))
+
+    renderPage()
+
+    const first = (await screen.findByText("INV-0001")).closest("tr")!
+    expect(mockFetch).toHaveBeenCalledWith("/admin/invoices", {
+      query: { purchase_id: "pur_1", limit: 100 },
+    })
+    expect(screen.getByRole("link", { name: "INV-0001" })).toHaveAttribute(
+      "href",
+      "/accounting/invoices/inv_1"
+    )
+    expect(within(first).getByText("SUP-77")).toBeInTheDocument()
+    expect(within(first).getByText("$73.75")).toBeInTheDocument()
+    expect(within(first).getByText("Draft")).toBeInTheDocument()
+
+    const second = screen.getByText("INV-0002").closest("tr")!
+    expect(within(second).getByText("SUP-78")).toBeInTheDocument()
+    expect(within(second).getByText("$10.00")).toBeInTheDocument()
+    expect(within(second).getByText("Posted")).toBeInTheDocument()
+    expect(screen.getByRole("link", { name: "INV-0002" })).toHaveAttribute(
+      "href",
+      "/accounting/invoices/inv_2"
+    )
+
+    // An unknown status shows the raw text, not an empty badge.
+    const third = screen.getByText("INV-0003").closest("tr")!
+    expect(within(third).getByText("weird")).toBeInTheDocument()
+  })
+
+  it("shows an empty message when the purchase has no invoices", async () => {
+    mockPurchase(withStatus("ordered"))
+
+    renderPage()
+
+    expect(await screen.findByText("No invoices yet.")).toBeInTheDocument()
+  })
+
+  it("shows an invoices error with Retry without breaking the rest of the page", async () => {
+    invoicesError = new Error("boom")
+    mockPurchase(withStatus("ordered"))
+
+    renderPage()
+
+    expect(
+      await screen.findByText(/something went wrong loading the invoices/i)
+    ).toBeInTheDocument()
+    expect(screen.getByText("PO-0001")).toBeInTheDocument()
+    expect(screen.getByText("Midnight Oud 50ml")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Receive goods" })).toBeInTheDocument()
+
+    invoicesError = null
+    invoicesResponse = { invoices: [makeInvoice()], count: 1 }
+    fireEvent.click(screen.getByRole("button", { name: "Retry invoices" }))
+    expect(await screen.findByText("INV-0001")).toBeInTheDocument()
+    expect(
+      screen.queryByText(/something went wrong loading the invoices/i)
+    ).not.toBeInTheDocument()
   })
 })

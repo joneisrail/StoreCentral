@@ -15,8 +15,75 @@ import { sdk } from "../../../lib/sdk"
 import { errorMessage, formatUsd, STATUS_LABELS } from "../format"
 import { ReceiveGoodsDialog } from "../components/receive-goods-dialog"
 import type { AdminPurchase } from "../types"
+import type { AdminInvoice } from "../../accounting/types"
+import {
+  INVOICE_STATUS_COLORS,
+  INVOICE_STATUS_LABELS,
+} from "../../accounting/format"
 
 type PurchaseResponse = { purchase: AdminPurchase }
+type InvoicesResponse = { invoices: AdminInvoice[]; count: number }
+
+const InvoicesSection = ({ purchaseId }: { purchaseId: string }) => {
+  const { data, isLoading, isError, refetch } = useQuery({
+    queryKey: ["admin", "invoices", "by-purchase", purchaseId],
+    queryFn: () =>
+      sdk.client.fetch<InvoicesResponse>("/admin/invoices", {
+        query: { purchase_id: purchaseId, limit: 100 },
+      }),
+  })
+  const invoices = data?.invoices ?? []
+
+  return (
+    <Container>
+      <Heading level="h2">Invoices</Heading>
+      {isLoading && <Text>Loading invoices...</Text>}
+      {isError && (
+        <div className="flex items-center gap-2">
+          <Text className="text-ui-fg-error">
+            Something went wrong loading the invoices.
+          </Text>
+          <Button size="small" variant="secondary" onClick={() => refetch()}>
+            Retry invoices
+          </Button>
+        </div>
+      )}
+      {!isLoading && !isError && invoices.length === 0 && (
+        <Text>No invoices yet.</Text>
+      )}
+      {!isLoading && !isError && invoices.length > 0 && (
+        <Table>
+          <Table.Header>
+            <Table.Row>
+              <Table.HeaderCell>Reference</Table.HeaderCell>
+              <Table.HeaderCell>Invoice number</Table.HeaderCell>
+              <Table.HeaderCell>Total</Table.HeaderCell>
+              <Table.HeaderCell>Status</Table.HeaderCell>
+            </Table.Row>
+          </Table.Header>
+          <Table.Body>
+            {invoices.map((invoice) => (
+              <Table.Row key={invoice.id}>
+                <Table.Cell>
+                  <Link to={`/accounting/invoices/${invoice.id}`}>
+                    {invoice.reference}
+                  </Link>
+                </Table.Cell>
+                <Table.Cell>{invoice.invoice_number}</Table.Cell>
+                <Table.Cell>{formatUsd(invoice.total)}</Table.Cell>
+                <Table.Cell>
+                  <Badge color={INVOICE_STATUS_COLORS[invoice.status] ?? "grey"}>
+                    {INVOICE_STATUS_LABELS[invoice.status] ?? invoice.status}
+                  </Badge>
+                </Table.Cell>
+              </Table.Row>
+            ))}
+          </Table.Body>
+        </Table>
+      )}
+    </Container>
+  )
+}
 
 const SummaryRow = ({
   label,
@@ -122,6 +189,11 @@ const PurchaseDetailPage = () => {
             <Badge data-testid="status">{STATUS_LABELS[purchase.status]}</Badge>
           </div>
           <div className="flex gap-2">
+            <Button size="small" variant="secondary" asChild>
+              <Link to={`/accounting/invoices/new?purchase_id=${purchase.id}`}>
+                Record invoice
+              </Link>
+            </Button>
             {canPlaceOrder && (
               <Button
                 size="small"
@@ -244,6 +316,8 @@ const PurchaseDetailPage = () => {
           </div>
         ))}
       </Container>
+
+      <InvoicesSection purchaseId={purchase.id} />
 
       <Link to="/purchases">
         <Text size="small">Back to purchases</Text>
