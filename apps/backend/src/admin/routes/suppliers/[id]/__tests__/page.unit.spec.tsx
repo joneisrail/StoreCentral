@@ -147,6 +147,28 @@ describe("SupplierDetailPage", () => {
     )
   })
 
+  it("toggling Active keeps unsaved text edits and a later Save posts only them", async () => {
+    renderPage()
+    const phone = await screen.findByLabelText("Phone")
+    fireEvent.change(phone, { target: { value: "+1 555 7777" } })
+
+    fireEvent.click(screen.getByRole("switch", { name: "Active" }))
+    await waitFor(() =>
+      expect(mockToast.success).toHaveBeenCalledWith("Supplier updated")
+    )
+    await waitFor(() =>
+      expect(mockFetch.mock.calls.filter((c) => c[1] === undefined).length)
+        .toBeGreaterThan(1)
+    )
+    expect(screen.getByLabelText("Phone")).toHaveValue("+1 555 7777")
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+    await waitFor(() =>
+      expect(postCalls()).toHaveLength(2)
+    )
+    expect(postCalls()[1][1].body).toEqual({ phone: "+1 555 7777" })
+  })
+
   it("does not post when nothing changed", async () => {
     renderPage()
     await screen.findByLabelText("Name")

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import {
   Button,
@@ -66,13 +66,9 @@ export const DetailsTab = ({ supplier }: { supplier: Supplier }) => {
   const [form, setForm] = useState<FormValues>(() => toFormValues(supplier))
   const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
-    setForm(toFormValues(supplier))
-  }, [supplier])
-
   const update = useMutation({
     mutationFn: (body: Record<string, unknown>) =>
-      sdk.client.fetch(`/admin/suppliers/${supplier.id}`, {
+      sdk.client.fetch<{ supplier: Supplier }>(`/admin/suppliers/${supplier.id}`, {
         method: "POST",
         body,
       }),
@@ -124,7 +120,11 @@ export const DetailsTab = ({ supplier }: { supplier: Supplier }) => {
     if (Object.keys(body).length === 0) {
       return
     }
-    update.mutate(body)
+    // Reset to the saved values; the Active switch never touches the form,
+    // so unsaved text edits survive a toggle.
+    update.mutate(body, {
+      onSuccess: (result) => setForm(toFormValues(result.supplier)),
+    })
   }
 
   return (
