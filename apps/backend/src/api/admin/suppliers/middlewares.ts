@@ -44,6 +44,38 @@ export const ListSuppliersQuerySchema = z.object({
 })
 export type ListSuppliersQuerySchema = z.infer<typeof ListSuppliersQuerySchema>
 
+export const CreateSupplierProductSchema = z.strictObject({
+  variant_id: z.string().min(1),
+  supplier_sku: z.string().trim().min(1),
+  supplier_title: z.string().optional(),
+  unit_cost: z.number().min(0).optional(),
+  notes: z.string().optional(),
+})
+export type CreateSupplierProductSchema = z.infer<
+  typeof CreateSupplierProductSchema
+>
+
+// The variant cannot be changed, so variant_id is rejected (strict).
+export const UpdateSupplierProductSchema = z.strictObject({
+  supplier_sku: z.string().trim().min(1).optional(),
+  supplier_title: z.string().nullable().optional(),
+  unit_cost: z.number().min(0).nullable().optional(),
+  notes: z.string().nullable().optional(),
+})
+export type UpdateSupplierProductSchema = z.infer<
+  typeof UpdateSupplierProductSchema
+>
+
+export const ListSupplierProductsQuerySchema = z.object({
+  q: z.string().optional(),
+  variant_id: z.string().optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+  offset: z.coerce.number().int().min(0).default(0),
+})
+export type ListSupplierProductsQuerySchema = z.infer<
+  typeof ListSupplierProductsQuerySchema
+>
+
 export const supplierMiddlewares: MiddlewareRoute[] = [
   {
     matcher: "/admin/suppliers",
@@ -64,5 +96,25 @@ export const supplierMiddlewares: MiddlewareRoute[] = [
     matcher: "/admin/suppliers/:id",
     method: "POST",
     middlewares: [validateAndTransformBody(UpdateSupplierSchema)],
+  },
+  {
+    matcher: "/admin/suppliers/:id/products",
+    method: "GET",
+    middlewares: [
+      validateAndTransformQuery(ListSupplierProductsQuerySchema, {
+        defaults: ["id"],
+        isList: true,
+      }),
+    ],
+  },
+  {
+    matcher: "/admin/suppliers/:id/products",
+    method: "POST",
+    middlewares: [validateAndTransformBody(CreateSupplierProductSchema)],
+  },
+  {
+    matcher: "/admin/suppliers/:id/products/:product_id",
+    method: "POST",
+    middlewares: [validateAndTransformBody(UpdateSupplierProductSchema)],
   },
 ]
