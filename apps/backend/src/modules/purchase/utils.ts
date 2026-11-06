@@ -75,3 +75,8 @@ export const getStatusAfterReceipt = (
   items.every((item) => getRemainingQuantity(item) <= 0)
     ? "received"
     : "partially_received"
+
+// Lock key shared by every step that reads and then writes a purchase's
+// status or received quantities (receive, cancel).
+export const purchaseLockKey = (purchaseId: string): string =>
+  "purchase:" + purchaseId

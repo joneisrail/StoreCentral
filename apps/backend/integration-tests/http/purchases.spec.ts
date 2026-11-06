@@ -1494,6 +1494,56 @@ medusaIntegrationTestRunner({
           expect(await allStockLocationLinkCount()).toBe(1)
         })
 
+        it("a cancel and a receive racing on an ordered purchase never leave a cancelled purchase with receipts or raised stock", async () => {
+          const location = await createStockLocation()
+          const shirt = await createStockedVariant()
+          await setStock(shirt.inventory_item_id, location.id, 6)
+          const purchase = await orderedPurchase([
+            { variant_id: shirt.id, quantity: 5 },
+          ])
+
+          // Force the dangerous interleaving: the cancel has read the purchase
+          // (ordered, nothing received) and is about to write. A receive is
+          // started right then and given time to finish before the cancel
+          // write goes ahead. The wait stays below the 5s lock timeout, so a
+          // receive blocked on the purchase lock is not timed out.
+          const purchaseModule = getContainer().resolve(PURCHASE_MODULE) as any
+          const updatePurchases = purchaseModule.updatePurchases.bind(
+            purchaseModule
+          )
+          let receiving: Promise<any> | undefined
+          const spy = jest
+            .spyOn(purchaseModule, "updatePurchases")
+            .mockImplementationOnce(async (...args: any[]) => {
+              receiving = receive(purchase.id, {
+                stock_location_id: location.id,
+                items: [{ purchase_item_id: purchase.items[0].id, quantity: 2 }],
+              })
+              await Promise.race([
+                receiving,
+                new Promise((resolve) => setTimeout(resolve, 3000)),
+              ])
+              return updatePurchases(...args)
+            })
+
+          const cancelled = await api
+            .post(`/admin/purchases/${purchase.id}/cancel`, {}, adminHeaders)
+            .catch((e) => e.response)
+          spy.mockRestore()
+          const received = await receiving!
+
+          expect(cancelled.status).toBe(200)
+          expect(received.status).toBe(400)
+          expect(received.data.message).toContain("a cancelled purchase")
+          const after = await fetchPurchase(purchase.id)
+          expect(after.status).toBe("cancelled")
+          expect(after.items[0].quantity_received).toBe(0)
+          expect(after.receipts).toEqual([])
+          expect(await allReceiptRowCounts()).toEqual({ receipts: 0, items: 0 })
+          expect(await allStockLocationLinkCount()).toBe(0)
+          expect(await stockedAt(shirt.inventory_item_id, location.id)).toBe(6)
+        })
+
         it("a failure of the stock location link rolls back the receipt and restores the ordered status", async () => {
           const location = await createStockLocation()
           const shirt = await createStockedVariant()

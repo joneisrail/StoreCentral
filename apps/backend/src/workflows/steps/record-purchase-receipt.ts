@@ -4,6 +4,7 @@ import { PURCHASE_MODULE } from "../../modules/purchase"
 import PurchaseModuleService from "../../modules/purchase/service"
 import {
   getStatusAfterReceipt,
+  purchaseLockKey,
   validateReceiveQuantities,
 } from "../../modules/purchase/utils"
 import { assertPurchaseReceivable } from "./validate-purchase-receipt"
@@ -30,8 +31,6 @@ type RecordPurchaseReceiptCompensation = {
   previous_status: string
   previous_quantities: { id: string; quantity_received: number }[]
 }
-
-const purchaseLockKey = (purchaseId: string) => "purchase:" + purchaseId
 
 const deleteReceipt = async (
   purchaseModule: PurchaseModuleService,

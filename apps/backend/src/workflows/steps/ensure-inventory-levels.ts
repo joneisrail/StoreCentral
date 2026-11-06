@@ -8,8 +8,10 @@ export type EnsureInventoryLevelsStepInput = {
 }[]
 
 // Same keys as the core adjust-inventory-levels step, so a level is never
-// created or removed while stock on it is being adjusted.
-const lockKeys = (inventoryItemIds: string[]) => [...new Set(inventoryItemIds)]
+// created or removed while stock on it is being adjusted. Sorted so two
+// requests over the same items always take the keys in the same order.
+const lockKeys = (inventoryItemIds: string[]) =>
+  [...new Set(inventoryItemIds)].sort()
 
 // Creates the inventory levels that are still missing. The list passed in may
 // be stale (another receive can create a level in between), so levels are
