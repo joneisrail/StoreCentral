@@ -7,7 +7,7 @@ import {
 } from "@medusajs/framework/workflows-sdk"
 import { dismissRemoteLinkStep } from "@medusajs/medusa/core-flows"
 import {
-  deleteSupplierProductStep,
+  deleteSupplierProductsStep,
   DeleteSupplierProductStepInput,
   retrieveSupplierProductStep,
 } from "./steps/delete-supplier-product"
@@ -25,9 +25,13 @@ export const deleteSupplierProductWorkflow = createWorkflow(
     ])
 
     dismissRemoteLinkStep(links)
-    const result = deleteSupplierProductStep(snapshot)
+    deleteSupplierProductsStep(
+      transform({ snapshot }, ({ snapshot }) => [snapshot])
+    )
 
-    return new WorkflowResponse(result)
+    return new WorkflowResponse(
+      transform({ snapshot }, ({ snapshot }) => ({ id: snapshot.id }))
+    )
   }
 )
 

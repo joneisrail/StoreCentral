@@ -19,8 +19,33 @@ export type SupplierProductSnapshot = {
   notes: string | null
 }
 
+// Everything needed to dismiss an entry's link and to recreate the row.
+export const toSupplierProductSnapshot = (
+  row: {
+    id: string
+    variant_id: string
+    supplier_sku: string
+    supplier_sku_key: string
+    supplier_title: string | null
+    unit_cost: unknown
+    notes: string | null
+  },
+  supplierId: string
+): SupplierProductSnapshot => ({
+  id: row.id,
+  supplier_id: supplierId,
+  variant_id: row.variant_id,
+  supplier_sku: row.supplier_sku,
+  supplier_sku_key: row.supplier_sku_key,
+  supplier_title: row.supplier_title,
+  unit_cost:
+    row.unit_cost === null || row.unit_cost === undefined
+      ? null
+      : Number(row.unit_cost),
+  notes: row.notes,
+})
+
 // Read-only: 404 when the entry is missing or belongs to another supplier.
-// Returns a snapshot used to dismiss the link and to restore the row.
 export const retrieveSupplierProductStep = createStep(
   "retrieve-supplier-product",
   async (input: DeleteSupplierProductStepInput, { container }) => {
@@ -33,39 +58,36 @@ export const retrieveSupplierProductStep = createStep(
       input.id
     )
 
-    const snapshot: SupplierProductSnapshot = {
-      id: existing.id,
-      supplier_id: input.supplier_id,
-      variant_id: existing.variant_id,
-      supplier_sku: existing.supplier_sku,
-      supplier_sku_key: existing.supplier_sku_key,
-      supplier_title: existing.supplier_title,
-      unit_cost:
-        existing.unit_cost === null ? null : Number(existing.unit_cost),
-      notes: existing.notes,
-    }
-    return new StepResponse(snapshot)
+    return new StepResponse(
+      toSupplierProductSnapshot(existing, input.supplier_id)
+    )
   }
 )
 
-// The link is restored by dismissRemoteLinkStep's own compensation.
-export const deleteSupplierProductStep = createStep(
-  "delete-supplier-product",
-  async (snapshot: SupplierProductSnapshot, { container }) => {
+// Deletes the entries; compensation recreates them with the same ids. Their
+// links are restored by dismissRemoteLinkStep's own compensation.
+export const deleteSupplierProductsStep = createStep(
+  "delete-supplier-products",
+  async (snapshots: SupplierProductSnapshot[], { container }) => {
+    if (!snapshots.length) {
+      return new StepResponse({ ids: [] as string[] }, [])
+    }
+
     const supplierModule =
       container.resolve<SupplierModuleService>(SUPPLIER_MODULE)
 
-    await supplierModule.deleteSupplierProducts(snapshot.id)
+    const ids = snapshots.map((s) => s.id)
+    await supplierModule.deleteSupplierProducts(ids)
 
-    return new StepResponse({ id: snapshot.id }, snapshot)
+    return new StepResponse({ ids }, snapshots)
   },
-  async (snapshot, { container }) => {
-    if (!snapshot) {
+  async (snapshots, { container }) => {
+    if (!snapshots?.length) {
       return
     }
 
     const supplierModule =
       container.resolve<SupplierModuleService>(SUPPLIER_MODULE)
-    await supplierModule.createSupplierProducts(snapshot)
+    await supplierModule.createSupplierProducts(snapshots)
   }
 )

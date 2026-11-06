@@ -24,6 +24,7 @@ export const createPurchaseWorkflow = createWorkflow(
     const items = resolvePurchaseItemsStep({
       supplier_id: input.supplier_id,
       items: input.items,
+      require_active_supplier: true,
     })
 
     const purchase = createPurchaseStep(

@@ -282,6 +282,158 @@ medusaIntegrationTestRunner({
         expect(after.status).toBe(404)
       })
 
+      describe("DELETE with supplier product entries", () => {
+        let counter = 0
+
+        const createVariant = async () => {
+          counter += 1
+          const product = (
+            await api.post(
+              "/admin/products",
+              {
+                title: `Delete product ${counter}`,
+                options: [{ title: "size", values: ["large"] }],
+                variants: [
+                  {
+                    title: "V",
+                    sku: `DEL-${counter}`,
+                    manage_inventory: false,
+                    prices: [{ currency_code: "usd", amount: 100 }],
+                    options: { size: "large" },
+                  },
+                ],
+              },
+              adminHeaders
+            )
+          ).data.product
+          return product.variants[0].id as string
+        }
+
+        const supplierWithEntries = async (name: string) => {
+          const supplier = await createSupplier(name)
+          const variantIds = [await createVariant(), await createVariant()]
+          const entryIds: string[] = []
+          for (const [i, variant_id] of variantIds.entries()) {
+            const response = await api.post(
+              `/admin/suppliers/${supplier.id}/products`,
+              { variant_id, supplier_sku: `Code-${i}` },
+              adminHeaders
+            )
+            entryIds.push(response.data.supplier_product.id)
+          }
+          return { supplier, variantIds, entryIds }
+        }
+
+        const linkedVariantIds = async (entryIds: string[]) => {
+          const query = getContainer().resolve(ContainerRegistrationKeys.QUERY)
+          const { data } = await query.graph({
+            entity: "supplier_product",
+            fields: ["id", "product_variant.id"],
+            filters: { id: entryIds },
+          })
+          return data
+            .map((row: any) => row.product_variant?.id)
+            .filter(Boolean)
+            .sort()
+        }
+
+        const linkRows = async (entryIds: string[]) => {
+          const link = getContainer().resolve(
+            ContainerRegistrationKeys.LINK
+          ) as any
+          const linkModule = link.getLinkModule(
+            SUPPLIER_MODULE,
+            "supplier_product_id",
+            "product",
+            "product_variant_id"
+          )
+          return (await linkModule.list({
+            supplier_product_id: entryIds,
+          })) as { supplier_product_id: string; product_variant_id: string }[]
+        }
+
+        it("removes a supplier with product entries and no purchases, with its entries and links, keeping the variants", async () => {
+          const { supplier, variantIds, entryIds } =
+            await supplierWithEntries("Zeta")
+          expect(await linkRows(entryIds)).toHaveLength(2)
+
+          const response = await api
+            .delete(`/admin/suppliers/${supplier.id}`, adminHeaders)
+            .catch((e) => e.response)
+          expect(response.status).toBe(200)
+
+          const supplierModule = getContainer().resolve(SUPPLIER_MODULE) as any
+          expect(
+            await supplierModule.listSupplierProducts({ id: entryIds })
+          ).toEqual([])
+          expect(await linkRows(entryIds)).toEqual([])
+
+          const query = getContainer().resolve(ContainerRegistrationKeys.QUERY)
+          const { data: variants } = await query.graph({
+            entity: "product_variant",
+            fields: ["id"],
+            filters: { id: variantIds },
+          })
+          expect(variants).toHaveLength(2)
+        })
+
+        it("restores the entries and their links when deleting the supplier fails", async () => {
+          const { supplier, variantIds, entryIds } =
+            await supplierWithEntries("Eta")
+
+          const supplierModule = getContainer().resolve(SUPPLIER_MODULE) as any
+          const spy = jest
+            .spyOn(supplierModule, "deleteSuppliers")
+            .mockRejectedValueOnce(new Error("simulated failure"))
+
+          try {
+            const response = await api
+              .delete(`/admin/suppliers/${supplier.id}`, adminHeaders)
+              .catch((e) => e.response)
+            expect(response.status).toBe(500)
+          } finally {
+            spy.mockRestore()
+          }
+
+          const restored = await supplierModule.listSupplierProducts({
+            supplier_id: supplier.id,
+          })
+          expect(restored.map((r: any) => r.id).sort()).toEqual(
+            [...entryIds].sort()
+          )
+          expect(
+            restored.map((r: any) => r.supplier_sku_key).sort()
+          ).toEqual(["code-0", "code-1"])
+          expect(await linkedVariantIds(entryIds)).toEqual(
+            [...variantIds].sort()
+          )
+
+          const fetched = await api.get(
+            `/admin/suppliers/${supplier.id}`,
+            adminHeaders
+          )
+          expect(fetched.status).toBe(200)
+        })
+
+        it("still refuses a supplier with product entries and a purchase, keeping the entries", async () => {
+          const container = getContainer()
+          const { supplier, entryIds } = await supplierWithEntries("Theta")
+
+          const purchaseModule = container.resolve(PURCHASE_MODULE) as any
+          const purchase = await purchaseModule.createPurchases({})
+          await container.resolve(ContainerRegistrationKeys.LINK).create({
+            [PURCHASE_MODULE]: { purchase_id: purchase.id },
+            [SUPPLIER_MODULE]: { supplier_id: supplier.id },
+          })
+
+          const response = await api
+            .delete(`/admin/suppliers/${supplier.id}`, adminHeaders)
+            .catch((e) => e.response)
+          expect(response.status).toBe(400)
+          expect(await linkRows(entryIds)).toHaveLength(2)
+        })
+      })
+
       it("DELETE refuses with 400 and keeps the supplier when it has a purchase", async () => {
         const container = getContainer()
         const supplier = await createSupplier("Epsilon")

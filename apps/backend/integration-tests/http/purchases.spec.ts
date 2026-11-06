@@ -351,6 +351,36 @@ medusaIntegrationTestRunner({
         expect(response.status).toBe(404)
       })
       describe("POST /admin/purchases/:id", () => {
+        it("still edits the items of a draft after its supplier is made inactive", async () => {
+          const supplier = await createSupplier("Fading")
+          const variant = await createVariant()
+          const created = await createPurchase({
+            supplier_id: supplier.id,
+            items: [{ variant_id: variant.id, quantity: 1, unit_cost: 2 }],
+          })
+          await api.post(
+            `/admin/suppliers/${supplier.id}`,
+            { is_active: false },
+            adminHeaders
+          )
+
+          const response = await api
+            .post(
+              `/admin/purchases/${created.id}`,
+              { items: [{ variant_id: variant.id, quantity: 4, unit_cost: 3 }] },
+              adminHeaders
+            )
+            .catch((e) => e.response)
+
+          expect(response.status).toBe(200)
+          expect(response.data.purchase.items).toHaveLength(1)
+          expect(response.data.purchase.items[0]).toMatchObject({
+            variant_id: variant.id,
+            quantity: 4,
+            unit_cost: 3,
+          })
+        })
+
         it("replaces items and updates costs on a draft", async () => {
           const supplier = await createSupplier("Acme")
           const variantA = await createVariant("Shirt A")

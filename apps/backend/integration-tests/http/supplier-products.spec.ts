@@ -204,6 +204,23 @@ medusaIntegrationTestRunner({
         expect((await list(supplier.id)).count).toBe(1)
       })
 
+      it("concurrent POSTs with the same variant yield one 200 and one 400 already-on-list", async () => {
+        const supplier = await createSupplier("Acme")
+        const variant = await createVariant()
+
+        const responses = await Promise.all([
+          post(productsUrl(supplier.id), { variant_id: variant.id, supplier_sku: "ONE" }),
+          post(productsUrl(supplier.id), { variant_id: variant.id, supplier_sku: "TWO" }),
+        ])
+
+        const statuses = responses.map((r) => r.status).sort()
+        expect(statuses).toEqual([200, 400])
+        const failed = responses.find((r) => r.status === 400)!
+        expect(failed.data.type).toBe("invalid_data")
+        expect(failed.data.message).toContain("already on this supplier's list")
+        expect((await list(supplier.id)).count).toBe(1)
+      })
+
       it("POST /:product_id edits code, title and cost; null clears the cost", async () => {
         const supplier = await createSupplier("Acme")
         const variant = await createVariant()

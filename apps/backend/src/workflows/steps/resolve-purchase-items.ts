@@ -7,6 +7,9 @@ import { createStep, StepResponse } from "@medusajs/framework/workflows-sdk"
 export type ResolvePurchaseItemsStepInput = {
   supplier_id: string
   items: { variant_id: string; quantity: number; unit_cost: number }[]
+  // Only new purchases refuse an inactive supplier; existing drafts keep
+  // working after their supplier is deactivated.
+  require_active_supplier?: boolean
 }
 
 export type ResolvedPurchaseItem = {
@@ -36,7 +39,7 @@ export const resolvePurchaseItemsStep = createStep(
       )
     }
 
-    if (!suppliers[0].is_active) {
+    if (input.require_active_supplier && !suppliers[0].is_active) {
       throw new MedusaError(
         MedusaError.Types.NOT_ALLOWED,
         `Supplier ${suppliers[0].name} is inactive and cannot be used for new purchases`
