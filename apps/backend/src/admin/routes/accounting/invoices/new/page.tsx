@@ -1,5 +1,5 @@
-import { useState } from "react"
-import { useMutation, useQuery } from "@tanstack/react-query"
+import { useRef, useState } from "react"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   Badge,
   Button,
@@ -11,6 +11,7 @@ import {
   Text,
   Textarea,
   toast,
+  usePrompt,
 } from "@medusajs/ui"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import { sdk } from "../../../../lib/sdk"
@@ -83,16 +84,20 @@ async function fetchPurchaseInvoices(purchaseId: string) {
 const InvoiceForm = ({
   purchase,
   invoices,
+  dirtyRef,
 }: {
   purchase: AdminPurchase
   invoices: AdminInvoice[]
+  dirtyRef: { current: boolean }
 }) => {
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   // Initialised once per purchase (the parent keys this component by id), so
   // a refetch never resets what the admin has typed.
-  const [lines, setLines] = useState<Line[]>(() =>
+  const [initialLines] = useState<Line[]>(() =>
     prefillLines(purchase.items, invoices)
   )
+  const [lines, setLines] = useState<Line[]>(initialLines)
   const [invoiceNumber, setInvoiceNumber] = useState("")
   const [invoiceDate, setInvoiceDate] = useState("")
   const [dueDate, setDueDate] = useState("")
@@ -109,6 +114,13 @@ const InvoiceForm = ({
         body,
       }),
     onSuccess: ({ invoice }) => {
+      // What is already invoiced has changed, so cached prefill data is stale.
+      queryClient.invalidateQueries({ queryKey: ["admin", "purchase-invoices"] })
+      queryClient.invalidateQueries({
+        queryKey: ["admin", "invoice-purchase-options"],
+    refetchOnMount: "always",
+      })
+      queryClient.invalidateQueries({ queryKey: ["admin", "invoices"] })
       toast.success("Invoice saved")
       navigate(`/accounting/invoices/${invoice.id}`)
     },
@@ -142,6 +154,25 @@ const InvoiceForm = ({
       other_cost: otherCost ?? 0,
     }
   )
+
+  // Dirty once anything differs from the pristine prefilled form.
+  dirtyRef.current =
+    invoiceNumber !== "" ||
+    invoiceDate !== "" ||
+    dueDate !== "" ||
+    shipping !== "" ||
+    tax !== "" ||
+    other !== "" ||
+    notes !== "" ||
+    lines.length !== initialLines.length ||
+    lines.some((line, index) => {
+      const initial = initialLines[index]
+      return (
+        line.key !== initial.key ||
+        line.quantity !== initial.quantity ||
+        line.unit_cost !== initial.unit_cost
+      )
+    })
 
   const warnings = lineWarnings(lines, purchase.items, invoices)
 
@@ -402,6 +433,8 @@ const NewInvoicePage = () => {
     searchParams.get("purchase_id") ?? ""
   )
   const [filter, setFilter] = useState("")
+  const dirtyRef = useRef(false)
+  const prompt = usePrompt()
 
   const purchases = useQuery({
     queryKey: ["admin", "invoice-purchase-options"],
@@ -428,8 +461,30 @@ const NewInvoicePage = () => {
   const invoices = useQuery({
     queryKey: ["admin", "purchase-invoices", purchaseId],
     enabled: purchase !== undefined,
+    // The prefill must reflect the server at mount, never a cached copy: a
+    // stale list would bill again what an earlier invoice already covers.
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnMount: "always",
     queryFn: () => fetchPurchaseInvoices(purchaseId),
   })
+
+  const handlePurchaseChange = async (next: string) => {
+    if (next !== purchaseId && purchaseId !== "" && dirtyRef.current) {
+      const confirmed = await prompt({
+        title: "Discard this invoice?",
+        description:
+          "Changing the purchase discards the invoice you have started.",
+        confirmText: "Discard",
+        cancelText: "Keep editing",
+      })
+      if (!confirmed) {
+        return
+      }
+    }
+    dirtyRef.current = false
+    setPurchaseId(next)
+  }
 
   const term = filter.trim().toLowerCase()
   const options = (purchases.data?.purchases ?? []).filter(
@@ -459,7 +514,7 @@ const NewInvoicePage = () => {
             id="invoice-purchase"
             className={selectClass}
             value={purchaseId}
-            onChange={(event) => setPurchaseId(event.target.value)}
+            onChange={(event) => handlePurchaseChange(event.target.value)}
           >
             <option value="">Select a purchase</option>
             {purchase && !options.some((p) => p.id === purchase.id) && (
@@ -504,7 +559,7 @@ const NewInvoicePage = () => {
           )}
         </div>
 
-        {purchase && invoices.isLoading && <Text>Loading invoice lines...</Text>}
+        {purchase && !invoices.isError && !invoices.isFetchedAfterMount && <Text>Loading invoice lines...</Text>}
         {purchase && invoices.isError && (
           <div className="flex items-center gap-2">
             <Text className="text-ui-fg-error">
@@ -520,11 +575,12 @@ const NewInvoicePage = () => {
             </Button>
           </div>
         )}
-        {purchase && invoices.data && (
+        {purchase && invoices.data && invoices.isFetchedAfterMount && (
           <InvoiceForm
             key={purchase.id}
             purchase={purchase}
             invoices={invoices.data}
+            dirtyRef={dirtyRef}
           />
         )}
       </div>

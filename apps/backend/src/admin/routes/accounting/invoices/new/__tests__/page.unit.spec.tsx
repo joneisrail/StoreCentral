@@ -10,6 +10,7 @@ import { MemoryRouter, Route, Routes, useParams } from "react-router-dom"
 const mockFetch = jest.fn()
 const mockVariantList = jest.fn()
 const mockToastSuccess = jest.fn()
+const mockPrompt = jest.fn()
 
 jest.mock("../../../../../lib/sdk", () => ({
   sdk: {
@@ -27,6 +28,7 @@ jest.mock("../../../../../lib/sdk", () => ({
 jest.mock("@medusajs/ui", () => ({
   ...jest.requireActual("@medusajs/ui"),
   toast: { success: (...args: unknown[]) => mockToastSuccess(...args) },
+  usePrompt: () => (...args: unknown[]) => mockPrompt(...args),
 }))
 
 import NewInvoicePage from "../page"
@@ -36,10 +38,14 @@ function DetailStub() {
   return <div>Invoice detail {id}</div>
 }
 
-function renderPage(path = "/accounting/invoices/new") {
-  const queryClient = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
-  })
+function newClient() {
+  return new QueryClient({ defaultOptions: { queries: { retry: false } } })
+}
+
+function renderPage(
+  path = "/accounting/invoices/new",
+  queryClient: QueryClient = newClient()
+) {
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={[path]}>
@@ -128,6 +134,15 @@ function installServer() {
         if (postError) {
           return Promise.reject(new Error(postError))
         }
+        // The server stores what was saved, as a draft of the purchase.
+        invoices.push({
+          purchase_id: (opts.body as Row).purchase_id,
+          status: "draft",
+          items: (opts.body as Row).items.map((i: Row) => ({
+            purchase_item_id: i.purchase_item_id ?? null,
+            quantity: i.quantity,
+          })),
+        })
         return Promise.resolve({ invoice: { id: "inv_new" } })
       }
       if (url === "/admin/invoices") {
@@ -518,41 +533,143 @@ describe("NewInvoicePage", () => {
   })
 
   it("the product picker searches as you type and ignores stale responses", async () => {
-    let resolveSlow: (value: unknown) => void = () => {}
+    let resolveA: (value: unknown) => void = () => {}
+    const result = (id: string, title: string) => ({
+      variants: [{ id, title, sku: id, product: null }],
+      count: 1,
+      limit: 5,
+      offset: 0,
+    })
     mockVariantList.mockImplementation(({ q }: { q?: string }) => {
-      if (q === "NOPE-1") {
+      if (q === "a") {
         return new Promise((resolve) => {
-          resolveSlow = resolve
+          resolveA = resolve
         })
       }
-      return Promise.resolve({
-        variants: [
-          { id: "var_fast", title: "Fast result", sku: "F", product: null },
-        ],
-        count: 1,
-        limit: 5,
-        offset: 0,
-      })
+      if (q === "b") {
+        return Promise.resolve(result("var_b", "Bravo result"))
+      }
+      return Promise.resolve(result("var_0", "Initial result"))
     })
     renderPage()
     await choosePurchase()
     typeCode("NOPE-1")
-    await screen.findByLabelText("Search products")
-    fireEvent.change(screen.getByLabelText("Search products"), {
-      target: { value: "fast" },
-    })
-    expect(await screen.findByText("Fast result (F)")).toBeInTheDocument()
+    await screen.findByText("Initial result (var_0)")
 
-    await act(async () => {
-      resolveSlow({
-        variants: [{ id: "var_old", title: "Old result", sku: "O", product: null }],
-        count: 1,
-        limit: 5,
-        offset: 0,
-      })
+    fireEvent.change(screen.getByLabelText("Search products"), {
+      target: { value: "a" },
     })
-    expect(screen.queryByText("Old result (O)")).toBeNull()
-    expect(screen.getByText("Fast result (F)")).toBeInTheDocument()
+    await waitFor(() =>
+      expect(mockVariantList).toHaveBeenCalledWith(
+        expect.objectContaining({ q: "a" })
+      )
+    )
+    fireEvent.change(screen.getByLabelText("Search products"), {
+      target: { value: "b" },
+    })
+    expect(await screen.findByText("Bravo result (var_b)")).toBeInTheDocument()
+
+    // The response for "a" arrives after "b" is already on screen.
+    await act(async () => {
+      resolveA(result("var_a", "Alpha result"))
+    })
+    expect(screen.queryByText("Alpha result (var_a)")).toBeNull()
+    expect(screen.getByText("Bravo result (var_b)")).toBeInTheDocument()
+  })
+
+  it("prefills from the server after saving, never from cached invoices", async () => {
+    const client = newClient()
+    const first = renderPage("/accounting/invoices/new", client)
+    await choosePurchase()
+    expect(screen.getByLabelText("Quantity for Oud Royal - 100ml")).toHaveValue(10)
+    fillHeader()
+    fireEvent.change(screen.getByLabelText("Quantity for Oud Royal - 100ml"), {
+      target: { value: "4" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Remove Amber Night - 50ml" }))
+    fireEvent.click(saveButton())
+    await screen.findByText("Invoice detail inv_new")
+    first.unmount()
+
+    renderPage("/accounting/invoices/new?purchase_id=pur_1", client)
+    expect(
+      await screen.findByLabelText("Quantity for Oud Royal - 100ml")
+    ).toHaveValue(6)
+    // The saved invoice covered only the Oud line; Amber is still open.
+    expect(screen.getByLabelText("Quantity for Amber Night - 50ml")).toHaveValue(3)
+  })
+
+  describe("changing the purchase", () => {
+    beforeEach(() => {
+      purchases = [
+        makePurchase(),
+        makePurchase({
+          id: "pur_2",
+          reference: "PO-0002",
+          items: [
+            purchaseItem({
+              id: "pi_c",
+              variant_id: "var_c",
+              title: "Cedar Oil - 1L",
+              quantity: 5,
+            }),
+          ],
+        }),
+      ]
+    })
+
+    async function openBoth() {
+      renderPage()
+      await choosePurchase()
+      await screen.findByRole("option", { name: /PO-0002/ })
+    }
+
+    it("asks before discarding a dirty form and keeps it when declined", async () => {
+      mockPrompt.mockResolvedValue(false)
+      await openBoth()
+      fireEvent.change(screen.getByLabelText("Quantity for Oud Royal - 100ml"), {
+        target: { value: "3" },
+      })
+      fireEvent.change(screen.getByLabelText("Purchase"), {
+        target: { value: "pur_2" },
+      })
+      await waitFor(() => expect(mockPrompt).toHaveBeenCalledTimes(1))
+      await act(async () => {})
+      expect(screen.getByLabelText("Purchase")).toHaveValue("pur_1")
+      expect(screen.getByLabelText("Quantity for Oud Royal - 100ml")).toHaveValue(3)
+
+      mockPrompt.mockResolvedValue(true)
+      fireEvent.change(screen.getByLabelText("Purchase"), {
+        target: { value: "pur_2" },
+      })
+      expect(
+        await screen.findByLabelText("Quantity for Cedar Oil - 1L")
+      ).toBeInTheDocument()
+    })
+
+    it("asks when only the invoice number was typed", async () => {
+      mockPrompt.mockResolvedValue(false)
+      await openBoth()
+      fireEvent.change(screen.getByLabelText("Invoice number"), {
+        target: { value: "X" },
+      })
+      fireEvent.change(screen.getByLabelText("Purchase"), {
+        target: { value: "pur_2" },
+      })
+      await waitFor(() => expect(mockPrompt).toHaveBeenCalledTimes(1))
+    })
+
+    it("does not ask when the form is pristine", async () => {
+      await openBoth()
+      fireEvent.change(screen.getByLabelText("Purchase"), {
+        target: { value: "pur_2" },
+      })
+      expect(
+        await screen.findByLabelText("Quantity for Cedar Oil - 1L")
+      ).toBeInTheDocument()
+      await act(async () => {})
+      expect(mockPrompt).not.toHaveBeenCalled()
+    })
   })
 
   it("asks which purchase item when the variant is on the purchase twice", async () => {
