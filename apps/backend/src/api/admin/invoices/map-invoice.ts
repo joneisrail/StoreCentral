@@ -1,6 +1,10 @@
 import {
+  calculateBalance,
   calculateInvoiceTotals,
+  calculatePaidTotal,
   formatInvoiceReference,
+  getPaymentStatus,
+  isOverdue,
 } from "../../../modules/accounting/utils"
 import { formatPurchaseReference } from "../../../modules/purchase/utils"
 
@@ -62,6 +66,8 @@ export type InvoiceExtras = {
   purchase: { id: string; display_id: number } | null
 }
 
+export type InvoicePayment = { amount: Money; status: string }
+
 export type AdminInvoiceItem = {
   id: string
   purchase_item_id: string | null
@@ -88,6 +94,10 @@ export type AdminInvoice = {
   other_cost: number
   subtotal: number
   total: number
+  paid_total: number
+  balance: number
+  payment_status: "unpaid" | "partially_paid" | "paid" | null
+  overdue: boolean
   notes: string | null
   posted_at: DateValue | null
   voided_at: DateValue | null
@@ -102,7 +112,10 @@ const toDateOnly = (value: DateValue): string =>
 
 export const mapInvoice = (
   row: InvoiceRow,
-  extras: InvoiceExtras
+  extras: InvoiceExtras,
+  payments: InvoicePayment[] = [],
+  // Injectable clock; callers pass the request's "now" (UTC calendar date).
+  today: Date = new Date()
 ): AdminInvoice => {
   const items = [...(row.items ?? [])]
     .sort((a, b) =>
@@ -132,13 +145,21 @@ export const mapInvoice = (
     other_cost,
   })
 
+  const numeric = payments.map((p) => ({
+    amount: Number(p.amount),
+    status: p.status,
+  }))
+  const paid_total = calculatePaidTotal(numeric)
+  const balance = calculateBalance(total, numeric)
+  const due_date = row.due_date ? toDateOnly(row.due_date) : null
+
   return {
     id: row.id,
     reference: formatInvoiceReference(row.display_id),
     status: row.status,
     invoice_number: row.invoice_number,
     invoice_date: toDateOnly(row.invoice_date),
-    due_date: row.due_date ? toDateOnly(row.due_date) : null,
+    due_date,
     supplier: extras.supplier,
     purchase: extras.purchase
       ? {
@@ -152,6 +173,17 @@ export const mapInvoice = (
     other_cost,
     subtotal,
     total,
+    paid_total,
+    balance,
+    payment_status: getPaymentStatus({
+      invoice_status: row.status,
+      total,
+      paid_total,
+    }),
+    overdue: isOverdue(
+      { invoice_status: row.status, due_date, balance },
+      today
+    ),
     notes: row.notes,
     posted_at: row.posted_at,
     voided_at: row.voided_at,

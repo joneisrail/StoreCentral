@@ -80,7 +80,8 @@ medusaIntegrationTestRunner({
     const invoiceFor = async (
       ctx: Ctx,
       total: number,
-      action: "post" | "draft" | "void" = "post"
+      action: "post" | "draft" | "void" = "post",
+      dueDate?: string
     ) => {
       counter += 1
       const made = await api.post(
@@ -89,6 +90,7 @@ medusaIntegrationTestRunner({
           purchase_id: ctx.purchase.id,
           invoice_number: `B-${counter}`,
           invoice_date: "2026-11-01",
+          ...(dueDate ? { due_date: dueDate } : {}),
           items: [{ variant_id: ctx.variant.id, quantity: 1, unit_cost: total }],
         },
         adminHeaders
@@ -616,6 +618,270 @@ medusaIntegrationTestRunner({
       expect((await voidPayment(made.data.payment.id)).status).toBe(200)
       expect(await levels()).toEqual(before)
       expect(before[0].stocked_quantity).toBe(7)
+    })
+
+    describe("payment fields on invoices", () => {
+      const listInvoices = (qs = "") =>
+        api.get(`/admin/invoices${qs}`, adminHeaders).catch((e) => e.response)
+      const getInvoice = (id: string) =>
+        api.get(`/admin/invoices/${id}`, adminHeaders).catch((e) => e.response)
+      const voidInvoice = (id: string) =>
+        api
+          .post(`/admin/invoices/${id}/void`, {}, adminHeaders)
+          .catch((e) => e.response)
+      const byId = async (id: string) =>
+        (await listInvoices("?limit=100")).data.invoices.find(
+          (i: any) => i.id === id
+        )
+
+      it("shows unpaid, part paid and paid on the list and detail", async () => {
+        const ctx = await setup()
+        const unpaid = await invoiceFor(ctx, 10)
+        const part = await invoiceFor(ctx, 10)
+        const full = await invoiceFor(ctx, 10)
+        expect((await pay(body(part.id, 4))).status).toBe(200)
+        expect((await pay(body(full.id, 6))).status).toBe(200)
+        expect((await pay(body(full.id, 4))).status).toBe(200)
+
+        const expected: [{ id: string }, object][] = [
+          [unpaid, { paid_total: 0, balance: 10, payment_status: "unpaid" }],
+          [part, { paid_total: 4, balance: 6, payment_status: "partially_paid" }],
+          [full, { paid_total: 10, balance: 0, payment_status: "paid" }],
+        ]
+        for (const [invoice, fields] of expected) {
+          expect(await byId(invoice.id)).toMatchObject(fields)
+          expect((await getInvoice(invoice.id)).data.invoice).toMatchObject(
+            fields
+          )
+        }
+      })
+
+      it("does not count a voided payment", async () => {
+        const ctx = await setup()
+        const invoice = await invoiceFor(ctx, 10)
+        const first = await pay(body(invoice.id, 10))
+        expect((await voidPayment(first.data.payment.id)).status).toBe(200)
+        expect((await pay(body(invoice.id, 3))).status).toBe(200)
+
+        expect(await byId(invoice.id)).toMatchObject({
+          paid_total: 3,
+          balance: 7,
+          payment_status: "partially_paid",
+        })
+      })
+
+      it("has a null payment status and no overdue on a draft and a void invoice", async () => {
+        const ctx = await setup()
+        const draft = await invoiceFor(ctx, 10, "draft", "2020-01-01")
+        const voided = await invoiceFor(ctx, 10, "void", "2020-01-01")
+
+        for (const invoice of [draft, voided]) {
+          expect(await byId(invoice.id)).toMatchObject({
+            payment_status: null,
+            overdue: false,
+          })
+        }
+      })
+
+      it("is overdue past the due date with a balance, not once paid or on the due date", async () => {
+        const ctx = await setup()
+        const today = new Date().toISOString().slice(0, 10)
+        const late = await invoiceFor(ctx, 10, "post", "2020-01-01")
+        const settled = await invoiceFor(ctx, 10, "post", "2020-01-01")
+        const dueToday = await invoiceFor(ctx, 10, "post", today)
+        const noDue = await invoiceFor(ctx, 10)
+        await pay(body(settled.id, 10))
+
+        expect((await byId(late.id)).overdue).toBe(true)
+        expect((await byId(settled.id)).overdue).toBe(false)
+        expect((await byId(dueToday.id)).overdue).toBe(false)
+        expect((await byId(noDue.id)).overdue).toBe(false)
+        expect((await getInvoice(late.id)).data.invoice.overdue).toBe(true)
+      })
+
+      it("returns payments newest first on the detail, in the payment shape", async () => {
+        const ctx = await setup()
+        const invoice = await invoiceFor(ctx, 10)
+        const ids: string[] = []
+        for (const amount of [1, 2, 3]) {
+          await new Promise((resolve) => setTimeout(resolve, 20))
+          ids.push((await pay(body(invoice.id, amount))).data.payment.id)
+        }
+        await voidPayment(ids[1])
+
+        const { payments } = (await getInvoice(invoice.id)).data
+        expect(payments.map((p: any) => p.id)).toEqual([
+          ids[2],
+          ids[1],
+          ids[0],
+        ])
+        expect(payments[0]).toMatchObject({
+          reference: expect.stringMatching(/^PAY-/),
+          amount: 3,
+          status: "recorded",
+          invoice: { id: invoice.id, invoice_number: invoice.invoice_number },
+        })
+        expect(payments[1].status).toBe("void")
+        const empty = await invoiceFor(ctx, 5)
+        expect((await getInvoice(empty.id)).data.payments).toEqual([])
+      })
+
+      it("counts every payment of an invoice (60, no default-take truncation)", async () => {
+        const ctx = await setup()
+        const invoice = await invoiceFor(ctx, 10)
+        for (let i = 0; i < 60; i += 1) {
+          await accounting().createPayments({
+            invoice_id: invoice.id,
+            supplier_id: ctx.supplier.id,
+            amount: 0.01,
+            paid_at: new Date("2026-11-05"),
+            method: "cash",
+          })
+        }
+
+        expect(await byId(invoice.id)).toMatchObject({
+          paid_total: 0.6,
+          balance: 9.4,
+        })
+        const detail = await getInvoice(invoice.id)
+        expect(detail.data.invoice.paid_total).toBe(0.6)
+        expect(detail.data.payments).toHaveLength(60)
+        expect(
+          (await listInvoices("?payment_status=partially_paid")).data
+            .invoices[0]
+        ).toMatchObject({ id: invoice.id, paid_total: 0.6 })
+      })
+
+      describe("payment_status filter", () => {
+        const setupFilter = async () => {
+          const a = await setup("Acme")
+          const b = await setup("Beta")
+          // Created oldest to newest; the list is newest first.
+          const late = await invoiceFor(a, 10, "post", "2020-01-01")
+          const part = await invoiceFor(a, 10, "post", "2099-01-01")
+          const paid = await invoiceFor(a, 10, "post", "2020-01-01")
+          const other = await invoiceFor(b, 10, "post", "2020-01-01")
+          const draft = await invoiceFor(a, 10, "draft", "2020-01-01")
+          const voided = await invoiceFor(a, 10, "void", "2020-01-01")
+          await pay(body(part.id, 4))
+          await pay(body(paid.id, 10))
+          return { a, b, late, part, paid, other, draft, voided }
+        }
+        const ids = async (qs: string) =>
+          (await listInvoices(qs)).data.invoices.map((i: any) => i.id)
+
+        it("filters by each value, never matching a draft or void invoice", async () => {
+          const f = await setupFilter()
+
+          expect(await ids("?payment_status=unpaid")).toEqual([
+            f.other.id,
+            f.late.id,
+          ])
+          expect(await ids("?payment_status=partially_paid")).toEqual([
+            f.part.id,
+          ])
+          expect(await ids("?payment_status=paid")).toEqual([f.paid.id])
+          expect(await ids("?payment_status=overdue")).toEqual([
+            f.other.id,
+            f.late.id,
+          ])
+          expect((await listInvoices("?payment_status=bogus")).status).toBe(400)
+        })
+
+        it("combines with supplier_id and status and counts the filtered total", async () => {
+          const f = await setupFilter()
+
+          const response = await listInvoices(
+            `?payment_status=overdue&supplier_id=${f.a.supplier.id}`
+          )
+          expect(response.data.count).toBe(1)
+          expect(response.data.invoices.map((i: any) => i.id)).toEqual([
+            f.late.id,
+          ])
+          expect(
+            (await listInvoices("?payment_status=unpaid&status=draft")).data
+              .count
+          ).toBe(0)
+        })
+
+        it("paginates the filtered rows with a filtered count", async () => {
+          const f = await setupFilter()
+
+          const page = (offset: number) =>
+            listInvoices(`?payment_status=unpaid&limit=1&offset=${offset}`)
+          const page1 = await page(0)
+          const page2 = await page(1)
+          const page3 = await page(2)
+          expect(page1.data.count).toBe(2)
+          expect(page1.data.limit).toBe(1)
+          expect(page2.data.offset).toBe(1)
+          expect(page1.data.invoices.map((i: any) => i.id)).toEqual([
+            f.other.id,
+          ])
+          expect(page2.data.invoices.map((i: any) => i.id)).toEqual([f.late.id])
+          expect(page3.data.invoices).toEqual([])
+          expect(page3.data.count).toBe(2)
+        })
+      })
+
+      describe("voiding an invoice with payments", () => {
+        it("is refused while a payment is live, naming the count, and allowed after it is voided", async () => {
+          const ctx = await setup()
+          const invoice = await invoiceFor(ctx, 10)
+          await pay(body(invoice.id, 3))
+          await pay(body(invoice.id, 2))
+
+          const refused = await voidInvoice(invoice.id)
+          expect(refused.status).toBe(400)
+          expect(refused.data.message).toBe(
+            `Invoice ${invoice.invoice_number} has 2 payment(s); void the payments first`
+          )
+          expect((await getInvoice(invoice.id)).data.invoice.status).toBe(
+            "posted"
+          )
+
+          const all = (await getInvoice(invoice.id)).data.payments
+          for (const p of all) {
+            await voidPayment(p.id)
+          }
+          expect((await voidInvoice(invoice.id)).status).toBe(200)
+          expect((await getInvoice(invoice.id)).data.invoice.status).toBe(
+            "void"
+          )
+        })
+
+        it("still voids an invoice without payments", async () => {
+          const ctx = await setup()
+          const invoice = await invoiceFor(ctx, 10)
+          expect((await voidInvoice(invoice.id)).status).toBe(200)
+        })
+
+        it.each([1, 2, 3])(
+          "a concurrent payment and void: exactly one wins (run %i)",
+          async () => {
+            const ctx = await setup()
+            const invoice = await invoiceFor(ctx, 10)
+
+            const [paid, voided] = await Promise.all([
+              pay(body(invoice.id, 5)),
+              voidInvoice(invoice.id),
+            ])
+
+            expect([paid.status, voided.status].sort()).toEqual([200, 400])
+            const after = await getInvoice(invoice.id)
+            const live = after.data.payments.filter(
+              (p: any) => p.status === "recorded"
+            )
+            if (paid.status === 200) {
+              expect(after.data.invoice.status).toBe("posted")
+              expect(live).toHaveLength(1)
+            } else {
+              expect(after.data.invoice.status).toBe("void")
+              expect(live).toHaveLength(0)
+            }
+          }
+        )
+      })
     })
   },
 })

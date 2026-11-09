@@ -8,14 +8,20 @@ import { updateInvoiceWorkflow } from "../../../../workflows/update-invoice"
 import { retrieveAdminPurchase } from "../../purchases/retrieve-admin-purchase"
 import { compareInvoice } from "../compare-invoice"
 import type { UpdateInvoiceSchema } from "../middlewares"
-import { retrieveAdminInvoice } from "../retrieve-admin-invoice"
+import {
+  retrieveAdminInvoice,
+  retrieveAdminInvoiceDetail,
+} from "../retrieve-admin-invoice"
 
 export async function GET(req: MedusaRequest, res: MedusaResponse) {
   const query = req.scope.resolve(ContainerRegistrationKeys.QUERY)
 
-  const invoice = await retrieveAdminInvoice(req.scope, req.params.id)
+  const { invoice, payments } = await retrieveAdminInvoiceDetail(
+    req.scope,
+    req.params.id
+  )
   if (!invoice.purchase) {
-    return res.json({ invoice, comparison: null })
+    return res.json({ invoice, payments, comparison: null })
   }
   const purchase = await retrieveAdminPurchase(req.scope, invoice.purchase.id)
 
@@ -63,7 +69,7 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
     invoice_total: invoice.total,
   })
 
-  res.json({ invoice, comparison })
+  res.json({ invoice, payments, comparison })
 }
 
 export async function POST(

@@ -31,6 +31,19 @@ export const voidInvoiceStep = createStep(
           )
         }
 
+        // A live payment blocks the void. This runs under the same status lock
+        // as record-payment, so a payment and a void cannot both succeed.
+        const live = await accounting.listPayments(
+          { invoice_id: existing.id, status: "recorded" },
+          { take: null }
+        )
+        if (live.length) {
+          throw new MedusaError(
+            MedusaError.Types.NOT_ALLOWED,
+            `Invoice ${existing.invoice_number} has ${live.length} payment(s); void the payments first`
+          )
+        }
+
         const snapshot = snapshotInvoiceStatus(existing)
         await accounting.updateInvoices({
           id: existing.id,
