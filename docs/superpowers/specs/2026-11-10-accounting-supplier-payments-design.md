@@ -47,7 +47,7 @@ apps/backend/src/
   workflows/                record-payment, void-payment (+ steps/)
                             (changed) void-invoice, post-invoice,
                             update-invoice, cancel-purchase steps
-  api/admin/payments/       route.ts, [id]/route.ts, [id]/void/route.ts,
+  api/admin/supplier-payments/       route.ts, [id]/route.ts, [id]/void/route.ts,
                             middlewares.ts, map-payment.ts
   api/admin/supplier-balances/   route.ts
   api/admin/invoices/       map-invoice.ts gains payment fields
@@ -127,11 +127,13 @@ All routes are admin-only (auth is automatic under `/admin/*`). Zod from
 
 | Method and path | Purpose |
 |---|---|
-| `GET /admin/payments` | List: filters `invoice_id`, `supplier_id`, `status`, `method`; `q` searches reference (case-insensitive, `%` and `_` literal); paginated, newest first with an `id` tiebreak |
-| `POST /admin/payments` | Record: `invoice_id`, `amount`, `paid_at`, `method`, optional `reference`, `note` |
-| `GET /admin/payments/:id` | One payment with invoice reference and supplier |
-| `POST /admin/payments/:id/void` | Void |
+| `GET /admin/supplier-payments` | List: filters `invoice_id`, `supplier_id`, `status`, `method`; `q` searches reference (case-insensitive, `%` and `_` literal); paginated, newest first with an `id` tiebreak |
+| `POST /admin/supplier-payments` | Record: `invoice_id`, `amount`, `paid_at`, `method`, optional `reference`, `note` |
+| `GET /admin/supplier-payments/:id` | One payment with invoice reference and supplier |
+| `POST /admin/supplier-payments/:id/void` | Void |
 | `GET /admin/supplier-balances` | One row per supplier that has posted invoices: `supplier`, `invoiced_total`, `paid_total`, `balance_owed`, `overdue_total`, `open_invoices` (posted with balance > 0); supports `q` on supplier name, pagination, sorted by `balance_owed` descending |
+
+Note: the path is `supplier-payments` to avoid the core Medusa `/admin/payments` routes and their middlewares.
 
 Invoice responses (`GET /admin/invoices`, `GET /admin/invoices/:id` and the
 payment routes' embedded invoices) gain `paid_total`, `balance`,
@@ -161,7 +163,7 @@ that block it; cancelling a purchase names the blocking invoices.
   with amount prefilled to the balance, date defaulting to today, method,
   reference and note; strict numeric parsing; server errors shown inline.
 - All requests use `sdk.client.fetch`; mutations show toasts and invalidate the
-  shared query prefixes (`["admin","invoices"]`, `["admin","payments"]`,
+  shared query prefixes (`["admin","invoices"]`, `["admin","supplier-payments"]`,
   `["admin","supplier-balances"]`, `["admin","purchase-invoices"]`). Buttons
   are disabled while a request is in flight; Record payment is disabled while
   a Save, Post or Void on the same invoice is pending.
