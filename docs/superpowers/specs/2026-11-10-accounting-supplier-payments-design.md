@@ -43,13 +43,14 @@ entering it again.
 ```
 apps/backend/src/
   modules/accounting/       + models/payment.ts, service (Payment), utils.ts additions
-  links/                    payment-invoice.ts
   workflows/                record-payment, void-payment (+ steps/)
                             (changed) void-invoice, post-invoice,
                             update-invoice, cancel-purchase steps
-  api/admin/supplier-payments/       route.ts, [id]/route.ts, [id]/void/route.ts,
+  api/admin/supplier-payments/
+                            route.ts, [id]/route.ts, [id]/void/route.ts,
                             middlewares.ts, map-payment.ts
-  api/admin/supplier-balances/   route.ts
+  api/admin/supplier-balances/
+                            route.ts
   api/admin/invoices/       map-invoice.ts gains payment fields
   admin/routes/accounting/  payments/ (list), payables/ (balances),
                             invoices/ pages gain payment UI
@@ -61,13 +62,15 @@ never hand-written.
 
 ### Data model
 
-**Payment** (new, in the `accounting` module):
+**Payment** (new, in the `accounting` module). The model is named
+`supplier_payment` (a model named `payment` collides with Medusa's core
+payment module alias); the service key is `Payment`:
 
 | Field | Notes |
 |---|---|
 | `id` | |
 | `display_id` | autoincrement; shown as `PAY-0001` |
-| `invoice_id` | the invoice paid (plain column, also linked) |
+| `invoice_id` | the invoice paid (plain column, no link; payments are read by `invoice_id`) |
 | `supplier_id` | snapshot from the invoice, for filtering and the payables view |
 | `amount` | `bigNumber`, plain dollars, greater than 0, at most 2 decimals |
 | `paid_at` | date the money was paid (`YYYY-MM-DD`) |
@@ -78,7 +81,9 @@ never hand-written.
 | `voided_at` | set when voided |
 | `currency_code` | fixed `usd` |
 
-Link: Payment to Invoice (many payments per invoice).
+There is no link: Medusa rejects links inside one module. `invoice_id` is a
+plain column and payments are read through the accounting service by
+`invoice_id` (many payments per invoice).
 
 Computed on read, never stored:
 - `paid_total` = sum of `amount` over non-void payments of the invoice.
@@ -96,7 +101,7 @@ Computed on read, never stored:
   check and the insert run inside `locking.execute([invoiceStatusLockKey
   (invoice_id)])`, so two simultaneous payments cannot together exceed the
   balance and a payment cannot land while the invoice is being voided.
-  The payment is linked to its invoice.
+  The payment references its invoice through the plain `invoice_id` column.
 - **Void payment:** allowed once, from `recorded`. Runs under the same invoice
   status lock. A voided payment stops counting immediately.
 - **Void invoice (changed):** inside the existing lock, refuse with a clear
@@ -114,6 +119,7 @@ Computed on read, never stored:
   whole mutation and a failed link write can never overwrite an invoice that
   was posted meanwhile.
 - Payments never change stock or purchases.
+- A posted invoice with total <= 0 counts as `paid`; the over-balance and validity checks use whole cents with a relative float tolerance (`isValidPaymentAmount`).
 
 Lock order everywhere: invoice status lock, then invoice-number lock, then
 purchase lock. Recording, voiding and invoice voiding take only the invoice
@@ -173,15 +179,18 @@ that block it; cancelling a purchase names the blocking invoices.
 - **Unit:** payment totals and balance rounding (parity with invoice
   totals), payment status and overdue calculation (today boundary), payables
   aggregation, reference formatting.
-- **Module integration:** the Payment model, defaults, status, links.
+- **Module integration:** the Payment model, defaults, status.
 - **HTTP integration:** each route; paying a draft or void invoice refused;
   overpay refused and exact-balance accepted; two concurrent payments that
   together exceed the balance (exactly one succeeds); payment racing an
   invoice void (never both succeed); voiding a payment frees the balance;
   void-twice refused; void invoice refused with a live payment and allowed
   after the payment is voided; cancel purchase refused with a draft or posted
-  invoice and allowed with only void invoices; post racing a purchase cancel
-  (never a posted invoice on a cancelled purchase); update-invoice link
+  invoice and allowed with only void invoices; sequence tests on purchase
+  cancel and post (a draft or posted invoice blocks purchase cancel;
+  cancelling first then creating an invoice is allowed but posting it is
+  refused; two concurrent posts of different invoices on one purchase both
+  succeed, no deadlock); update-invoice link
   failure never rewrites a posted invoice (failure injection); payables
   numbers; list filters, `q` escaping, pagination; stock unchanged.
 - **Admin pages:** component tests in the existing style for the payments
@@ -194,6 +203,19 @@ that block it; cancelling a purchase names the blocking invoices.
 - Menu names are **Payments** and **Payables**.
 - "Overdue" compares the due date with today's UTC date.
 - A payment amount has at most 2 decimal places.
+
+## Deployment notes
+
+- The locking module defaults to the in-memory provider, which only protects a
+  single process. Before running the backend as more than one process (server
+  plus worker, or replicas), configure the Redis locking provider
+  (`@medusajs/medusa/locking` with the Redis provider), or the
+  payment/void/post guarantees do not hold across processes.
+- The in-memory `payment_status` invoice filter and the
+  `/admin/supplier-balances` aggregate load all posted invoices and payments.
+  Revisit (store `paid_total`/`payment_status` on the invoice under the status
+  lock, or aggregate in SQL) at roughly 5,000 to 10,000 posted invoices or
+  when either endpoint exceeds about 1 second.
 
 ## Review Focus
 
