@@ -26,7 +26,10 @@ moduleIntegrationTestRunner<AccountingModuleService>({
       it("rejects an unknown method", async () => {
         await expect(
           service.createPayments(base({ method: "bitcoin" }) as any)
-        ).rejects.toThrow()
+        ).rejects.toThrow(/method/i)
+        await expect(
+          service.createPayments(base({ method: "cheque" }) as any)
+        ).resolves.toMatchObject({ method: "cheque" })
       })
 
       it("persists a void status with voided_at", async () => {

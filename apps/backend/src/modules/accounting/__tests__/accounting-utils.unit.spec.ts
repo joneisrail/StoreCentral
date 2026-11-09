@@ -57,12 +57,31 @@ describe("payment helpers", () => {
   })
 
   it("validates payment amounts", () => {
-    for (const ok of [0.01, 12.5, 0.1 + 0.2]) {
+    for (const ok of [
+      0.01, 12.5, 0.1 + 0.2, 0.3, 131692.98, 131772.17, 131851.36, 9999999.99,
+    ]) {
       expect(isValidPaymentAmount(ok)).toBe(true)
     }
-    for (const bad of [0, -1, 1.005, NaN, Infinity]) {
+    for (const bad of [0, -1, 1.005, 100000.001, 0.004, NaN, Infinity]) {
       expect(isValidPaymentAmount(bad)).toBe(false)
     }
+  })
+
+  it("accepts every whole-cent amount in a scan", () => {
+    const failures: number[] = []
+    for (let c = 1; c <= 2000000; c++) {
+      if (!isValidPaymentAmount(c / 100)) failures.push(c)
+    }
+    let seed = 12345
+    const next = () => {
+      seed = (seed * 1664525 + 1013904223) % 4294967296
+      return seed / 4294967296
+    }
+    for (let i = 0; i < 2000; i++) {
+      const c = 1 + Math.floor(next() * 100000000)
+      if (!isValidPaymentAmount(c / 100)) failures.push(c)
+    }
+    expect(failures).toEqual([])
   })
 
   it("sums only non-void payments", () => {
@@ -81,6 +100,12 @@ describe("payment helpers", () => {
     expect(g("posted", 0)).toBe("unpaid")
     expect(g("posted", 4)).toBe("partially_paid")
     expect(g("posted", 10)).toBe("paid")
+    const z = (invoice_status: string, total: number) =>
+      getPaymentStatus({ invoice_status, total, paid_total: 0 })
+    expect(z("posted", 0)).toBe("paid")
+    expect(z("posted", -5)).toBe("paid")
+    expect(z("draft", 0)).toBeNull()
+    expect(z("void", 0)).toBeNull()
     expect(
       getPaymentStatus({
         invoice_status: "posted",
@@ -102,5 +127,12 @@ describe("payment helpers", () => {
     expect(o("posted", null, 5)).toBe(false)
     expect(o("posted", "2026-11-09T00:00:00Z", 0)).toBe(false)
     expect(o("draft", "2026-11-09T00:00:00Z", 5)).toBe(false)
+    const edge = (due: string, now: string) =>
+      isOverdue(
+        { invoice_status: "posted", due_date: due, balance: 5 },
+        new Date(now)
+      )
+    expect(edge("2026-11-09T23:59:59Z", "2026-11-10T00:00:00Z")).toBe(true)
+    expect(edge("2026-11-10T00:00:00Z", "2026-11-10T23:59:59Z")).toBe(false)
   })
 })
