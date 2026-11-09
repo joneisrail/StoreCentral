@@ -22,13 +22,13 @@ import AccountingPage, { config as accountingConfig } from "../../page"
 
 let queryClient: QueryClient
 
-function renderPage() {
+function renderPage(entry = "/accounting/invoices") {
   queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={["/accounting/invoices"]}>
+      <MemoryRouter initialEntries={[entry]}>
         <Routes>
           <Route path="/accounting/invoices" element={<InvoicesPage />} />
           <Route
@@ -99,6 +99,9 @@ function installServer() {
       let rows = serverInvoices
       if (query.status) {
         rows = rows.filter((i) => i.status === query.status)
+      }
+      if (query.supplier_id) {
+        rows = rows.filter((i) => i.supplier?.id === query.supplier_id)
       }
       if (query.q) {
         rows = rows.filter((i) => i.invoice_number.includes(String(query.q)))
@@ -343,6 +346,58 @@ describe("InvoicesPage", () => {
     const before = listCalls().length
     await flush()
     expect(listCalls().length).toBe(before)
+  })
+
+  it("reads supplier_id from the URL, sends it, and shows the chip", async () => {
+    serverInvoices = [
+      makeInvoice(1),
+      makeInvoice(2, { supplier: { id: "sup_2", name: "Other Co" } }),
+    ]
+
+    renderPage("/accounting/invoices?supplier_id=sup_2")
+
+    expect(await screen.findByText("INV-0002")).toBeInTheDocument()
+    expect(screen.queryByText("INV-0001")).not.toBeInTheDocument()
+    expect(lastQuery()).toEqual({ limit: 20, offset: 0, supplier_id: "sup_2" })
+    expect(screen.getByText("Filtered by supplier")).toBeInTheDocument()
+  })
+
+  it("keeps supplier_id when another filter changes", async () => {
+    serverInvoices = [
+      makeInvoice(1, { status: "posted" }),
+      makeInvoice(2, { supplier: { id: "sup_2", name: "Other Co" } }),
+    ]
+
+    renderPage("/accounting/invoices?supplier_id=sup_1")
+    await screen.findByText("INV-0001")
+
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Posted" }))
+    await waitFor(() =>
+      expect(lastQuery()).toEqual({
+        limit: 20,
+        offset: 0,
+        status: "posted",
+        supplier_id: "sup_1",
+      })
+    )
+    expect(screen.getByText("Filtered by supplier")).toBeInTheDocument()
+  })
+
+  it("clears the supplier filter from the chip", async () => {
+    serverInvoices = [
+      makeInvoice(1),
+      makeInvoice(2, { supplier: { id: "sup_2", name: "Other Co" } }),
+    ]
+
+    renderPage("/accounting/invoices?supplier_id=sup_2")
+    await screen.findByText("INV-0002")
+    expect(screen.queryByText("INV-0001")).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear supplier filter" }))
+
+    expect(await screen.findByText("INV-0001")).toBeInTheDocument()
+    expect(screen.queryByText("Filtered by supplier")).not.toBeInTheDocument()
+    expect(lastQuery()).toEqual({ limit: 20, offset: 0 })
   })
 
   it("per-tab empty text", async () => {

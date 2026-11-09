@@ -21,3 +21,34 @@ export function formatInvoiceDate(value: string | null) {
     ? new Date(value).toLocaleDateString(undefined, { timeZone: "UTC" })
     : "—"
 }
+
+export const PAYMENT_METHOD_LABELS: Record<string, string> = {
+  bank_transfer: "Bank transfer",
+  cash: "Cash",
+  card: "Card",
+  cheque: "Cheque",
+  other: "Other",
+}
+
+export const PAYMENT_STATUS_LABELS: Record<string, string> = {
+  recorded: "Recorded",
+  void: "Void",
+}
+
+export const PAYMENT_STATUS_COLORS: Record<string, "green" | "red" | "grey"> = {
+  recorded: "green",
+  void: "red",
+}
+
+// Unknown values fall back to the raw string so a badge is never empty.
+export function paymentMethodLabel(method: string) {
+  return PAYMENT_METHOD_LABELS[method] ?? method
+}
+
+export function paymentStatusLabel(status: string) {
+  return PAYMENT_STATUS_LABELS[status] ?? status
+}
+
+export function paymentStatusColor(status: string) {
+  return PAYMENT_STATUS_COLORS[status] ?? "grey"
+}

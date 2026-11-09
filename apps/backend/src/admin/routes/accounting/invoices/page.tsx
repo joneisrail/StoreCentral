@@ -11,7 +11,7 @@ import {
   Tabs,
   Text,
 } from "@medusajs/ui"
-import { Link } from "react-router-dom"
+import { Link, useSearchParams } from "react-router-dom"
 import { sdk } from "../../../lib/sdk"
 import { formatUsd } from "../../purchases/format"
 import {
@@ -48,6 +48,8 @@ const EMPTY_STATE_TEXT: Record<StatusFilter, string> = {
 }
 
 const InvoicesPage = () => {
+  const [searchParams, setSearchParams] = useSearchParams()
+  const supplierId = searchParams.get("supplier_id") || ""
   const [status, setStatus] = useState<StatusFilter>("all")
   const [offset, setOffset] = useState(0)
   const [search, setSearch] = useState("")
@@ -55,7 +57,7 @@ const InvoicesPage = () => {
   const appliedQ = useRef("")
 
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ["admin", "invoices", status, q, offset],
+    queryKey: ["admin", "invoices", status, q, supplierId, offset],
     queryFn: () => {
       const query: Record<string, unknown> = { limit: LIMIT, offset }
       if (status !== "all") {
@@ -63,6 +65,9 @@ const InvoicesPage = () => {
       }
       if (q) {
         query.q = q
+      }
+      if (supplierId) {
+        query.supplier_id = supplierId
       }
       return sdk.client.fetch<InvoicesResponse>("/admin/invoices", { query })
     },
@@ -99,6 +104,13 @@ const InvoicesPage = () => {
     setOffset(0)
   }
 
+  const clearSupplierFilter = () => {
+    const next = new URLSearchParams(searchParams)
+    next.delete("supplier_id")
+    setSearchParams(next)
+    setOffset(0)
+  }
+
   return (
     <Container>
       <div className="flex items-center justify-between">
@@ -122,6 +134,19 @@ const InvoicesPage = () => {
           }}
         />
       </div>
+
+      {supplierId && (
+        <div className="flex items-center gap-2 pb-4">
+          <Badge color="blue">Filtered by supplier</Badge>
+          <Button
+            size="small"
+            variant="transparent"
+            onClick={clearSupplierFilter}
+          >
+            Clear supplier filter
+          </Button>
+        </div>
+      )}
 
       <Tabs value={status} onValueChange={handleTabChange}>
         <Tabs.List>
