@@ -3,6 +3,7 @@ import {
   MedusaError,
   Modules,
 } from "@medusajs/framework/utils"
+import type { LinkDefinition } from "@medusajs/framework/types"
 import { createStep, StepResponse } from "@medusajs/framework/workflows-sdk"
 import { ACCOUNTING_MODULE } from "../../modules/accounting"
 import AccountingModuleService from "../../modules/accounting/service"
@@ -13,6 +14,20 @@ import {
 } from "../../modules/accounting/utils"
 import { guardInvoiceNumber } from "./create-invoice"
 import type { ResolvedInvoiceLine } from "./resolve-invoice-lines"
+
+type LinkApi = {
+  create: (data: LinkDefinition[]) => Promise<unknown>
+  dismiss: (data: LinkDefinition[]) => Promise<unknown>
+  list: (data: LinkDefinition[], options?: object) => Promise<unknown>
+}
+
+const itemLink = (item: {
+  id: string
+  variant_id: string
+}): LinkDefinition => ({
+  accounting: { invoice_item_id: item.id },
+  [Modules.PRODUCT]: { product_variant_id: item.variant_id },
+})
 
 const assertDraft = (invoice: { invoice_number: string; status: string }) => {
   if (invoice.status !== "draft") {
@@ -121,6 +136,10 @@ type PreviousState = {
   // The lines that were replaced, or null when the lines were not touched.
   replaced_items: ItemSnapshot[] | null
   created_item_ids: string[]
+  // Links written for the new lines, and whether the old lines' links were
+  // (or may have been) dismissed; both are undone by restore.
+  created_links: LinkDefinition[]
+  old_links_dismissed: boolean
 }
 
 export type UpdateInvoiceStepOutput = {
@@ -134,10 +153,11 @@ const toDate = (value: unknown): string =>
   new Date(value as string | Date).toISOString()
 
 // Puts the header back and, when the lines were replaced, removes the new
-// lines and recreates any missing old line under its original id (so the
-// restored item-variant links match). Safe to run more than once.
+// lines (and their links) and recreates any missing old line under its
+// original id, with its link. Safe to run more than once.
 const restore = async (
   accounting: AccountingModuleService,
+  link: LinkApi,
   previous: PreviousState
 ) => {
   const { header } = previous
@@ -150,6 +170,9 @@ const restore = async (
 
   if (!previous.replaced_items) {
     return
+  }
+  if (previous.created_links.length) {
+    await link.dismiss(previous.created_links)
   }
   if (previous.created_item_ids.length) {
     await accounting.deleteInvoiceItems(previous.created_item_ids)
@@ -165,6 +188,21 @@ const restore = async (
   if (missing.length) {
     await accounting.createInvoiceItems(missing)
   }
+  if (previous.old_links_dismissed) {
+    const oldLinks = previous.replaced_items.map(itemLink)
+    const existing = (await link.list(oldLinks, {
+      asLinkDefinition: true,
+    })) as LinkDefinition[]
+    const have = new Set(
+      existing.map((row) => JSON.stringify(row.accounting))
+    )
+    const absent = oldLinks.filter(
+      (def) => !have.has(JSON.stringify(def.accounting))
+    )
+    if (absent.length) {
+      await link.create(absent)
+    }
+  }
 }
 
 // Updates a draft invoice's header and, when items are given, replaces all of
@@ -177,6 +215,9 @@ export const updateInvoiceStep = createStep(
     const accounting =
       container.resolve<AccountingModuleService>(ACCOUNTING_MODULE)
     const locking = container.resolve(Modules.LOCKING)
+    const link = container.resolve(
+      ContainerRegistrationKeys.LINK
+    ) as unknown as LinkApi
 
     const number =
       input.invoice_number !== undefined
@@ -221,6 +262,8 @@ export const updateInvoiceStep = createStep(
             }))
           : null,
         created_item_ids: [],
+        created_links: [],
+        old_links_dismissed: false,
       }
 
       const changes: Record<string, unknown> = { id: existing.id }
@@ -274,6 +317,19 @@ export const updateInvoiceStep = createStep(
           await accounting.deleteInvoiceItems(
             existing.items.map((item) => item.id)
           )
+
+          // Still under the locks: a failure here is undone by restore, so the
+          // old lines, header and links all come back and a post that landed
+          // meanwhile is never touched.
+          previous.old_links_dismissed = true
+          if (existing.items.length) {
+            await link.dismiss(existing.items.map(itemLink))
+          }
+          const newLinks = (items ?? []).map(itemLink)
+          previous.created_links = newLinks
+          if (newLinks.length) {
+            await link.create(newLinks)
+          }
         }
       }
 
@@ -290,7 +346,14 @@ export const updateInvoiceStep = createStep(
       } catch (err) {
         // Compensation only runs for completed steps, so undo a partial write.
         if (wrote) {
-          await restore(accounting, previous)
+          try {
+            await restore(accounting, link, previous)
+          } catch (restoreErr) {
+            console.error(
+              `Failed to restore invoice ${previous.id} after a failed update`,
+              restoreErr
+            )
+          }
         }
         throw err
       }
@@ -316,8 +379,11 @@ export const updateInvoiceStep = createStep(
     const accounting =
       container.resolve<AccountingModuleService>(ACCOUNTING_MODULE)
     const locking = container.resolve(Modules.LOCKING)
+    const link = container.resolve(
+      ContainerRegistrationKeys.LINK
+    ) as unknown as LinkApi
     await locking.execute([invoiceStatusLockKey(previous.id)], () =>
-      restore(accounting, previous)
+      restore(accounting, link, previous)
     )
   }
 )

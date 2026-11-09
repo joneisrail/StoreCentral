@@ -1,6 +1,7 @@
 import { medusaIntegrationTestRunner } from "@medusajs/test-utils"
 import { ContainerRegistrationKeys, Modules } from "@medusajs/framework/utils"
 import { ACCOUNTING_MODULE } from "../../src/modules/accounting"
+import { invoiceStatusLockKey } from "../../src/modules/accounting/utils"
 import { createAdminUser } from "../helpers/create-admin-user"
 
 // Entry point of src/links/invoice-item-variant.ts (importing the link file
@@ -1160,6 +1161,116 @@ medusaIntegrationTestRunner({
             product_variant_id: variant.id,
           },
         ])
+      })
+
+      it("restores the old lines and links when dismissing the old links fails", async () => {
+        const { invoice, variant } = await draft()
+        const other = await createVariant("Other")
+        const before = await detail(invoice.id)
+        const link = getContainer().resolve(
+          ContainerRegistrationKeys.LINK
+        ) as any
+
+        const spy = jest
+          .spyOn(link, "dismiss")
+          .mockRejectedValueOnce(new Error("dismiss failed"))
+        let response: any
+        try {
+          response = await update(invoice.id, {
+            notes: "changed",
+            items: [{ variant_id: other.id, quantity: 1, unit_cost: 1 }],
+          })
+        } finally {
+          spy.mockRestore()
+        }
+
+        expect(response.status).toBe(500)
+        expect(await detail(invoice.id)).toEqual(before)
+        expect(await itemLinks([invoice.items[0].id])).toEqual([
+          {
+            invoice_item_id: invoice.items[0].id,
+            product_variant_id: variant.id,
+          },
+        ])
+        const all = await accounting().listInvoiceItems({})
+        expect(all.map((i: any) => i.id)).toEqual([invoice.items[0].id])
+      })
+
+      it("never overwrites a post that lands while the update waits for the lock", async () => {
+        const { invoice, variant } = await draft()
+        const other = await createVariant("Other")
+        const locking = getContainer().resolve(Modules.LOCKING)
+
+        let release!: () => void
+        const held = new Promise<void>((resolve) => (release = resolve))
+        let acquired!: () => void
+        const gotLock = new Promise<void>((resolve) => (acquired = resolve))
+        const holder = locking.execute(
+          [invoiceStatusLockKey(invoice.id)],
+          async () => {
+            acquired()
+            await held
+          }
+        )
+        await gotLock
+
+        const pending = update(invoice.id, {
+          invoice_number: "RACE-1",
+          notes: "changed",
+          items: [{ variant_id: other.id, quantity: 1, unit_cost: 1 }],
+        })
+        // The update passed its unlocked draft check and is now waiting.
+        await new Promise((resolve) => setTimeout(resolve, 700))
+        await accounting().updateInvoices({ id: invoice.id, status: "posted" })
+        const posted = await detail(invoice.id)
+        release()
+        await holder
+
+        const response = await pending
+        expect(response.status).toBe(400)
+        expect(response.data.message).toContain("locked")
+        expect(await detail(invoice.id)).toEqual(posted)
+        expect(await itemLinks([invoice.items[0].id])).toEqual([
+          {
+            invoice_item_id: invoice.items[0].id,
+            product_variant_id: variant.id,
+          },
+        ])
+        const [, itemCount] = await accounting().listAndCountInvoiceItems({})
+        expect(itemCount).toBe(1)
+      })
+
+      it("keeps exactly one link per line across repeated updates", async () => {
+        const { invoice, variant } = await draft()
+        const other = await createVariant("Other")
+
+        let current = invoice
+        for (let i = 0; i < 3; i++) {
+          const response = await update(current.id, {
+            items: [
+              { variant_id: variant.id, quantity: i + 1, unit_cost: 1 },
+              { variant_id: other.id, quantity: 1, unit_cost: 1 },
+            ],
+          })
+          expect(response.status).toBe(200)
+          current = response.data.invoice
+          expect(current.items).toHaveLength(2)
+        }
+
+        const query = getContainer().resolve(ContainerRegistrationKeys.QUERY)
+        const { data } = await query.graph({
+          entity: INVOICE_ITEM_VARIANT_LINK,
+          fields: ["invoice_item_id", "product_variant_id"],
+        })
+        const rows = data as any[]
+        expect(rows.map((r) => r.invoice_item_id).sort()).toEqual(
+          current.items.map((i: any) => i.id).sort()
+        )
+        for (const item of current.items) {
+          expect(
+            rows.filter((r) => r.invoice_item_id === item.id)
+          ).toHaveLength(1)
+        }
       })
 
       it("remembers a code on update", async () => {
