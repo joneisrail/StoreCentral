@@ -5,6 +5,7 @@ import AccountingModuleService from "../../modules/accounting/service"
 import { invoiceStatusLockKey } from "../../modules/accounting/utils"
 import { PURCHASE_MODULE } from "../../modules/purchase"
 import PurchaseModuleService from "../../modules/purchase/service"
+import { purchaseLockKey } from "../../modules/purchase/utils"
 import {
   restoreInvoiceStatus,
   snapshotInvoiceStatus,
@@ -41,21 +42,35 @@ export const postInvoiceStep = createStep(
             `Invoice ${existing.invoice_number} has no lines and cannot be posted`
           )
         }
-        const purchase = await purchases.retrievePurchase(existing.purchase_id)
-        if (purchase.status === "cancelled" || purchase.status === "draft") {
-          throw new MedusaError(
-            MedusaError.Types.NOT_ALLOWED,
-            `Invoice ${existing.invoice_number} cannot be posted: its purchase is ${purchase.status}`
-          )
-        }
 
-        const snapshot = snapshotInvoiceStatus(existing)
-        await accounting.updateInvoices({
-          id: existing.id,
-          status: "posted",
-          posted_at: new Date(),
-        } as never)
-        return snapshot
+        // Lock order: invoice status lock (held here) FIRST, purchase lock
+        // SECOND. Cancelling a purchase takes only the purchase lock, so no
+        // path takes the purchase lock and then an invoice status lock.
+        return await locking.execute(
+          [purchaseLockKey(existing.purchase_id)],
+          async () => {
+            const purchase = await purchases.retrievePurchase(
+              existing.purchase_id
+            )
+            if (
+              purchase.status === "cancelled" ||
+              purchase.status === "draft"
+            ) {
+              throw new MedusaError(
+                MedusaError.Types.NOT_ALLOWED,
+                `Invoice ${existing.invoice_number} cannot be posted: its purchase is ${purchase.status}`
+              )
+            }
+
+            const snapshot = snapshotInvoiceStatus(existing)
+            await accounting.updateInvoices({
+              id: existing.id,
+              status: "posted",
+              posted_at: new Date(),
+            } as never)
+            return snapshot
+          }
+        )
       }
     )
 

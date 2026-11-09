@@ -1336,21 +1336,92 @@ medusaIntegrationTestRunner({
         expect((await detail(invoice.id)).status).toBe("draft")
       })
 
-      it("rejects posting against a cancelled purchase", async () => {
-        const { invoice, purchase } = await draft()
-        await api.post(
-          `/admin/purchases/${purchase.id}/cancel`,
-          {},
-          adminHeaders
-        )
+      const cancel = (purchaseId: string) =>
+        api
+          .post(`/admin/purchases/${purchaseId}/cancel`, {}, adminHeaders)
+          .catch((e) => e.response)
 
-        const response = await act(invoice.id, "post")
+      it("rejects posting against a cancelled purchase", async () => {
+        const ctx = await setup()
+        expect((await cancel(ctx.purchase.id)).status).toBe(200)
+        const made = await post(
+          header(ctx.purchase.id, { items: lineFor(ctx.variant.id) })
+        )
+        expect(made.status).toBe(200)
+
+        const response = await act(made.data.invoice.id, "post")
 
         expect(response.status).toBe(400)
         expect(response.data.message).toContain("purchase is cancelled")
-        const after = await detail(invoice.id)
+        const after = await detail(made.data.invoice.id)
         expect(after.status).toBe("draft")
         expect(after.posted_at).toBeNull()
+      })
+
+      it("refuses cancelling a purchase with a draft invoice and names it", async () => {
+        const { invoice, purchase } = await draft("A-1")
+
+        const { reference } = await detail(invoice.id)
+
+        const response = await cancel(purchase.id)
+
+        expect(response.status).toBe(400)
+        expect(response.data.message).toContain(reference)
+        expect(response.data.message).toContain("A-1")
+        expect(response.data.message).toContain("draft")
+        const after = (
+          await api.get(`/admin/purchases/${purchase.id}`, adminHeaders)
+        ).data.purchase
+        expect(after.status).toBe("ordered")
+      })
+
+      it("refuses cancelling a purchase with a posted invoice", async () => {
+        const { invoice, purchase } = await draft("A-2")
+        expect((await act(invoice.id, "post")).status).toBe(200)
+
+        const response = await cancel(purchase.id)
+
+        expect(response.status).toBe(400)
+        expect(response.data.message).toContain("A-2")
+        expect(response.data.message).toContain("posted")
+      })
+
+      it("allows cancelling once every invoice is void, or when none exist", async () => {
+        const { invoice, purchase } = await draft("A-3")
+        expect((await act(invoice.id, "void")).status).toBe(200)
+        expect((await cancel(purchase.id)).status).toBe(200)
+
+        const other = await setup("Other")
+        expect((await cancel(other.purchase.id)).status).toBe(200)
+      })
+
+      it("posting works under the nested purchase lock, and two invoices of one purchase post concurrently without deadlock", async () => {
+        for (let round = 0; round < 3; round += 1) {
+          const ctx = await setup(`Concurrent ${round}`)
+          const a = await post(
+            header(ctx.purchase.id, {
+              invoice_number: "C-1",
+              items: lineFor(ctx.variant.id, 2),
+            })
+          )
+          const b = await post(
+            header(ctx.purchase.id, {
+              invoice_number: "C-2",
+              items: lineFor(ctx.variant.id, 2),
+            })
+          )
+          expect(a.status).toBe(200)
+          expect(b.status).toBe(200)
+
+          const results = await Promise.all([
+            act(a.data.invoice.id, "post"),
+            act(b.data.invoice.id, "post"),
+          ])
+
+          expect(results.map((r) => r.status)).toEqual([200, 200])
+          expect((await detail(a.data.invoice.id)).status).toBe("posted")
+          expect((await detail(b.data.invoice.id)).status).toBe("posted")
+        }
       })
 
       it("rejects posting against a draft purchase", async () => {
