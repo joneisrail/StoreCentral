@@ -270,7 +270,7 @@ const InvoicesPage = () => {
                         {invoicePaymentStatusLabel(invoice.payment_status)}
                       </Badge>
                     )}
-                    {invoice.overdue && (
+                    {invoice.payment_status && invoice.overdue && (
                       <Badge data-testid="overdue" color="red">
                         Overdue
                       </Badge>

@@ -1291,6 +1291,134 @@ describe("InvoiceDetailPage", () => {
       expect(mockToast.success).toHaveBeenCalledWith("Payment voided")
     })
 
+    describe("strict amount parsing against a large balance", () => {
+      const big = () =>
+        postedServer({
+          invoice: makeInvoice({
+            status: "posted",
+            payment_status: "unpaid",
+            total: 5000,
+            balance: 5000,
+          }),
+        })
+
+      it.each([
+        ["10.5", 10.5],
+        ["10.50", 10.5],
+        [" 5 ", 5],
+      ])("accepts %j", async (value, expected) => {
+        big()
+        const amount = await openDialog()
+        expect(amount).toHaveValue("5000.00")
+        fireEvent.change(amount, { target: { value } })
+        fireEvent.click(screen.getByRole("button", { name: "Save payment" }))
+
+        await waitFor(() => expect(paymentCalls()).toHaveLength(1))
+        expect(paymentCalls()[0][1].body.amount).toBe(expected)
+      })
+
+      it.each([
+        ["10."],
+        [".5"],
+        ["1e2"],
+        ["1,000.00"],
+        ["0.30000000000000004"],
+        ["10.505"],
+        ["0"],
+        ["-1"],
+        ["abc"],
+        [""],
+      ])("rejects %j with an inline message and no request", async (value) => {
+        big()
+        const amount = await openDialog()
+        fireEvent.change(amount, { target: { value } })
+        fireEvent.click(screen.getByRole("button", { name: "Save payment" }))
+
+        expect(await screen.findByRole("alert")).toHaveTextContent("5000.00")
+        await flush()
+        expect(paymentCalls()).toHaveLength(0)
+        expect(screen.getByLabelText("Amount")).toHaveValue(value)
+      })
+    })
+
+    it("validates against the refetched balance, not the stale prefill", async () => {
+      const server = postedServer()
+      const amount = await openDialog()
+      expect(amount).toHaveValue("73.75")
+
+      server.invoice = makeInvoice({
+        status: "posted",
+        payment_status: "partially_paid",
+        paid_total: 23.75,
+        balance: 50,
+      })
+      await refetchDetail()
+      await waitFor(() =>
+        expect(screen.getByTestId("balance")).toHaveTextContent("$50.00")
+      )
+      expect(screen.getByLabelText("Amount")).toHaveValue("73.75")
+
+      fireEvent.click(screen.getByRole("button", { name: "Save payment" }))
+      expect(await screen.findByRole("alert")).toHaveTextContent("50.00")
+      await flush()
+      expect(paymentCalls()).toHaveLength(0)
+    })
+
+    it("closes the dialog with a notice when the balance drops to 0 and never reopens it", async () => {
+      const server = postedServer()
+      const amount = await openDialog()
+      fireEvent.change(amount, { target: { value: "12" } })
+
+      server.invoice = makeInvoice({
+        status: "posted",
+        payment_status: "paid",
+        paid_total: 73.75,
+        balance: 0,
+      })
+      await refetchDetail()
+      expect(
+        await screen.findByText(
+          "The invoice balance changed; the payment form was closed."
+        )
+      ).toBeInTheDocument()
+      await waitFor(() =>
+        expect(screen.queryByLabelText("Amount")).not.toBeInTheDocument()
+      )
+      expect(
+        screen.queryByRole("button", { name: "Record payment" })
+      ).not.toBeInTheDocument()
+
+      server.invoice = makeInvoice({
+        status: "posted",
+        payment_status: "unpaid",
+        balance: 73.75,
+      })
+      await refetchDetail()
+      expect(
+        await screen.findByRole("button", { name: "Record payment" })
+      ).toBeInTheDocument()
+      await flush()
+      expect(screen.queryByLabelText("Amount")).not.toBeInTheDocument()
+    })
+
+    it("sends one payment when submit is clicked twice in the same tick", async () => {
+      postedServer()
+      const amount = await openDialog()
+      fireEvent.change(amount, { target: { value: "10" } })
+      const submit = screen.getByRole("button", { name: "Save payment" })
+
+      act(() => {
+        fireEvent.click(submit)
+        fireEvent.click(submit)
+      })
+
+      await waitFor(() =>
+        expect(mockToast.success).toHaveBeenCalledWith("Payment recorded")
+      )
+      await flush()
+      expect(paymentCalls()).toHaveLength(1)
+    })
+
     it("shows the server message when voiding the invoice with live payments", async () => {
       postedServer({
         invoice: makeInvoice({

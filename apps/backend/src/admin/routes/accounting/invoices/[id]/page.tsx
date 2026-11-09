@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   Badge,
@@ -85,6 +85,9 @@ const InvoiceView = ({
   const [saving, setSaving] = useState(false)
   const [paymentOpen, setPaymentOpen] = useState(false)
   const [paymentError, setPaymentError] = useState<string | null>(null)
+  const [paymentNotice, setPaymentNotice] = useState<string | null>(null)
+  // Synchronous in-flight flag: two clicks in one tick must send one payment.
+  const paymentInFlight = useRef(false)
   const closeEditor = () => {
     setEditing(false)
     setDirty(false)
@@ -128,6 +131,9 @@ const InvoiceView = ({
         body,
       }),
     onMutate: () => setPaymentError(null),
+    onSettled: () => {
+      paymentInFlight.current = false
+    },
     onSuccess: () => {
       toast.success("Payment recorded")
       setPaymentOpen(false)
@@ -191,6 +197,17 @@ const InvoiceView = ({
     typeof invoice.balance === "number" &&
     Math.round(invoice.balance * 100) > 0
   const paymentStatus = invoice.payment_status
+
+  // If the balance changes under an open dialog so a payment is no longer
+  // possible, close it for good; it must never reopen unprompted later.
+  useEffect(() => {
+    if (!canRecordPayment && paymentOpen) {
+      setPaymentOpen(false)
+      setPaymentNotice(
+        "The invoice balance changed; the payment form was closed."
+      )
+    }
+  }, [canRecordPayment, paymentOpen])
   const canVoid = invoice.status === "draft" || invoice.status === "posted"
   const postedAt = formatTimestamp(invoice.posted_at)
   const voidedAt = formatTimestamp(invoice.voided_at)
@@ -254,6 +271,7 @@ const InvoiceView = ({
                 disabled={locked}
                 onClick={() => {
                   setPaymentError(null)
+                  setPaymentNotice(null)
                   setPaymentOpen(true)
                 }}
               >
@@ -275,6 +293,11 @@ const InvoiceView = ({
         {unsavedEdits && (
           <Text size="small" className="pt-2 text-ui-fg-subtle">
             Save or cancel your edits first
+          </Text>
+        )}
+        {paymentNotice && (
+          <Text role="status" className="pt-2 text-ui-fg-subtle">
+            {paymentNotice}
           </Text>
         )}
         {actionError && (
@@ -423,7 +446,13 @@ const InvoiceView = ({
           balance={invoice.balance}
           pending={recordPayment.isPending}
           serverError={paymentError}
-          onSubmit={(body) => recordPayment.mutate(body)}
+          onSubmit={(body) => {
+            if (paymentInFlight.current) {
+              return
+            }
+            paymentInFlight.current = true
+            recordPayment.mutate(body)
+          }}
         />
       )}
 

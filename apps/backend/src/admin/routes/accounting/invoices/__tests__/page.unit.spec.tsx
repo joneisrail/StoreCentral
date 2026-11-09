@@ -237,12 +237,26 @@ describe("InvoicesPage", () => {
     expect(rows[1]).toHaveTextContent("Part paid")
     expect(rows[2]).toHaveTextContent("Unpaid")
     expect(rows[2]).toHaveTextContent("Overdue")
-    expect(rows[3]).toHaveTextContent("Paid")
-    expect(rows[3]).not.toHaveTextContent("Overdue")
+    expect(within(rows[3]).getByTestId("payment-status")).toHaveTextContent(/^Paid$/)
+    expect(within(rows[3]).queryByTestId("overdue")).not.toBeInTheDocument()
+    expect(within(rows[1]).getByTestId("payment-status")).toHaveTextContent(
+      /^Part paid$/
+    )
+    expect(within(rows[2]).getByTestId("payment-status")).toHaveTextContent(/^Unpaid$/)
     // A draft has no payment badge.
     expect(within(rows[4]).queryByTestId("payment-status")).not.toBeInTheDocument()
     expect(within(rows[4]).queryByTestId("overdue")).not.toBeInTheDocument()
     expect(screen.getAllByTestId("overdue")).toHaveLength(1)
+  })
+
+  it("shows no Overdue badge when the payment status is null", async () => {
+    serverInvoices = [makeInvoice(1, { status: "draft", overdue: true })]
+
+    renderPage()
+    await screen.findByText("INV-0001")
+
+    expect(screen.queryByTestId("overdue")).not.toBeInTheDocument()
+    expect(screen.queryByTestId("payment-status")).not.toBeInTheDocument()
   })
 
   it("renders a dash, not NaN, for an invoice without payment fields", async () => {
