@@ -15,17 +15,32 @@ import { sdk } from "../../../../lib/sdk"
 import { errorMessage, formatUsd } from "../../../purchases/format"
 import {
   formatInvoiceDate,
+  formatMoneyOrDash,
+  invoicePaymentStatusColor,
+  invoicePaymentStatusLabel,
   INVOICE_STATUS_COLORS,
   INVOICE_STATUS_LABELS,
 } from "../../format"
-import type { AdminInvoice, InvoiceComparison } from "../../types"
+import type {
+  AdminInvoice,
+  AdminPayment,
+  InvoiceComparison,
+} from "../../types"
 import { Comparison } from "./components/comparison"
 import { EditForm } from "./components/edit-form"
+import { PaymentsSection } from "./components/payments-section"
+import {
+  RecordPaymentDialog,
+  type PaymentBody,
+} from "./components/record-payment-dialog"
 
 type InvoiceResponse = {
   invoice: AdminInvoice
   comparison: InvoiceComparison | null
+  payments?: AdminPayment[]
 }
+
+const NO_PAYMENTS: AdminPayment[] = []
 
 type Action = "post" | "void"
 
@@ -56,9 +71,11 @@ const SummaryRow = ({
 const InvoiceView = ({
   invoice,
   comparison,
+  payments,
 }: {
   invoice: AdminInvoice
   comparison: InvoiceComparison | null
+  payments: AdminPayment[]
 }) => {
   const queryClient = useQueryClient()
   const prompt = usePrompt()
@@ -66,10 +83,24 @@ const InvoiceView = ({
   const [actionError, setActionError] = useState<string | null>(null)
   const [dirty, setDirty] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [paymentOpen, setPaymentOpen] = useState(false)
+  const [paymentError, setPaymentError] = useState<string | null>(null)
   const closeEditor = () => {
     setEditing(false)
     setDirty(false)
     setSaving(false)
+  }
+
+  const invalidateAll = () => {
+    for (const key of [
+      "invoices",
+      "supplier-payments",
+      "supplier-balances",
+      "purchase-invoices",
+      "invoice-purchase-options",
+    ]) {
+      queryClient.invalidateQueries({ queryKey: ["admin", key] })
+    }
   }
 
   const runAction = useMutation({
@@ -81,14 +112,45 @@ const InvoiceView = ({
     onMutate: () => setActionError(null),
     onSuccess: (_result, action) => {
       toast.success(action === "post" ? "Invoice posted" : "Invoice voided")
-      queryClient.invalidateQueries({ queryKey: ["admin", "invoices"] })
-      queryClient.invalidateQueries({ queryKey: ["admin", "purchase-invoices"] })
-      queryClient.invalidateQueries({
-        queryKey: ["admin", "invoice-purchase-options"],
-      })
+      invalidateAll()
     },
     onError: (error: unknown) => {
       const message = errorMessage(error, "The action failed.")
+      setActionError(message)
+      toast.error(message)
+    },
+  })
+
+  const recordPayment = useMutation({
+    mutationFn: (body: PaymentBody) =>
+      sdk.client.fetch<{ payment: AdminPayment }>("/admin/supplier-payments", {
+        method: "POST",
+        body,
+      }),
+    onMutate: () => setPaymentError(null),
+    onSuccess: () => {
+      toast.success("Payment recorded")
+      setPaymentOpen(false)
+      invalidateAll()
+    },
+    onError: (error: unknown) => {
+      setPaymentError(errorMessage(error, "Failed to record the payment."))
+    },
+  })
+
+  const voidPayment = useMutation({
+    mutationFn: (payment: AdminPayment) =>
+      sdk.client.fetch<{ payment: AdminPayment }>(
+        `/admin/supplier-payments/${payment.id}/void`,
+        { method: "POST" }
+      ),
+    onMutate: () => setActionError(null),
+    onSuccess: () => {
+      toast.success("Payment voided")
+      invalidateAll()
+    },
+    onError: (error: unknown) => {
+      const message = errorMessage(error, "Failed to void the payment.")
       setActionError(message)
       toast.error(message)
     },
@@ -121,7 +183,14 @@ const InvoiceView = ({
 
   const isDraft = invoice.status === "draft"
   const unsavedEdits = isDraft && editing && dirty
+  const paymentBusy = recordPayment.isPending || voidPayment.isPending
   const busy = runAction.isPending || saving
+  const locked = busy || paymentBusy
+  const canRecordPayment =
+    invoice.status === "posted" &&
+    typeof invoice.balance === "number" &&
+    Math.round(invoice.balance * 100) > 0
+  const paymentStatus = invoice.payment_status
   const canVoid = invoice.status === "draft" || invoice.status === "posted"
   const postedAt = formatTimestamp(invoice.posted_at)
   const voidedAt = formatTimestamp(invoice.voided_at)
@@ -143,13 +212,26 @@ const InvoiceView = ({
             <Badge data-testid="status" color={statusColor}>
               {statusLabel}
             </Badge>
+            {paymentStatus && (
+              <Badge
+                data-testid="payment-status"
+                color={invoicePaymentStatusColor(paymentStatus)}
+              >
+                {invoicePaymentStatusLabel(paymentStatus)}
+              </Badge>
+            )}
+            {paymentStatus && invoice.overdue && (
+              <Badge data-testid="overdue" color="red">
+                Overdue
+              </Badge>
+            )}
           </div>
           <div className="flex gap-2">
             {isDraft && !editing && (
               <Button
                 size="small"
                 variant="secondary"
-                disabled={busy}
+                disabled={locked}
                 onClick={() => setEditing(true)}
               >
                 Edit
@@ -159,17 +241,30 @@ const InvoiceView = ({
               <Button
                 size="small"
                 isLoading={runAction.isPending}
-                disabled={busy || unsavedEdits}
+                disabled={locked || unsavedEdits}
                 onClick={handlePost}
               >
                 Post
+              </Button>
+            )}
+            {canRecordPayment && (
+              <Button
+                size="small"
+                variant="secondary"
+                disabled={locked}
+                onClick={() => {
+                  setPaymentError(null)
+                  setPaymentOpen(true)
+                }}
+              >
+                Record payment
               </Button>
             )}
             {canVoid && (
               <Button
                 size="small"
                 variant="danger"
-                disabled={busy}
+                disabled={locked}
                 onClick={handleVoid}
               >
                 Void
@@ -242,7 +337,7 @@ const InvoiceView = ({
             onClose={closeEditor}
             onDirtyChange={setDirty}
             onSavingChange={setSaving}
-            actionPending={runAction.isPending}
+            actionPending={runAction.isPending || paymentBusy}
           />
         </Container>
       )}
@@ -294,8 +389,43 @@ const InvoiceView = ({
             testId="total"
             strong
           />
+          {paymentStatus && (
+            <>
+              <SummaryRow
+                label="Paid"
+                value={formatMoneyOrDash(invoice.paid_total, formatUsd)}
+                testId="paid-total"
+              />
+              <SummaryRow
+                label="Balance"
+                value={formatMoneyOrDash(invoice.balance, formatUsd)}
+                testId="balance"
+                strong
+              />
+            </>
+          )}
         </div>
       </Container>
+
+      <Container>
+        <PaymentsSection
+          payments={payments}
+          disabled={locked}
+          onVoid={(payment) => voidPayment.mutate(payment)}
+        />
+      </Container>
+
+      {canRecordPayment && (
+        <RecordPaymentDialog
+          open={paymentOpen}
+          onOpenChange={setPaymentOpen}
+          invoiceId={invoice.id}
+          balance={invoice.balance}
+          pending={recordPayment.isPending}
+          serverError={paymentError}
+          onSubmit={(body) => recordPayment.mutate(body)}
+        />
+      )}
 
       <Container>
         <Comparison comparison={comparison} />
@@ -351,6 +481,7 @@ const InvoiceDetailPage = () => {
       key={data.invoice.id}
       invoice={data.invoice}
       comparison={data.comparison ?? null}
+      payments={data.payments ?? NO_PAYMENTS}
     />
   )
 }

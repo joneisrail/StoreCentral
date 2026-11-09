@@ -2,7 +2,14 @@
  * @jest-environment jsdom
  */
 import "../../../purchases/__tests__/text-encoder-polyfill"
-import { act, render, screen, fireEvent, waitFor } from "@testing-library/react"
+import {
+  act,
+  render,
+  screen,
+  fireEvent,
+  waitFor,
+  within,
+} from "@testing-library/react"
 import "@testing-library/jest-dom"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { MemoryRouter, Route, Routes } from "react-router-dom"
@@ -75,6 +82,10 @@ function makeInvoice(n: number, overrides: Partial<Invoice> = {}): Invoice {
     other_cost: 0,
     subtotal: 0,
     total: 10,
+    paid_total: 0,
+    balance: 10,
+    payment_status: null,
+    overdue: false,
     notes: null,
     posted_at: null,
     voided_at: null,
@@ -99,6 +110,11 @@ function installServer() {
       let rows = serverInvoices
       if (query.status) {
         rows = rows.filter((i) => i.status === query.status)
+      }
+      if (query.payment_status === "overdue") {
+        rows = rows.filter((i) => i.overdue === true)
+      } else if (query.payment_status) {
+        rows = rows.filter((i) => i.payment_status === query.payment_status)
       }
       if (query.supplier_id) {
         rows = rows.filter((i) => i.supplier?.id === query.supplier_id)
@@ -181,6 +197,126 @@ describe("InvoicesPage", () => {
     expect(mockFetch).toHaveBeenCalledWith("/admin/invoices", {
       query: { limit: 20, offset: 0 },
     })
+  })
+
+  it("shows Paid and Balance in USD and the payment status badges", async () => {
+    serverInvoices = [
+      makeInvoice(1, {
+        status: "posted",
+        total: 100,
+        paid_total: 40,
+        balance: 60,
+        payment_status: "partially_paid",
+      }),
+      makeInvoice(2, {
+        status: "posted",
+        total: 25,
+        paid_total: 0,
+        balance: 25,
+        payment_status: "unpaid",
+        overdue: true,
+      }),
+      makeInvoice(3, {
+        status: "posted",
+        total: 10,
+        paid_total: 10,
+        balance: 0,
+        payment_status: "paid",
+      }),
+      makeInvoice(4, { status: "draft" }),
+    ]
+
+    renderPage()
+    await screen.findByText("INV-0001")
+
+    expect(screen.getByRole("columnheader", { name: "Paid" })).toBeInTheDocument()
+    expect(screen.getByRole("columnheader", { name: "Balance" })).toBeInTheDocument()
+    const rows = screen.getAllByRole("row")
+    expect(rows[1]).toHaveTextContent("$40.00")
+    expect(rows[1]).toHaveTextContent("$60.00")
+    expect(rows[1]).toHaveTextContent("Part paid")
+    expect(rows[2]).toHaveTextContent("Unpaid")
+    expect(rows[2]).toHaveTextContent("Overdue")
+    expect(rows[3]).toHaveTextContent("Paid")
+    expect(rows[3]).not.toHaveTextContent("Overdue")
+    // A draft has no payment badge.
+    expect(within(rows[4]).queryByTestId("payment-status")).not.toBeInTheDocument()
+    expect(within(rows[4]).queryByTestId("overdue")).not.toBeInTheDocument()
+    expect(screen.getAllByTestId("overdue")).toHaveLength(1)
+  })
+
+  it("renders a dash, not NaN, for an invoice without payment fields", async () => {
+    const old = makeInvoice(1, { status: "posted" })
+    delete old.paid_total
+    delete old.balance
+    delete old.payment_status
+    delete old.overdue
+    serverInvoices = [old]
+
+    renderPage()
+    await screen.findByText("INV-0001")
+
+    const row = screen.getAllByRole("row")[1]
+    expect(row).not.toHaveTextContent("NaN")
+    expect(within(row).getAllByText("—").length).toBeGreaterThanOrEqual(2)
+    expect(within(row).queryByTestId("payment-status")).not.toBeInTheDocument()
+  })
+
+  it("payment status filter sends payment_status and resets the offset to 0", async () => {
+    serverInvoices = manyInvoices(45).map((i, idx) =>
+      idx % 2 === 0
+        ? { ...i, status: "posted", payment_status: "unpaid", overdue: idx % 4 === 0 }
+        : i
+    )
+
+    renderPage()
+    await screen.findByText("INV-0001")
+    fireEvent.click(screen.getByRole("button", { name: "Next" }))
+    await screen.findByText("INV-0021")
+    expect(lastQuery()).toEqual({ limit: 20, offset: 20 })
+
+    const filter = screen.getByLabelText("Filter by payment status")
+    fireEvent.change(filter, { target: { value: "unpaid" } })
+    await waitFor(() =>
+      expect(lastQuery()).toEqual({ limit: 20, offset: 0, payment_status: "unpaid" })
+    )
+    expect(await screen.findByText("INV-0001")).toBeInTheDocument()
+
+    fireEvent.change(filter, { target: { value: "overdue" } })
+    await waitFor(() =>
+      expect(lastQuery()).toEqual({ limit: 20, offset: 0, payment_status: "overdue" })
+    )
+
+    fireEvent.change(filter, { target: { value: "partially_paid" } })
+    await waitFor(() => expect(lastQuery().payment_status).toBe("partially_paid"))
+
+    fireEvent.change(filter, { target: { value: "all" } })
+    await waitFor(() => expect(lastQuery()).toEqual({ limit: 20, offset: 0 }))
+    expect(
+      screen.getAllByRole("option").map((o) => o.textContent)
+    ).toEqual(["All", "Unpaid", "Part paid", "Paid", "Overdue"])
+  })
+
+  it("keeps the status tab and supplier filter when the payment filter changes", async () => {
+    serverInvoices = [makeInvoice(1, { status: "posted", payment_status: "unpaid" })]
+
+    renderPage("/accounting/invoices?supplier_id=sup_1")
+    await screen.findByText("INV-0001")
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Posted" }))
+    await waitFor(() => expect(lastQuery().status).toBe("posted"))
+    fireEvent.change(screen.getByLabelText("Filter by payment status"), {
+      target: { value: "paid" },
+    })
+
+    await waitFor(() =>
+      expect(lastQuery()).toEqual({
+        limit: 20,
+        offset: 0,
+        status: "posted",
+        payment_status: "paid",
+        supplier_id: "sup_1",
+      })
+    )
   })
 
   it("links the reference to /accounting/invoices/<id>", async () => {

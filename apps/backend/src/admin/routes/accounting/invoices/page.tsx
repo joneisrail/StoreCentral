@@ -16,6 +16,9 @@ import { sdk } from "../../../lib/sdk"
 import { formatUsd } from "../../purchases/format"
 import {
   formatInvoiceDate,
+  formatMoneyOrDash,
+  invoicePaymentStatusColor,
+  invoicePaymentStatusLabel,
   INVOICE_STATUS_COLORS,
   INVOICE_STATUS_LABELS,
 } from "../format"
@@ -29,6 +32,7 @@ type InvoicesResponse = {
 }
 
 type StatusFilter = "all" | InvoiceStatus
+type PaymentFilter = "all" | "unpaid" | "partially_paid" | "paid" | "overdue"
 
 const LIMIT = 20
 const SEARCH_DEBOUNCE_MS = 300
@@ -38,6 +42,14 @@ const STATUS_TABS: { label: string; value: StatusFilter }[] = [
   { label: INVOICE_STATUS_LABELS.draft, value: "draft" },
   { label: INVOICE_STATUS_LABELS.posted, value: "posted" },
   { label: INVOICE_STATUS_LABELS.void, value: "void" },
+]
+
+const PAYMENT_FILTER_OPTIONS: { label: string; value: PaymentFilter }[] = [
+  { label: "All", value: "all" },
+  { label: "Unpaid", value: "unpaid" },
+  { label: "Part paid", value: "partially_paid" },
+  { label: "Paid", value: "paid" },
+  { label: "Overdue", value: "overdue" },
 ]
 
 const EMPTY_STATE_TEXT: Record<StatusFilter, string> = {
@@ -51,17 +63,29 @@ const InvoicesPage = () => {
   const [searchParams, setSearchParams] = useSearchParams()
   const supplierId = searchParams.get("supplier_id") || ""
   const [status, setStatus] = useState<StatusFilter>("all")
+  const [paymentFilter, setPaymentFilter] = useState<PaymentFilter>("all")
   const [offset, setOffset] = useState(0)
   const [search, setSearch] = useState("")
   const [q, setQ] = useState("")
   const appliedQ = useRef("")
 
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ["admin", "invoices", status, q, supplierId, offset],
+    queryKey: [
+      "admin",
+      "invoices",
+      status,
+      paymentFilter,
+      q,
+      supplierId,
+      offset,
+    ],
     queryFn: () => {
       const query: Record<string, unknown> = { limit: LIMIT, offset }
       if (status !== "all") {
         query.status = status
+      }
+      if (paymentFilter !== "all") {
+        query.payment_status = paymentFilter
       }
       if (q) {
         query.q = q
@@ -104,6 +128,11 @@ const InvoicesPage = () => {
     setOffset(0)
   }
 
+  const handlePaymentFilterChange = (value: string) => {
+    setPaymentFilter(value as PaymentFilter)
+    setOffset(0)
+  }
+
   const clearSupplierFilter = () => {
     const next = new URLSearchParams(searchParams)
     next.delete("supplier_id")
@@ -120,7 +149,7 @@ const InvoicesPage = () => {
         </Button>
       </div>
 
-      <div className="py-4">
+      <div className="flex gap-2 py-4">
         <Input
           type="search"
           placeholder="Search by supplier invoice number"
@@ -133,6 +162,18 @@ const InvoicesPage = () => {
             }
           }}
         />
+        <select
+          aria-label="Filter by payment status"
+          className="bg-ui-bg-field text-ui-fg-base shadow-borders-base rounded-md px-2 text-sm"
+          value={paymentFilter}
+          onChange={(event) => handlePaymentFilterChange(event.target.value)}
+        >
+          {PAYMENT_FILTER_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
       </div>
 
       {supplierId && (
@@ -171,7 +212,11 @@ const InvoicesPage = () => {
 
       {!isLoading && !isError && data && data.invoices.length === 0 && (
         <Text>
-          {q ? "No invoices match your search." : EMPTY_STATE_TEXT[status]}
+          {q
+            ? "No invoices match your search."
+            : paymentFilter !== "all"
+              ? "No invoices match this payment filter."
+              : EMPTY_STATE_TEXT[status]}
         </Text>
       )}
 
@@ -185,7 +230,10 @@ const InvoicesPage = () => {
               <Table.HeaderCell>Purchase</Table.HeaderCell>
               <Table.HeaderCell>Date</Table.HeaderCell>
               <Table.HeaderCell>Total</Table.HeaderCell>
+              <Table.HeaderCell>Paid</Table.HeaderCell>
+              <Table.HeaderCell>Balance</Table.HeaderCell>
               <Table.HeaderCell>Status</Table.HeaderCell>
+              <Table.HeaderCell>Payment</Table.HeaderCell>
             </Table.Row>
           </Table.Header>
           <Table.Body>
@@ -202,9 +250,32 @@ const InvoicesPage = () => {
                 <Table.Cell>{formatInvoiceDate(invoice.invoice_date)}</Table.Cell>
                 <Table.Cell>{formatUsd(invoice.total)}</Table.Cell>
                 <Table.Cell>
+                  {formatMoneyOrDash(invoice.paid_total, formatUsd)}
+                </Table.Cell>
+                <Table.Cell>
+                  {formatMoneyOrDash(invoice.balance, formatUsd)}
+                </Table.Cell>
+                <Table.Cell>
                   <Badge color={INVOICE_STATUS_COLORS[invoice.status]}>
                     {INVOICE_STATUS_LABELS[invoice.status]}
                   </Badge>
+                </Table.Cell>
+                <Table.Cell>
+                  <div className="flex gap-1">
+                    {invoice.payment_status && (
+                      <Badge
+                        data-testid="payment-status"
+                        color={invoicePaymentStatusColor(invoice.payment_status)}
+                      >
+                        {invoicePaymentStatusLabel(invoice.payment_status)}
+                      </Badge>
+                    )}
+                    {invoice.overdue && (
+                      <Badge data-testid="overdue" color="red">
+                        Overdue
+                      </Badge>
+                    )}
+                  </div>
                 </Table.Cell>
               </Table.Row>
             ))}

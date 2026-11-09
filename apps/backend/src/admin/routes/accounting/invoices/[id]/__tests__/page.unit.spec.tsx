@@ -89,6 +89,10 @@ function makeInvoice(overrides: Record<string, unknown> = {}) {
     other_cost: 1.5,
     subtotal: 64,
     total: 73.75,
+    paid_total: 0,
+    balance: 73.75,
+    payment_status: null,
+    overdue: false,
     notes: "Handle with care",
     posted_at: null,
     voided_at: null,
@@ -147,14 +151,91 @@ function makeComparison(overrides: Record<string, unknown> = {}) {
 type Server = {
   invoice: Record<string, any>
   comparison: Record<string, any> | null
+  payments?: Record<string, any>[]
   failPost?: string
+  failPayment?: string
   getFails?: Error
+}
+
+function makePayment(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "pay_1",
+    reference: "PAY-0001",
+    amount: 20,
+    paid_at: "2026-10-10",
+    method: "bank_transfer",
+    payment_reference: "WIRE-1",
+    note: null,
+    status: "recorded",
+    voided_at: null,
+    created_at: "2026-10-10T12:00:00.000Z",
+    invoice: { id: "inv_1", reference: "INV-0001", invoice_number: "SUP-77" },
+    supplier: { id: "sup_1", name: "Acme Perfumes" },
+    ...overrides,
+  }
+}
+
+// Recompute the invoice payment fields from the live payments, like the server.
+function recompute(server: Server) {
+  const cents = (server.payments ?? [])
+    .filter((p) => p.status === "recorded")
+    .reduce((sum, p) => sum + Math.round(p.amount * 100), 0)
+  const totalCents = Math.round(server.invoice.total * 100)
+  server.invoice = {
+    ...server.invoice,
+    paid_total: cents / 100,
+    balance: (totalCents - cents) / 100,
+    payment_status:
+      server.invoice.status !== "posted"
+        ? null
+        : cents === 0
+          ? "unpaid"
+          : cents >= totalCents
+            ? "paid"
+            : "partially_paid",
+  }
 }
 
 function startServer(initial: Server) {
   const server = initial
   mockFetch.mockImplementation(
     (url: string, opts?: { method?: string; body?: Record<string, any> }) => {
+      if (opts?.method === "POST" && url === "/admin/supplier-payments") {
+        if (server.failPayment) {
+          return Promise.reject(new Error(server.failPayment))
+        }
+        const body = opts.body ?? {}
+        if (Math.round(body.amount * 100) > Math.round(server.invoice.balance * 100)) {
+          return Promise.reject(
+            new Error(
+              `Amount ${body.amount} exceeds the invoice balance ${server.invoice.balance}`
+            )
+          )
+        }
+        const payment = makePayment({
+          id: `pay_${(server.payments?.length ?? 0) + 1}`,
+          reference: `PAY-000${(server.payments?.length ?? 0) + 1}`,
+          amount: body.amount,
+          paid_at: body.paid_at,
+          method: body.method,
+          payment_reference: body.reference ?? null,
+          note: body.note ?? null,
+        })
+        server.payments = [payment, ...(server.payments ?? [])]
+        recompute(server)
+        return Promise.resolve(JSON.parse(JSON.stringify({ payment })))
+      }
+      if (opts?.method === "POST" && /supplier-payments\/.+\/void$/.test(url)) {
+        if (server.failPayment) {
+          return Promise.reject(new Error(server.failPayment))
+        }
+        const id = url.split("/")[3]
+        server.payments = (server.payments ?? []).map((p) =>
+          p.id === id ? { ...p, status: "void", voided_at: "2026-10-11T00:00:00.000Z" } : p
+        )
+        recompute(server)
+        return Promise.resolve({ payment: server.payments.find((p) => p.id === id) })
+      }
       if (opts?.method === "POST") {
         if (server.failPost) {
           return Promise.reject(new Error(server.failPost))
@@ -166,6 +247,14 @@ function startServer(initial: Server) {
             posted_at: "2026-10-06T10:00:00.000Z",
           }
         } else if (url.endsWith("/void")) {
+          const live = (server.payments ?? []).filter((p) => p.status === "recorded")
+          if (live.length > 0) {
+            return Promise.reject(
+              new Error(
+                `Invoice SUP-77 has ${live.length} payment(s); void the payments first`
+              )
+            )
+          }
           server.invoice = {
             ...server.invoice,
             status: "void",
@@ -181,6 +270,9 @@ function startServer(initial: Server) {
             }))
           }
         }
+        if (url.endsWith("/post")) {
+          recompute(server)
+        }
         return Promise.resolve(JSON.parse(JSON.stringify({ invoice: server.invoice })))
       }
       if (server.getFails) {
@@ -188,7 +280,11 @@ function startServer(initial: Server) {
       }
       return Promise.resolve(
         JSON.parse(
-          JSON.stringify({ invoice: server.invoice, comparison: server.comparison })
+          JSON.stringify({
+            invoice: server.invoice,
+            comparison: server.comparison,
+            payments: server.payments,
+          })
         )
       )
     }
@@ -726,6 +822,495 @@ describe("InvoiceDetailPage", () => {
       await screen.findByText("INV-0001")
       expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument()
       expect(screen.queryByLabelText("Invoice number")).not.toBeInTheDocument()
+    })
+  })
+
+  describe("payments", () => {
+    function postedServer(extra: Partial<Server> = {}) {
+      const server: Server = {
+        invoice: makeInvoice({
+          status: "posted",
+          payment_status: "unpaid",
+          posted_at: "2026-10-06T10:00:00.000Z",
+        }),
+        comparison: null,
+        payments: [],
+        ...extra,
+      }
+      startServer(server)
+      return server
+    }
+
+    async function openDialog() {
+      renderPage()
+      await screen.findByText("INV-0001")
+      fireEvent.click(screen.getByRole("button", { name: "Record payment" }))
+      return screen.findByLabelText("Amount")
+    }
+
+    function paymentCalls() {
+      return postCalls().filter((c) => c[0] === "/admin/supplier-payments")
+    }
+
+    it("shows Paid, Balance and the payment status badge on a posted invoice", async () => {
+      postedServer({
+        invoice: makeInvoice({
+          status: "posted",
+          payment_status: "partially_paid",
+          paid_total: 20,
+          balance: 53.75,
+        }),
+        payments: [makePayment()],
+      })
+      renderPage()
+      await screen.findByText("INV-0001")
+
+      expect(screen.getByTestId("paid-total")).toHaveTextContent("$20.00")
+      expect(screen.getByTestId("balance")).toHaveTextContent("$53.75")
+      expect(screen.getByTestId("payment-status")).toHaveTextContent("Part paid")
+      expect(screen.queryByTestId("overdue")).not.toBeInTheDocument()
+    })
+
+    it("shows an Overdue badge when the invoice is overdue", async () => {
+      postedServer({
+        invoice: makeInvoice({ status: "posted", payment_status: "unpaid", overdue: true }),
+      })
+      renderPage()
+      await screen.findByText("INV-0001")
+
+      expect(screen.getByTestId("overdue")).toHaveTextContent("Overdue")
+    })
+
+    it("shows no payment badge, totals or Record payment on a draft or void invoice", async () => {
+      for (const status of ["draft", "void"]) {
+        startServer({
+          invoice: makeInvoice({ status, payment_status: null }),
+          comparison: null,
+          payments: [],
+        })
+        const { unmount } = renderPage()
+        await screen.findByText("INV-0001")
+        expect(screen.queryByTestId("payment-status")).not.toBeInTheDocument()
+        expect(screen.queryByTestId("balance")).not.toBeInTheDocument()
+        expect(
+          screen.queryByRole("button", { name: "Record payment" })
+        ).not.toBeInTheDocument()
+        unmount()
+      }
+    })
+
+    it("hides Record payment on a fully paid posted invoice", async () => {
+      postedServer({
+        invoice: makeInvoice({
+          status: "posted",
+          payment_status: "paid",
+          paid_total: 73.75,
+          balance: 0,
+        }),
+        payments: [makePayment({ amount: 73.75 })],
+      })
+      renderPage()
+      await screen.findByText("INV-0001")
+
+      expect(
+        screen.queryByRole("button", { name: "Record payment" })
+      ).not.toBeInTheDocument()
+    })
+
+    it("treats a missing payments key as no payments", async () => {
+      postedServer()
+      renderPage()
+      await screen.findByText("INV-0001")
+
+      expect(screen.getByText("No payments recorded.")).toBeInTheDocument()
+    })
+
+    it("lists payments as returned with method label, reference, amount and status", async () => {
+      postedServer({
+        invoice: makeInvoice({
+          status: "posted",
+          payment_status: "partially_paid",
+          paid_total: 20,
+          balance: 53.75,
+        }),
+        payments: [
+          makePayment(),
+          makePayment({
+            id: "pay_2",
+            reference: "PAY-0002",
+            amount: 5,
+            method: "cheque",
+            payment_reference: null,
+            status: "void",
+          }),
+          makePayment({
+            id: "pay_3",
+            reference: "PAY-0003",
+            method: "crypto",
+            status: "frozen",
+          }),
+        ],
+      })
+      renderPage()
+      await screen.findByText("INV-0001")
+
+      const [first, second, third] = screen.getAllByTestId("payment-row")
+      expect(within(first).getByText("Bank transfer")).toBeInTheDocument()
+      expect(within(first).getByText("WIRE-1")).toBeInTheDocument()
+      expect(within(first).getByText("$20.00")).toBeInTheDocument()
+      expect(within(first).getByText("Recorded")).toBeInTheDocument()
+      expect(
+        within(first).getByRole("button", { name: "Void payment PAY-0001" })
+      ).toBeInTheDocument()
+
+      expect(within(second).getByText("Cheque")).toBeInTheDocument()
+      expect(within(second).getByText("—")).toBeInTheDocument()
+      expect(within(second).getByText("Void")).toBeInTheDocument()
+      expect(within(second).queryByRole("button")).not.toBeInTheDocument()
+
+      expect(within(third).getByText("crypto")).toBeInTheDocument()
+      expect(within(third).getByText("frozen")).toBeInTheDocument()
+      expect(within(third).queryByRole("button")).not.toBeInTheDocument()
+    })
+
+    it("opens the dialog with the amount prefilled to the balance, today's date and bank transfer", async () => {
+      postedServer()
+      const amount = await openDialog()
+
+      expect(amount).toHaveValue("73.75")
+      expect(screen.getByLabelText("Payment date")).toHaveValue(
+        new Date().toISOString().slice(0, 10)
+      )
+      expect(screen.getByLabelText("Method")).toHaveValue("bank_transfer")
+      expect(screen.getByLabelText("Reference")).toHaveValue("")
+      expect(screen.getByLabelText("Note")).toHaveValue("")
+    })
+
+    it("posts exactly the required fields and omits blank optionals", async () => {
+      postedServer()
+      const amount = await openDialog()
+
+      fireEvent.change(amount, { target: { value: "30.5" } })
+      fireEvent.change(screen.getByLabelText("Payment date"), {
+        target: { value: "2026-10-12" },
+      })
+      fireEvent.change(screen.getByLabelText("Reference"), { target: { value: "   " } })
+      fireEvent.click(screen.getByRole("button", { name: "Save payment" }))
+
+      await waitFor(() => expect(paymentCalls()).toHaveLength(1))
+      expect(paymentCalls()[0]).toEqual([
+        "/admin/supplier-payments",
+        {
+          method: "POST",
+          body: {
+            invoice_id: "inv_1",
+            amount: 30.5,
+            paid_at: "2026-10-12",
+            method: "bank_transfer",
+          },
+        },
+      ])
+    })
+
+    it("sends reference, note and method when filled, then closes, toasts and refetches", async () => {
+      postedServer()
+      const amount = await openDialog()
+
+      fireEvent.change(amount, { target: { value: "30" } })
+      fireEvent.change(screen.getByLabelText("Method"), { target: { value: "cash" } })
+      fireEvent.change(screen.getByLabelText("Reference"), {
+        target: { value: " WIRE-9 " },
+      })
+      fireEvent.change(screen.getByLabelText("Note"), { target: { value: "part one" } })
+      fireEvent.click(screen.getByRole("button", { name: "Save payment" }))
+
+      await waitFor(() =>
+        expect(mockToast.success).toHaveBeenCalledWith("Payment recorded")
+      )
+      expect(paymentCalls()[0][1].body).toMatchObject({
+        amount: 30,
+        method: "cash",
+        reference: "WIRE-9",
+        note: "part one",
+      })
+      await waitFor(() =>
+        expect(screen.queryByLabelText("Amount")).not.toBeInTheDocument()
+      )
+      await waitFor(() =>
+        expect(screen.getByTestId("balance")).toHaveTextContent("$43.75")
+      )
+      expect(screen.getByTestId("payment-status")).toHaveTextContent("Part paid")
+      expect(screen.getAllByTestId("payment-row")).toHaveLength(1)
+    })
+
+    it("invalidates every shared query prefix after recording", async () => {
+      postedServer()
+      const amount = await openDialog()
+      const spy = jest.spyOn(queryClient, "invalidateQueries")
+
+      fireEvent.change(amount, { target: { value: "10" } })
+      fireEvent.click(screen.getByRole("button", { name: "Save payment" }))
+      await waitFor(() =>
+        expect(mockToast.success).toHaveBeenCalledWith("Payment recorded")
+      )
+
+      const keys = spy.mock.calls.map((c) => (c[0] as any).queryKey)
+      for (const key of [
+        "invoices",
+        "supplier-payments",
+        "supplier-balances",
+        "purchase-invoices",
+        "invoice-purchase-options",
+      ]) {
+        expect(keys).toContainEqual(["admin", key])
+      }
+    })
+
+    it.each([
+      [""],
+      ["abc"],
+      ["0"],
+      ["0.00"],
+      ["-5"],
+      ["10.505"],
+      ["73.76"],
+      ["1e2"],
+      ["100"],
+    ])("rejects amount %j inline without posting", async (value) => {
+      postedServer()
+      const amount = await openDialog()
+
+      fireEvent.change(amount, { target: { value } })
+      fireEvent.click(screen.getByRole("button", { name: "Save payment" }))
+
+      const alert = await screen.findByRole("alert")
+      expect(alert).toHaveTextContent("73.75")
+      await flush()
+      expect(paymentCalls()).toHaveLength(0)
+      // The unreadable input is kept, never cleared or turned into 0.
+      expect(screen.getByLabelText("Amount")).toHaveValue(value)
+    })
+
+    it("allows paying exactly the balance, compared in cents", async () => {
+      postedServer({
+        invoice: makeInvoice({
+          status: "posted",
+          payment_status: "unpaid",
+          total: 0.3,
+          balance: 0.3,
+        }),
+      })
+      const amount = await openDialog()
+      fireEvent.change(amount, { target: { value: "0.30" } })
+      fireEvent.click(screen.getByRole("button", { name: "Save payment" }))
+
+      await waitFor(() => expect(paymentCalls()).toHaveLength(1))
+      expect(paymentCalls()[0][1].body.amount).toBe(0.3)
+    })
+
+    it("shows a server 400 inline and keeps the dialog open with the typed values", async () => {
+      const server = postedServer()
+      const amount = await openDialog()
+      server.failPayment = "Amount 50 exceeds the invoice balance 40"
+
+      fireEvent.change(amount, { target: { value: "50" } })
+      fireEvent.change(screen.getByLabelText("Note"), { target: { value: "typed" } })
+      // The client check passes at 50 <= 73.75; the server then refuses.
+      fireEvent.click(screen.getByRole("button", { name: "Save payment" }))
+
+      expect(
+        await screen.findByText("Amount 50 exceeds the invoice balance 40")
+      ).toBeInTheDocument()
+      expect(screen.getByLabelText("Amount")).toHaveValue("50")
+      expect(screen.getByLabelText("Note")).toHaveValue("typed")
+      expect(mockToast.success).not.toHaveBeenCalled()
+      expect(screen.getByRole("button", { name: "Save payment" })).toBeEnabled()
+    })
+
+    it("does not reset the dialog fields when the invoice refetches in the background", async () => {
+      const server = postedServer()
+      const amount = await openDialog()
+
+      fireEvent.change(amount, { target: { value: "12.34" } })
+      fireEvent.change(screen.getByLabelText("Reference"), { target: { value: "KEEP" } })
+      fireEvent.change(screen.getByLabelText("Method"), { target: { value: "card" } })
+
+      server.invoice = makeInvoice({
+        status: "posted",
+        payment_status: "unpaid",
+        balance: 73.75,
+        tax: 9,
+      })
+      await refetchDetail()
+      await waitFor(() =>
+        expect(screen.getByTestId("tax")).toHaveTextContent("$9.00")
+      )
+
+      expect(screen.getByLabelText("Amount")).toHaveValue("12.34")
+      expect(screen.getByLabelText("Reference")).toHaveValue("KEEP")
+      expect(screen.getByLabelText("Method")).toHaveValue("card")
+    })
+
+    it("disables submit, Void and Post while the payment is in flight (no double submit)", async () => {
+      postedServer()
+      const base = mockFetch.getMockImplementation()!
+      let release: () => void = () => {}
+      mockFetch.mockImplementation((url: string, opts?: any) => {
+        if (opts?.method === "POST") {
+          return new Promise((resolve) => {
+            release = () => resolve(base(url, opts))
+          })
+        }
+        return base(url, opts)
+      })
+      const amount = await openDialog()
+      fireEvent.change(amount, { target: { value: "10" } })
+      fireEvent.click(screen.getByRole("button", { name: "Save payment" }))
+
+      await waitFor(() => expect(paymentCalls()).toHaveLength(1))
+      const submit = screen.getByRole("button", { name: "Save payment" })
+      expect(submit).toBeDisabled()
+      fireEvent.click(submit)
+      fireEvent.submit(submit.closest("form")!)
+      await flush()
+      expect(paymentCalls()).toHaveLength(1)
+
+      release()
+      await waitFor(() =>
+        expect(mockToast.success).toHaveBeenCalledWith("Payment recorded")
+      )
+      await waitFor(() =>
+        expect(screen.getByRole("button", { name: "Void" })).toBeEnabled()
+      )
+    })
+
+    it("disables Void invoice and every payment Void while a payment is recording", async () => {
+      postedServer({
+        invoice: makeInvoice({
+          status: "posted",
+          payment_status: "partially_paid",
+          paid_total: 20,
+          balance: 53.75,
+        }),
+        payments: [makePayment()],
+      })
+      const base = mockFetch.getMockImplementation()!
+      let release: () => void = () => {}
+      mockFetch.mockImplementation((url: string, opts?: any) => {
+        if (opts?.method === "POST") {
+          return new Promise((resolve) => {
+            release = () => resolve(base(url, opts))
+          })
+        }
+        return base(url, opts)
+      })
+      await openDialog()
+      fireEvent.click(screen.getByRole("button", { name: "Save payment" }))
+      await waitFor(() => expect(paymentCalls()).toHaveLength(1))
+
+      // The dialog hides the page from the accessibility tree; query hidden.
+      expect(
+        screen.getByRole("button", { name: "Void", hidden: true })
+      ).toBeDisabled()
+      expect(
+        screen.getByRole("button", { name: "Void payment PAY-0001", hidden: true })
+      ).toBeDisabled()
+      expect(
+        screen.getByRole("button", { name: "Record payment", hidden: true })
+      ).toBeDisabled()
+      release()
+      await waitFor(() =>
+        expect(mockToast.success).toHaveBeenCalledWith("Payment recorded")
+      )
+    })
+
+    it("disables Record payment while the invoice Void is in flight", async () => {
+      postedServer()
+      const base = mockFetch.getMockImplementation()!
+      let release: () => void = () => {}
+      mockFetch.mockImplementation((url: string, opts?: any) => {
+        if (opts?.method === "POST") {
+          return new Promise((resolve) => {
+            release = () => resolve(base(url, opts))
+          })
+        }
+        return base(url, opts)
+      })
+      renderPage()
+      await screen.findByText("INV-0001")
+      fireEvent.click(screen.getByRole("button", { name: "Void" }))
+      await confirmDialog("Void invoice")
+
+      await waitFor(() => expect(postCalls()).toHaveLength(1))
+      expect(screen.getByRole("button", { name: "Record payment" })).toBeDisabled()
+      release()
+      await waitFor(() =>
+        expect(screen.getByTestId("status")).toHaveTextContent("Void")
+      )
+    })
+
+    it("voids a payment only after confirmation and updates the balance", async () => {
+      postedServer({
+        invoice: makeInvoice({
+          status: "posted",
+          payment_status: "partially_paid",
+          paid_total: 20,
+          balance: 53.75,
+        }),
+        payments: [makePayment()],
+      })
+      renderPage()
+      await screen.findByText("INV-0001")
+
+      fireEvent.click(screen.getByRole("button", { name: "Void payment PAY-0001" }))
+      const dialog = await screen.findByRole("alertdialog")
+      await flush()
+      expect(postCalls()).toHaveLength(0)
+
+      fireEvent.click(within(dialog).getByRole("button", { name: "Keep payment" }))
+      await waitFor(() =>
+        expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
+      )
+      await flush()
+      expect(postCalls()).toHaveLength(0)
+
+      fireEvent.click(screen.getByRole("button", { name: "Void payment PAY-0001" }))
+      await confirmDialog("Void payment")
+      await waitFor(() =>
+        expect(mockFetch).toHaveBeenCalledWith("/admin/supplier-payments/pay_1/void", {
+          method: "POST",
+        })
+      )
+      await waitFor(() =>
+        expect(screen.getByTestId("balance")).toHaveTextContent("$73.75")
+      )
+      expect(screen.getByTestId("payment-status")).toHaveTextContent("Unpaid")
+      const [row] = screen.getAllByTestId("payment-row")
+      expect(within(row).getByText("Void")).toBeInTheDocument()
+      expect(within(row).queryByRole("button")).not.toBeInTheDocument()
+      expect(mockToast.success).toHaveBeenCalledWith("Payment voided")
+    })
+
+    it("shows the server message when voiding the invoice with live payments", async () => {
+      postedServer({
+        invoice: makeInvoice({
+          status: "posted",
+          payment_status: "partially_paid",
+          paid_total: 20,
+          balance: 53.75,
+        }),
+        payments: [makePayment()],
+      })
+      renderPage()
+      await screen.findByText("INV-0001")
+
+      fireEvent.click(screen.getByRole("button", { name: "Void" }))
+      await confirmDialog("Void invoice")
+
+      const message = "Invoice SUP-77 has 1 payment(s); void the payments first"
+      expect(await screen.findByText(message)).toBeInTheDocument()
+      expect(mockToast.error).toHaveBeenCalledWith(message)
+      expect(screen.getByTestId("status")).toHaveTextContent("Posted")
     })
   })
 

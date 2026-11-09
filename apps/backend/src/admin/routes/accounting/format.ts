@@ -52,3 +52,37 @@ export function paymentStatusLabel(status: string) {
 export function paymentStatusColor(status: string) {
   return PAYMENT_STATUS_COLORS[status] ?? "grey"
 }
+
+export const INVOICE_PAYMENT_STATUS_LABELS: Record<string, string> = {
+  unpaid: "Unpaid",
+  partially_paid: "Part paid",
+  paid: "Paid",
+}
+
+export const INVOICE_PAYMENT_STATUS_COLORS: Record<
+  string,
+  "red" | "orange" | "green" | "grey"
+> = {
+  unpaid: "red",
+  partially_paid: "orange",
+  paid: "green",
+}
+
+// Unknown strings fall back to the raw text so a badge is never empty.
+export function invoicePaymentStatusLabel(status: string) {
+  return INVOICE_PAYMENT_STATUS_LABELS[status] ?? status
+}
+
+export function invoicePaymentStatusColor(status: string) {
+  return INVOICE_PAYMENT_STATUS_COLORS[status] ?? "grey"
+}
+
+// Money fields may be missing on an older cached response; show a dash, not NaN.
+export function formatMoneyOrDash(
+  value: unknown,
+  format: (amount: number) => string
+) {
+  return typeof value === "number" && Number.isFinite(value)
+    ? format(value)
+    : "—"
+}
