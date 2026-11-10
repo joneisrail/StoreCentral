@@ -39,15 +39,16 @@ figures agree with the Orders page.
 
 ```
 apps/backend/src/
-  modules/accounting/utils.ts       + sales helpers (pure): bucketing, totals
-  api/admin/sales-report/           route.ts, middlewares.ts, build-sales-report.ts
+  modules/accounting/sales.ts       sales helpers (pure): range, bucketing, totals
+  api/admin/sales-report/           route.ts, middlewares.ts, load-sales-data.ts
   admin/routes/accounting/sales/    page.tsx (+ components, tests)
 ```
 
-`build-sales-report.ts` is the only code that touches order data. It reads
+`load-sales-data.ts` is the only code that touches order data. It reads
 orders with `query.graph` (route-level, like the other accounting reads);
-the pure bucketing and rounding helpers live in `utils.ts` and are unit
-tested without a database. The accounting module imports nothing from the
+the pure bucketing and rounding helpers live in `sales.ts` (importing
+`toCents` from `utils.ts`, which stays focused) and are unit tested without
+a database. The accounting module imports nothing from the
 order module.
 
 ## Definitions
@@ -175,8 +176,13 @@ cards and the table always agree.
 - Top products ignore returns and refunds.
 - Medusa's order computed totals (`item_subtotal`, `discount_subtotal`,
   `shipping_subtotal`, `tax_total`) and the `order_transaction` entity are
-  readable through `query.graph`; the first plan task verifies this against
-  a real seeded order before anything else is built on it.
+  readable through `query.graph`. **Verified in plan Task 1** against a real
+  seeded order: `query.graph` on `order` returns the computed totals and
+  `items.{variant_id,product_id,title,quantity,subtotal,discount_subtotal}`,
+  matching `GET /admin/orders/:id`; entity `order_transaction` resolves with
+  `id, created_at, amount, reference, currency_code, order.status,
+  order.canceled_at`, and a refund added with `amount: -5, reference:
+  "refund"` reads back as `-5`.
 
 ## Deployment notes
 
