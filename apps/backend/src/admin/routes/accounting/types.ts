@@ -100,3 +100,33 @@ export type InvoiceComparison = {
   invoice_total: number
   difference: number
 }
+
+export type SalesGranularity = "day" | "week" | "month"
+
+export type SalesTotals = {
+  orders: number
+  units: number
+  gross_sales: number
+  discounts: number
+  net_sales: number
+  shipping: number
+  tax: number
+  revenue: number
+  refunds: number
+  net_revenue: number
+  average_order_value: number
+}
+
+export type SalesReport = {
+  range: { from: string; to: string; granularity: SalesGranularity }
+  currency_code: "usd"
+  summary: SalesTotals
+  trend: (SalesTotals & { period: string })[]
+  top_products: {
+    variant_id: string | null
+    product_id: string | null
+    title: string
+    quantity: number
+    revenue: number
+  }[]
+}
