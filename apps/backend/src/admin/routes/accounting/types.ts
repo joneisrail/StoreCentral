@@ -130,3 +130,32 @@ export type SalesReport = {
     revenue: number
   }[]
 }
+
+export type ProfitTotals = {
+  orders: number
+  units: number
+  net_revenue: number
+  cogs: number
+  gross_profit: number
+  // null when net revenue is zero or negative.
+  margin_pct: number | null
+  units_without_cost: number
+}
+
+export type ProfitReport = {
+  range: { from: string; to: string; granularity: SalesGranularity }
+  currency_code: "usd"
+  summary: ProfitTotals
+  trend: (ProfitTotals & { period: string })[]
+  by_product: {
+    variant_id: string | null
+    product_id: string | null
+    title: string
+    units: number
+    revenue: number
+    cogs: number
+    gross_profit: number
+    margin_pct: number | null
+    units_without_cost: number
+  }[]
+}
