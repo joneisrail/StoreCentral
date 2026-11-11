@@ -51,7 +51,7 @@ export type SalesReport = {
   }[]
 }
 
-const DAY_MS = 24 * 60 * 60 * 1000
+export const DAY_MS = 24 * 60 * 60 * 1000
 const MAX_RANGE_DAYS = 366
 const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/
 
@@ -59,10 +59,10 @@ const invalid = (message: string): never => {
   throw new MedusaError(MedusaError.Types.INVALID_DATA, message)
 }
 
-const isoDay = (ms: number): string => new Date(ms).toISOString().slice(0, 10)
+export const isoDay = (ms: number): string => new Date(ms).toISOString().slice(0, 10)
 
 // Strict YYYY-MM-DD -> UTC midnight in ms; rejects 2026-02-30 and the like.
-const parseDay = (value: string, label: string): number => {
+export const parseDay = (value: string, label: string): number => {
   const match = DATE_RE.exec(value ?? "")
   const ms = match
     ? Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]))
@@ -105,7 +105,7 @@ export function resolveRange(
   return { from: isoDay(fromMs), to: isoDay(toMs) }
 }
 
-const bucketKey = (ms: number, granularity: Granularity): string => {
+export const bucketKey = (ms: number, granularity: Granularity): string => {
   if (granularity === "month") {
     return isoDay(ms).slice(0, 7)
   }
@@ -116,7 +116,7 @@ const bucketKey = (ms: number, granularity: Granularity): string => {
   return isoDay(ms)
 }
 
-const cents = (value: unknown): number => {
+export const cents = (value: unknown): number => {
   const n = Number(value)
   return Number.isFinite(n) ? toCents(n) : 0
 }
