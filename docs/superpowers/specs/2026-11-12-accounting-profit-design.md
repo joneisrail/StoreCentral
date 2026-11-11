@@ -187,6 +187,16 @@ received before the end of the range (purchase `shipping_cost`, `tax`,
 - Purchase costs, not supplier invoice prices, are used.
 - Receipts of cancelled purchases count if they exist.
 
+Verified during implementation (Task 3, HTTP tests against a real database):
+
+- The purchase entity fields resolve in `query.graph`: `shipping_cost`, `tax`,
+  `other_cost`, `items.id`, `items.variant_id`, `items.quantity`,
+  `items.unit_cost`, `receipts.id`, `receipts.received_at`,
+  `receipts.items.purchase_item_id`, `receipts.items.quantity`.
+- The cost loader reads purchases in pages of 200 ordered by id and keeps only
+  purchases with at least one receipt where `received_at` is before the range
+  end (exclusive).
+
 ## Deployment notes
 
 - Each request loads all orders in the range (as Sales) and every purchase
