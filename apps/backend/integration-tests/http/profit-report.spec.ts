@@ -98,6 +98,45 @@ medusaIntegrationTestRunner({
       return placed
     }
 
+    // One purchase with one line per entry, received in separate receipts
+    // (one per entry of receipts), each dated with parameterized SQL.
+    const splitReceivedPurchase = async (o: {
+      lines: { variant_id: string; quantity: number; unit_cost: number }[]
+      receivedAt: string[]
+    }) => {
+      const supplier = await createSupplier()
+      const location = await createLocation()
+      const created = (
+        await api.post(
+          "/admin/purchases",
+          { supplier_id: supplier.id, items: o.lines },
+          adminHeaders
+        )
+      ).data.purchase
+      const placed = (
+        await api.post(`/admin/purchases/${created.id}/order`, {}, adminHeaders)
+      ).data.purchase as { items: { id: string; unit_cost: number }[] }
+      for (const [i, item] of placed.items.entries()) {
+        const receipt = (
+          await api.post(
+            `/admin/purchases/${created.id}/receive`,
+            {
+              stock_location_id: location.id,
+              items: [
+                { purchase_item_id: item.id, quantity: o.lines[i].quantity },
+              ],
+            },
+            adminHeaders
+          )
+        ).data.receipt as { id: string }
+        await sql().raw(
+          "update purchase_receipt set received_at = ? where id = ?",
+          [o.receivedAt[i], receipt.id]
+        )
+      }
+      return created.id as string
+    }
+
     const bad = async (qs: string) => {
       const res = await api
         .get(`/admin/profit-report${qs}`, adminHeaders)
@@ -150,6 +189,79 @@ medusaIntegrationTestRunner({
             new Date("2026-03-01T00:00:00.000Z")
           )
         ).toHaveLength(0)
+      })
+    })
+
+    describe("cost loader receipt time filter", () => {
+      const END = new Date("2026-03-07T00:00:00.000Z") // range 03-01..03-06
+
+      it("strips a receipt after the range end but keeps the purchase", async () => {
+        const v = await createVariant()
+        const id = await splitReceivedPurchase({
+          lines: [
+            { variant_id: v.id, quantity: 10, unit_cost: 4 },
+            { variant_id: v.id, quantity: 10, unit_cost: 10 },
+          ],
+          receivedAt: ["2026-03-01T00:00:00.000Z", "2026-03-10T00:00:00.000Z"],
+        })
+        await makeOrder({
+          at: "2026-03-02T10:00:00Z",
+          items: [{ title: "W", quantity: 2, unit_price: 20, variant_id: v.id }],
+        })
+
+        const purchases = await loadCostData(getContainer(), END)
+        expect(purchases).toHaveLength(1)
+        expect(purchases[0].items).toHaveLength(2)
+        expect(purchases[0].receipts).toHaveLength(1)
+        expect(
+          new Date(purchases[0].receipts[0].received_at).toISOString()
+        ).toBe("2026-03-01T00:00:00.000Z")
+        expect(id).toBeTruthy()
+
+        const r = await profit()
+        expect(r.summary.cogs).toBe(8)
+        expect(r.summary.units_without_cost).toBe(0)
+      })
+
+      it("omits a purchase whose only receipt is after the range end", async () => {
+        const v = await createVariant()
+        await receivedPurchase({
+          lines: [{ variant_id: v.id, quantity: 10, unit_cost: 4 }],
+          receivedAt: "2026-03-10T00:00:00.000Z",
+        })
+        await makeOrder({
+          at: "2026-03-02T10:00:00Z",
+          items: [{ title: "W", quantity: 2, unit_price: 20, variant_id: v.id }],
+        })
+
+        expect(await loadCostData(getContainer(), END)).toHaveLength(0)
+        const r = await profit()
+        expect(r.summary.cogs).toBe(0)
+        expect(r.summary.units_without_cost).toBe(2)
+      })
+
+      it("treats the end instant as exclusive and one millisecond earlier as included", async () => {
+        const v = await createVariant()
+        await splitReceivedPurchase({
+          lines: [
+            { variant_id: v.id, quantity: 1, unit_cost: 1 },
+            { variant_id: v.id, quantity: 1, unit_cost: 2 },
+          ],
+          receivedAt: ["2026-03-06T23:59:59.999Z", "2026-03-07T00:00:00.000Z"],
+        })
+        const purchases = await loadCostData(getContainer(), END)
+        expect(purchases).toHaveLength(1)
+        expect(purchases[0].receipts).toHaveLength(1)
+        expect(
+          new Date(purchases[0].receipts[0].received_at).toISOString()
+        ).toBe("2026-03-06T23:59:59.999Z")
+
+        const onlyAtEnd = await createVariant()
+        await receivedPurchase({
+          lines: [{ variant_id: onlyAtEnd.id, quantity: 1, unit_cost: 1 }],
+          receivedAt: "2026-03-07T00:00:00.000Z",
+        })
+        expect(await loadCostData(getContainer(), END)).toHaveLength(1)
       })
     })
 
