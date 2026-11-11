@@ -1,6 +1,7 @@
 import { authenticate, configureStoreSearch, defineMiddlewares } from '@medusajs/framework/http'
 import { invoiceMiddlewares } from './admin/invoices/middlewares'
 import { paymentMiddlewares } from './admin/supplier-payments/middlewares'
+import { expenseMiddlewares } from './admin/expenses/middlewares'
 import { supplierBalanceMiddlewares } from './admin/supplier-balances/middlewares'
 import { salesReportMiddlewares } from './admin/sales-report/middlewares'
 import { profitReportMiddlewares } from './admin/profit-report/middlewares'
@@ -34,6 +35,7 @@ export default defineMiddlewares({
     ...purchaseMiddlewares,
     ...invoiceMiddlewares,
     ...paymentMiddlewares,
+    ...expenseMiddlewares,
     ...supplierBalanceMiddlewares,
     ...salesReportMiddlewares,
     ...profitReportMiddlewares,
