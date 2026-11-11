@@ -37,6 +37,15 @@ export type ProfitTotals = {
   gross_profit: number
   margin_pct: number | null
   units_without_cost: number
+  expenses: number
+  net_profit: number
+  net_margin_pct: number | null
+}
+
+export type ExpenseInput = {
+  expense_date: string | Date
+  category: string
+  amount: unknown
 }
 
 export type ProfitReport = {
@@ -44,6 +53,7 @@ export type ProfitReport = {
   currency_code: "usd"
   summary: ProfitTotals
   trend: (ProfitTotals & { period: string })[]
+  expenses_by_category: { category: string; amount: number }[]
   by_product: {
     variant_id: string | null
     product_id: string | null
@@ -154,12 +164,13 @@ export function averageUnitCostCents(
 const margin = (profitCents: number, revenueCents: number): number | null =>
   revenueCents > 0 ? Math.round((profitCents / revenueCents) * 1000) / 10 : null
 
-type CostAcc = { cogs: number; uncosted: number }
+type CostAcc = { cogs: number; uncosted: number; expenses: number }
 
 export function buildProfitReport(input: {
   orders: SalesOrderInput[]
   refunds: SalesRefundInput[]
   purchases: CostPurchase[]
+  expenses: ExpenseInput[]
   from: string
   to: string
   granularity: Granularity
@@ -182,7 +193,7 @@ export function buildProfitReport(input: {
 
   const buckets = new Map<string, CostAcc>()
   for (const row of sales.trend) {
-    buckets.set(row.period, { cogs: 0, uncosted: 0 })
+    buckets.set(row.period, { cogs: 0, uncosted: 0, expenses: 0 })
   }
   const products = new Map<
     string,
@@ -236,14 +247,35 @@ export function buildProfitReport(input: {
     }
   }
 
+  const categories = new Map<string, number>()
+  for (const expense of input.expenses) {
+    const ms = new Date(expense.expense_date).getTime()
+    if (Number.isNaN(ms) || ms < fromMs || ms >= endMs) {
+      continue
+    }
+    const acc = buckets.get(bucketKey(ms, granularity))
+    if (!acc) {
+      continue
+    }
+    const amount = cents(expense.amount)
+    acc.expenses += amount
+    categories.set(
+      expense.category,
+      (categories.get(expense.category) ?? 0) + amount
+    )
+  }
+
   let totalCogs = 0
   let totalUncosted = 0
+  let totalExpenses = 0
   const trend = sales.trend.map((row) => {
     const acc = buckets.get(row.period) as CostAcc
     totalCogs += acc.cogs
     totalUncosted += acc.uncosted
+    totalExpenses += acc.expenses
     const revenueCents = cents(row.net_revenue)
     const profitCents = revenueCents - acc.cogs
+    const netCents = profitCents - acc.expenses
     return {
       period: row.period,
       orders: row.orders,
@@ -253,11 +285,23 @@ export function buildProfitReport(input: {
       gross_profit: profitCents / 100,
       margin_pct: margin(profitCents, revenueCents),
       units_without_cost: acc.uncosted,
+      expenses: acc.expenses / 100,
+      net_profit: netCents / 100,
+      net_margin_pct: margin(netCents, revenueCents),
     }
   })
 
   const summaryRevenue = cents(sales.summary.net_revenue)
   const summaryProfit = summaryRevenue - totalCogs
+  const summaryNet = summaryProfit - totalExpenses
+
+  const expenses_by_category = [...categories.entries()]
+    .filter(([, amount]) => amount !== 0)
+    .sort(
+      (a, b) =>
+        b[1] - a[1] || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0)
+    )
+    .map(([category, amount]) => ({ category, amount: amount / 100 }))
 
   const by_product = [...products.values()]
     .map((p) => ({ ...p, profit: p.revenue - p.cogs }))
@@ -291,8 +335,12 @@ export function buildProfitReport(input: {
       gross_profit: summaryProfit / 100,
       margin_pct: margin(summaryProfit, summaryRevenue),
       units_without_cost: totalUncosted,
+      expenses: totalExpenses / 100,
+      net_profit: summaryNet / 100,
+      net_margin_pct: margin(summaryNet, summaryRevenue),
     },
     trend,
+    expenses_by_category,
     by_product,
   }
 }

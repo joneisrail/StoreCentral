@@ -19,6 +19,14 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
   const purchases = await loadCostData(req.scope, endExclusive)
 
   res.json(
-    buildProfitReport({ orders, refunds, purchases, ...range, granularity, top })
+    buildProfitReport({
+      orders,
+      refunds,
+      purchases,
+      expenses: [], // Task 4 replaces this with the real expense loader.
+      ...range,
+      granularity,
+      top,
+    })
   )
 }

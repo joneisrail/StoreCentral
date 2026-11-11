@@ -65,6 +65,13 @@ const purchase = (
   ],
 })
 
+type Exp = { expense_date: string | Date; category: string; amount: unknown }
+const exp = (expense_date: string | Date, amount: unknown, category = "rent"): Exp => ({
+  expense_date,
+  category,
+  amount,
+})
+
 const run = (
   orders: ReturnType<typeof order>[],
   purchases: CostPurchase[],
@@ -74,12 +81,14 @@ const run = (
     to?: string
     granularity?: "day" | "week" | "month"
     top?: number
+    expenses?: Exp[]
   } = {}
 ) =>
   buildProfitReport({
     orders,
     refunds: opts.refunds ?? [],
     purchases,
+    expenses: opts.expenses ?? [],
     from: opts.from ?? "2026-03-01",
     to: opts.to ?? "2026-03-31",
     granularity: opts.granularity ?? "day",
@@ -447,5 +456,151 @@ describe("buildProfitReport", () => {
     )
     expect(report.summary.cogs).toBe(0)
     expect(report.by_product).toEqual([])
+  })
+})
+
+describe("buildProfitReport net profit", () => {
+  const sale = (at: string, subtotal: number) =>
+    order(at, [line({ quantity: 1, subtotal })])
+  const stock = [purchase("var_1", 100, 1, "2026-03-01T00:00:00Z")]
+
+  it("sums expenses into day, week and month buckets", () => {
+    const expenses = [
+      exp("2026-03-02", 10),
+      exp("2026-03-02T20:00:00Z", 5),
+      exp("2026-03-04", 7),
+    ]
+    const day = run([], [], { expenses })
+    expect(
+      day.trend.filter((r) => r.expenses > 0).map((r) => [r.period, r.expenses])
+    ).toEqual([
+      ["2026-03-02", 15],
+      ["2026-03-04", 7],
+    ])
+    const week = run([], [], { expenses, granularity: "week" })
+    expect(week.trend.find((r) => r.period === "2026-03-02")?.expenses).toBe(22)
+    const month = run([], [], { expenses, granularity: "month" })
+    expect(month.trend.map((r) => [r.period, r.expenses])).toEqual([
+      ["2026-03", 22],
+    ])
+  })
+
+  it("net_profit is gross_profit minus expenses and may be negative", () => {
+    const report = run([sale("2026-03-10T10:00:00Z", 10)], stock, {
+      expenses: [exp("2026-03-10", 25)],
+    })
+    expect(report.summary.gross_profit).toBe(9)
+    expect(report.summary.expenses).toBe(25)
+    expect(report.summary.net_profit).toBe(-16)
+    expect(report.summary.net_margin_pct).toBe(-160)
+  })
+
+  it("net_margin_pct is null when net revenue is zero or negative", () => {
+    const orders = [sale("2026-03-10T10:00:00Z", 5)]
+    const expenses = [exp("2026-03-10", 3)]
+    const zero = run(orders, stock, {
+      expenses,
+      refunds: [{ created_at: "2026-03-10T05:00:00Z", amount: 5 }],
+    })
+    expect(zero.summary.net_margin_pct).toBeNull()
+    const neg = run(orders, stock, {
+      expenses,
+      refunds: [{ created_at: "2026-03-10T05:00:00Z", amount: 9 }],
+    })
+    expect(neg.summary.net_margin_pct).toBeNull()
+    expect(run([], [], { expenses }).summary.net_margin_pct).toBeNull()
+  })
+
+  it("includes from and to days and excludes the day after and 1 ms before", () => {
+    const report = run([], [], {
+      from: "2026-03-10",
+      to: "2026-03-12",
+      expenses: [
+        exp("2026-03-10T00:00:00.000Z", 1),
+        exp("2026-03-12T00:00:00.000Z", 2),
+        exp("2026-03-13T00:00:00.000Z", 4),
+        exp("2026-03-09T23:59:59.999Z", 8),
+        exp(new Date("2026-03-11T12:00:00Z"), 16),
+      ],
+    })
+    expect(report.summary.expenses).toBe(19)
+    expect(report.expenses_by_category).toEqual([{ category: "rent", amount: 19 }])
+    expect(report.trend.map((r) => [r.period, r.expenses])).toEqual([
+      ["2026-03-10", 1],
+      ["2026-03-11", 16],
+      ["2026-03-12", 2],
+    ])
+  })
+
+  it("0.1 + 0.2 + 0.7 expense sums give exactly 1", () => {
+    const report = run([], [], {
+      expenses: [
+        exp("2026-03-05", 0.1),
+        exp("2026-03-05", 0.2),
+        exp("2026-03-05", "0.7"),
+      ],
+    })
+    expect(report.summary.expenses).toBe(1)
+    expect(report.trend.find((r) => r.period === "2026-03-05")?.expenses).toBe(1)
+  })
+
+  it("summary equals the sum of the trend for expenses and net_profit", () => {
+    const report = run(
+      [
+        sale("2026-03-02T10:00:00Z", 20.1),
+        sale("2026-03-15T10:00:00Z", 31.1),
+      ],
+      stock,
+      { expenses: [exp("2026-03-02", 0.1), exp("2026-03-15", 0.2), exp("2026-03-20", 0.7)] }
+    )
+    const sum = (key: "expenses" | "net_profit") =>
+      Math.round(report.trend.reduce((s, r) => s + r[key], 0) * 100) / 100
+    expect(report.summary.expenses).toBe(sum("expenses"))
+    expect(report.summary.net_profit).toBe(sum("net_profit"))
+    expect(report.summary.expenses).toBe(1)
+  })
+
+  it("summary net margin comes from summed cents, not the mean of buckets", () => {
+    const report = run(
+      [sale("2026-03-02T10:00:00Z", 3), sale("2026-03-03T10:00:00Z", 100)],
+      stock,
+      { expenses: [exp("2026-03-03", 50)] }
+    )
+    const days = report.trend.filter((r) => r.orders > 0)
+    expect(days.map((d) => d.net_margin_pct)).toEqual([66.7, 49])
+    expect(report.summary.net_margin_pct).toBe(49.5) // 51 / 103
+  })
+
+  it("expenses_by_category totals, omits empty, orders by amount then name", () => {
+    const report = run([], [], {
+      expenses: [
+        exp("2026-03-02", 10, "software"),
+        exp("2026-03-03", 5, "rent"),
+        exp("2026-03-04", 5, "fees"),
+        exp("2026-03-05", 20, "marketing"),
+        exp("2026-03-06", 10, "software"),
+        exp("2026-04-06", 99, "payroll"),
+      ],
+    })
+    expect(report.expenses_by_category).toEqual([
+      { category: "marketing", amount: 20 },
+      { category: "software", amount: 20 },
+      { category: "fees", amount: 5 },
+      { category: "rent", amount: 5 },
+    ])
+    expect(report.expenses_by_category.map((c) => c.category)).toEqual([
+      "marketing",
+      "software",
+      "fees",
+      "rent",
+    ])
+  })
+
+  it("no expenses: zero expenses, net equals gross, empty category list", () => {
+    const report = run([sale("2026-03-10T10:00:00Z", 10)], stock)
+    expect(report.summary.expenses).toBe(0)
+    expect(report.summary.net_profit).toBe(report.summary.gross_profit)
+    expect(report.summary.net_margin_pct).toBe(report.summary.margin_pct)
+    expect(report.expenses_by_category).toEqual([])
   })
 })
