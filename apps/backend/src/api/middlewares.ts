@@ -3,6 +3,7 @@ import { invoiceMiddlewares } from './admin/invoices/middlewares'
 import { paymentMiddlewares } from './admin/supplier-payments/middlewares'
 import { supplierBalanceMiddlewares } from './admin/supplier-balances/middlewares'
 import { salesReportMiddlewares } from './admin/sales-report/middlewares'
+import { profitReportMiddlewares } from './admin/profit-report/middlewares'
 import { purchaseMiddlewares } from './admin/purchases/middlewares'
 import { supplierOfferMiddlewares } from './admin/supplier-offers/middlewares'
 import { supplierMiddlewares } from './admin/suppliers/middlewares'
@@ -35,6 +36,7 @@ export default defineMiddlewares({
     ...paymentMiddlewares,
     ...supplierBalanceMiddlewares,
     ...salesReportMiddlewares,
+    ...profitReportMiddlewares,
     {
       // The EasyPost webhook route verifies the `X-Hmac-Signature` header
       // against the exact raw request bytes, so the JSON bodyparser must
