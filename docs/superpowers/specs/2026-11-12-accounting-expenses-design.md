@@ -171,6 +171,14 @@ unknown category lists the allowed values, missing expense says so).
 - Net margin uses net revenue as the base, like the gross margin.
 - Delete is final from the UI (no restore).
 
+### Verified during implementation
+
+- The migration is `src/modules/accounting/migrations/Migration20261111211055.ts`.
+- The accounting service methods used are `listExpenses` (with `take: null`
+  for the profit report), `softDeleteExpenses` and `restoreExpenses` (the
+  latter undoes a delete when a workflow rolls back).
+- Creating an expense returns HTTP 200, like supplier payments.
+
 ## Deployment notes
 
 - Run `npx medusa db:migrate` in `apps/backend` after merging (one new table).
