@@ -53,6 +53,9 @@ type Totals = {
   gross_profit: number
   margin_pct: number | null
   units_without_cost: number
+  expenses: number
+  net_profit: number
+  net_margin_pct: number | null
 }
 
 const ZERO: Totals = {
@@ -63,6 +66,9 @@ const ZERO: Totals = {
   gross_profit: 0,
   margin_pct: null,
   units_without_cost: 0,
+  expenses: 0,
+  net_profit: 0,
+  net_margin_pct: null,
 }
 
 type Report = {
@@ -81,6 +87,7 @@ type Report = {
     margin_pct: number | null
     units_without_cost: number
   }[]
+  expenses_by_category: { category: string; amount: number }[]
 }
 
 function makeReport(overrides: Partial<Report> = {}): Report {
@@ -95,6 +102,9 @@ function makeReport(overrides: Partial<Report> = {}): Report {
       gross_profit: 629.25,
       margin_pct: 44,
       units_without_cost: 0,
+      expenses: 229.25,
+      net_profit: 400,
+      net_margin_pct: 27.98,
     },
     trend: [
       {
@@ -105,6 +115,9 @@ function makeReport(overrides: Partial<Report> = {}): Report {
         cogs: 600,
         gross_profit: 400,
         margin_pct: 40,
+        expenses: 111.11,
+        net_profit: 288.89,
+        net_margin_pct: 28.9,
       },
       { ...ZERO, period: "2026-11-02" },
       {
@@ -115,6 +128,9 @@ function makeReport(overrides: Partial<Report> = {}): Report {
         cogs: 300,
         gross_profit: 200,
         margin_pct: 40,
+        expenses: 222.22,
+        net_profit: -22.22,
+        net_margin_pct: -4.4,
       },
     ],
     by_product: [
@@ -140,6 +156,11 @@ function makeReport(overrides: Partial<Report> = {}): Report {
         margin_pct: null,
         units_without_cost: 2,
       },
+    ],
+    expenses_by_category: [
+      { category: "rent", amount: 150 },
+      { category: "shipping_packaging", amount: 70.25 },
+      { category: "mystery", amount: 9 },
     ],
     ...overrides,
   }
@@ -241,6 +262,92 @@ describe("ProfitPage", () => {
 
     expect(card("Margin")).toHaveTextContent("—")
     expect(card("Margin")).not.toHaveTextContent("%")
+  })
+
+  it("shows the Expenses, Net profit and Net margin cards", async () => {
+    renderPage()
+    await screen.findByText("Blue Widget")
+
+    expect(card("Expenses")).toHaveTextContent("$229.25")
+    expect(card("Net profit")).toHaveTextContent("$400.00")
+    expect(card("Net margin")).toHaveTextContent("28.0%")
+  })
+
+  it("renders a dash for a null net margin and a negative USD value for a net loss", async () => {
+    serverReport = makeReport({
+      summary: {
+        ...makeReport().summary,
+        net_profit: -75.5,
+        net_margin_pct: null,
+      },
+    })
+    renderPage()
+    await screen.findByText("Blue Widget")
+
+    expect(card("Net margin")).toHaveTextContent("—")
+    expect(card("Net margin")).not.toHaveTextContent("%")
+    expect(card("Net profit")).toHaveTextContent("-$75.50")
+  })
+
+  it("trend rows show expenses and net profit after gross profit", async () => {
+    renderPage()
+    await screen.findByText("Blue Widget")
+
+    const headers = screen
+      .getAllByRole("columnheader")
+      .map((h) => h.textContent)
+    expect(headers.slice(0, 7)).toEqual([
+      "Period",
+      "Net revenue",
+      "Cost of goods",
+      "Gross profit",
+      "Expenses",
+      "Net profit",
+      "Margin",
+    ])
+
+    const cells = (text: string) =>
+      Array.from(rowStarting(text).querySelectorAll("td")).map(
+        (c) => c.textContent
+      )
+    const first = cells("2026-11-01")
+    expect(first[4]).toBe("$111.11")
+    expect(first[5]).toBe("$288.89")
+    const empty = cells("2026-11-02")
+    expect(empty[4]).toBe("$0.00")
+    expect(empty[5]).toBe("$0.00")
+    const third = cells("2026-11-03")
+    expect(third[4]).toBe("$222.22")
+    expect(third[5]).toBe("-$22.22")
+  })
+
+  it("lists expenses by category in the order received, with a raw fallback", async () => {
+    renderPage()
+    await screen.findByText("Blue Widget")
+
+    expect(screen.getByText("Expenses by category")).toBeInTheDocument()
+    const rent = rowStarting("Rent")
+    expect(rent).toHaveTextContent("$150.00")
+    expect(rowStarting("Shipping & packaging")).toHaveTextContent("$70.25")
+    expect(rowStarting("mystery")).toHaveTextContent("$9.00")
+
+    const order = screen
+      .getAllByRole("row")
+      .map((r) => r.textContent ?? "")
+      .filter((t) => /^(Rent|Shipping & packaging|mystery)/.test(t))
+    expect(order.map((t) => t.split("$")[0])).toEqual([
+      "Rent",
+      "Shipping & packaging",
+      "mystery",
+    ])
+  })
+
+  it("hides the category table when there are no expenses", async () => {
+    serverReport = makeReport({ expenses_by_category: [] })
+    renderPage()
+    await screen.findByText("Blue Widget")
+
+    expect(screen.queryByText("Expenses by category")).not.toBeInTheDocument()
   })
 
   it("shows the warning only when units_without_cost > 0", async () => {

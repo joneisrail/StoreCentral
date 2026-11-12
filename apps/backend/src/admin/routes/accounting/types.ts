@@ -140,6 +140,10 @@ export type ProfitTotals = {
   // null when net revenue is zero or negative.
   margin_pct: number | null
   units_without_cost: number
+  expenses: number
+  net_profit: number
+  // null when net revenue is zero or negative.
+  net_margin_pct: number | null
 }
 
 export type ProfitReport = {
@@ -158,6 +162,8 @@ export type ProfitReport = {
     margin_pct: number | null
     units_without_cost: number
   }[]
+  // Largest first.
+  expenses_by_category: { category: string; amount: number }[]
 }
 
 export type ExpenseCategory =

@@ -4,6 +4,7 @@ import { defineRouteConfig } from "@medusajs/admin-sdk"
 import { Button, Container, Heading, Input, Table, Text } from "@medusajs/ui"
 import { sdk } from "../../../lib/sdk"
 import { formatUsd } from "../../purchases/format"
+import { expenseCategoryLabel } from "../expenses/labels"
 import type { ProfitReport, SalesGranularity } from "../types"
 import {
   DEFAULT_PRESET,
@@ -20,6 +21,12 @@ const CARDS: { label: string; value: (r: ProfitReport) => string }[] = [
   { label: "Cost of goods", value: (r) => formatUsd(r.summary.cogs) },
   { label: "Gross profit", value: (r) => formatUsd(r.summary.gross_profit) },
   { label: "Margin", value: (r) => formatMargin(r.summary.margin_pct) },
+  { label: "Expenses", value: (r) => formatUsd(r.summary.expenses) },
+  { label: "Net profit", value: (r) => formatUsd(r.summary.net_profit) },
+  {
+    label: "Net margin",
+    value: (r) => formatMargin(r.summary.net_margin_pct),
+  },
   {
     label: "Units without cost",
     value: (r) => String(r.summary.units_without_cost),
@@ -141,7 +148,7 @@ const ProfitPage = () => {
             </div>
           )}
 
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
             {CARDS.map((card) => (
               <div
                 key={card.label}
@@ -165,6 +172,8 @@ const ProfitPage = () => {
                   <Table.HeaderCell>Net revenue</Table.HeaderCell>
                   <Table.HeaderCell>Cost of goods</Table.HeaderCell>
                   <Table.HeaderCell>Gross profit</Table.HeaderCell>
+                  <Table.HeaderCell>Expenses</Table.HeaderCell>
+                  <Table.HeaderCell>Net profit</Table.HeaderCell>
                   <Table.HeaderCell>Margin</Table.HeaderCell>
                 </Table.Row>
               </Table.Header>
@@ -191,6 +200,8 @@ const ProfitPage = () => {
                           <span>{formatUsd(row.gross_profit)}</span>
                         </div>
                       </Table.Cell>
+                      <Table.Cell>{formatUsd(row.expenses)}</Table.Cell>
+                      <Table.Cell>{formatUsd(row.net_profit)}</Table.Cell>
                       <Table.Cell>{formatMargin(row.margin_pct)}</Table.Cell>
                     </Table.Row>
                   )
@@ -198,6 +209,28 @@ const ProfitPage = () => {
               </Table.Body>
             </Table>
           </div>
+
+          {data.expenses_by_category.length > 0 && (
+            <div>
+              <Heading level="h2">Expenses by category</Heading>
+              <Table>
+                <Table.Header>
+                  <Table.Row>
+                    <Table.HeaderCell>Category</Table.HeaderCell>
+                    <Table.HeaderCell>Amount</Table.HeaderCell>
+                  </Table.Row>
+                </Table.Header>
+                <Table.Body>
+                  {data.expenses_by_category.map((row) => (
+                    <Table.Row key={row.category}>
+                      <Table.Cell>{expenseCategoryLabel(row.category)}</Table.Cell>
+                      <Table.Cell>{formatUsd(row.amount)}</Table.Cell>
+                    </Table.Row>
+                  ))}
+                </Table.Body>
+              </Table>
+            </div>
+          )}
 
           <div>
             <Heading level="h2">By product</Heading>
