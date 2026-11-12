@@ -2,9 +2,14 @@ import { useState } from "react"
 import { keepPreviousData, useQuery } from "@tanstack/react-query"
 import { defineRouteConfig } from "@medusajs/admin-sdk"
 import { Button, Container, Heading, Input, Table, Text } from "@medusajs/ui"
+import { Link } from "react-router-dom"
 import { sdk } from "../../../lib/sdk"
 import { formatUsd } from "../../purchases/format"
-import type { ProfitReport, SalesGranularity } from "../types"
+import type {
+  ProfitReport,
+  SalesGranularity,
+  SupplierBalanceTotals,
+} from "../types"
 import {
   DEFAULT_PRESET,
   PRESETS,
@@ -57,7 +62,7 @@ const ProfitSection = () => {
     data.expenses_by_category.length === 0
 
   return (
-    <Container>
+    <Container data-testid="profit-section">
       <Heading level="h2">Profit</Heading>
 
       <div className="flex flex-wrap items-end gap-3 py-4">
@@ -192,8 +197,69 @@ const ProfitSection = () => {
   )
 }
 
-// Filled in by the next task.
-const OwedSection = () => <div data-testid="owed-section" />
+const OWED_CARDS: {
+  label: string
+  value: (t: SupplierBalanceTotals) => string
+}[] = [
+  { label: "Total owed", value: (t) => formatUsd(t.balance_owed) },
+  { label: "Overdue", value: (t) => formatUsd(t.overdue_total) },
+  { label: "Open invoices", value: (t) => String(t.open_invoices) },
+]
+
+const OwedSection = () => {
+  const { data, isPending, isError, refetch } = useQuery({
+    queryKey: ["admin", "supplier-balances", "totals"],
+    queryFn: () =>
+      sdk.client.fetch<{ totals: SupplierBalanceTotals }>(
+        "/admin/supplier-balances",
+        { query: { limit: 1 } }
+      ),
+  })
+
+  return (
+    <Container data-testid="owed-section">
+      <div className="flex items-center justify-between">
+        <div>
+          <Heading level="h2">Owed to suppliers</Heading>
+          <Text size="small" className="text-ui-fg-subtle">
+            As of today
+          </Text>
+        </div>
+        <Link to="/accounting/payables" className="text-ui-fg-interactive">
+          Payables
+        </Link>
+      </div>
+
+      {isPending && <Text>Loading...</Text>}
+
+      {isError && (
+        <div>
+          <Text>Something went wrong loading money owed.</Text>
+          <Button size="small" variant="secondary" onClick={() => refetch()}>
+            Retry
+          </Button>
+        </div>
+      )}
+
+      {data && (
+        <div className="grid grid-cols-1 gap-3 py-4 md:grid-cols-3">
+          {OWED_CARDS.map((card) => (
+            <div
+              key={card.label}
+              data-testid="overview-owed-card"
+              className="border-ui-border-base rounded-md border p-3"
+            >
+              <Text size="small" className="text-ui-fg-subtle">
+                {card.label}
+              </Text>
+              <Text weight="plus">{card.value(data.totals)}</Text>
+            </div>
+          ))}
+        </div>
+      )}
+    </Container>
+  )
+}
 
 const OverviewPage = () => (
   <div className="flex flex-col gap-4">

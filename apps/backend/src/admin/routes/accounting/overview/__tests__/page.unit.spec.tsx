@@ -2,10 +2,17 @@
  * @jest-environment jsdom
  */
 import "../../../purchases/__tests__/text-encoder-polyfill"
-import { act, render, screen, fireEvent, waitFor } from "@testing-library/react"
+import {
+  act,
+  render,
+  screen,
+  fireEvent,
+  waitFor,
+  within,
+} from "@testing-library/react"
 import "@testing-library/jest-dom"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { MemoryRouter } from "react-router-dom"
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom"
 
 const mockFetch = jest.fn()
 
@@ -19,6 +26,7 @@ jest.mock("../../../../lib/sdk", () => ({
 
 import OverviewPage, { config } from "../page"
 import ProfitPage from "../../profit/page"
+import AccountingPage from "../../page"
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
@@ -148,10 +156,33 @@ function makeReport(overrides: Partial<Report> = {}): Report {
 
 let serverReport: Report = makeReport()
 
+const TOTALS = {
+  balance_owed: 1234.5,
+  overdue_total: 300,
+  open_invoices: 7,
+  suppliers: 3,
+}
+
+let serverTotals = { ...TOTALS }
+
+function balancesResponse() {
+  return {
+    balances: [],
+    count: serverTotals.suppliers,
+    offset: 0,
+    limit: 1,
+    totals: { ...serverTotals },
+  }
+}
+
+function balanceCalls() {
+  return mockFetch.mock.calls.filter((c) => c[0] === "/admin/supplier-balances")
+}
+
 function installServer() {
   mockFetch.mockImplementation((url: string) => {
     if (url === "/admin/supplier-balances") {
-      return new Promise(() => {})
+      return Promise.resolve(balancesResponse())
     }
     if (url !== "/admin/profit-report") {
       return Promise.reject(new Error(`unexpected fetch ${url}`))
@@ -219,6 +250,7 @@ describe("OverviewPage profit section", () => {
   beforeEach(() => {
     jest.clearAllMocks()
     serverReport = makeReport()
+    serverTotals = { ...TOTALS }
     installServer()
   })
 
@@ -338,7 +370,12 @@ describe("OverviewPage profit section", () => {
     mockFetch.mockImplementation(() => new Promise(() => {}))
     renderPage()
     await flush()
-    expect(screen.getAllByText("Loading...").length).toBeGreaterThan(0)
+    expect(
+      within(screen.getByTestId("profit-section")).getByText("Loading...")
+    ).toBeInTheDocument()
+    expect(
+      within(screen.getByTestId("owed-section")).getByText("Loading...")
+    ).toBeInTheDocument()
   })
 
   it("shows an error with a working Retry", async () => {
@@ -441,6 +478,134 @@ describe("OverviewPage profit section", () => {
 
     expect(overviewValues).toEqual(profitValues)
     expect(overviewValues[0]).toContain("$1,429.75")
+  })
+})
+
+describe("OverviewPage owed section", () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    serverReport = makeReport()
+    serverTotals = { ...TOTALS }
+    installServer()
+  })
+
+  const owed = () => within(screen.getByTestId("owed-section"))
+
+  it("requests totals with limit 1 and renders the three figures as of today", async () => {
+    renderPage()
+    expect(await owed().findByText("$1,234.50")).toBeInTheDocument()
+
+    expect(balanceCalls()).toHaveLength(1)
+    expect(balanceCalls()[0][1]).toEqual({ query: { limit: 1 } })
+    expect(owed().getByText("As of today")).toBeInTheDocument()
+    const cards = owed().getAllByTestId("overview-owed-card")
+    expect(cards).toHaveLength(3)
+    const byLabel = (l: string) =>
+      cards.find((c) => c.textContent?.startsWith(l))!
+    expect(byLabel("Total owed")).toHaveTextContent("$1,234.50")
+    expect(byLabel("Overdue")).toHaveTextContent("$300.00")
+    expect(byLabel("Open invoices")).toHaveTextContent("7")
+  })
+
+  it("links to the Payables page", async () => {
+    renderPage()
+    await owed().findByText("$1,234.50")
+    expect(owed().getByRole("link", { name: /payables/i })).toHaveAttribute(
+      "href",
+      "/accounting/payables"
+    )
+  })
+
+  it("a balances failure shows Retry in the owed section while profit renders", async () => {
+    mockFetch.mockImplementation((url: string) =>
+      url === "/admin/supplier-balances"
+        ? Promise.reject(new Error("boom"))
+        : Promise.resolve(JSON.parse(JSON.stringify(serverReport)))
+    )
+    renderPage()
+
+    expect(await screen.findByText("2026-11-01")).toBeInTheDocument()
+    expect(card("Net revenue")).toHaveTextContent("$1,429.75")
+    expect(
+      await owed().findByText(/something went wrong/i)
+    ).toBeInTheDocument()
+    expect(owed().queryAllByTestId("overview-owed-card")).toHaveLength(0)
+
+    installServer()
+    fireEvent.click(owed().getByRole("button", { name: "Retry" }))
+    expect(await owed().findByText("$1,234.50")).toBeInTheDocument()
+    expect(owed().queryByText(/something went wrong/i)).not.toBeInTheDocument()
+  })
+
+  it("a profit failure leaves the owed cards rendered", async () => {
+    mockFetch.mockImplementation((url: string) =>
+      url === "/admin/supplier-balances"
+        ? Promise.resolve(balancesResponse())
+        : Promise.reject(new Error("boom"))
+    )
+    renderPage()
+
+    expect(await owed().findByText("$1,234.50")).toBeInTheDocument()
+    expect(
+      await within(screen.getByTestId("profit-section")).findByText(
+        /something went wrong/i
+      )
+    ).toBeInTheDocument()
+    expect(owed().getAllByTestId("overview-owed-card")).toHaveLength(3)
+    expect(owed().queryByText(/something went wrong/i)).not.toBeInTheDocument()
+  })
+
+  it("changing the date range does not refetch balances", async () => {
+    renderPage()
+    await owed().findByText("$1,234.50")
+    await screen.findByText("2026-11-01")
+    expect(balanceCalls()).toHaveLength(1)
+
+    fireEvent.click(screen.getByRole("button", { name: "Last 7 days" }))
+    await waitFor(() =>
+      expect(daysBetween(lastQuery().from, lastQuery().to)).toBe(6)
+    )
+    setDates("2025-01-01", "2026-01-01")
+    await waitFor(() => expect(lastQuery().from).toBe("2025-01-01"))
+    await flush()
+
+    expect(balanceCalls()).toHaveLength(1)
+  })
+
+  it("zero totals render $0.00 cards without an error", async () => {
+    serverTotals = {
+      balance_owed: 0,
+      overdue_total: 0,
+      open_invoices: 0,
+      suppliers: 0,
+    }
+    renderPage()
+
+    await waitFor(() =>
+      expect(owed().getAllByTestId("overview-owed-card")).toHaveLength(3)
+    )
+    const cards = owed().getAllByTestId("overview-owed-card")
+    expect(cards[0]).toHaveTextContent("$0.00")
+    expect(cards[1]).toHaveTextContent("$0.00")
+    expect(cards[2]).toHaveTextContent("0")
+    expect(owed().queryByText(/something went wrong/i)).not.toBeInTheDocument()
+  })
+})
+
+describe("accounting landing", () => {
+  it("redirects /accounting to /accounting/overview without looping", async () => {
+    const Where = () => <div data-testid="where">{useLocation().pathname}</div>
+    render(
+      <MemoryRouter initialEntries={["/accounting"]}>
+        <Routes>
+          <Route path="/accounting" element={<AccountingPage />} />
+          <Route path="/accounting/overview" element={<Where />} />
+        </Routes>
+      </MemoryRouter>
+    )
+    expect(await screen.findByTestId("where")).toHaveTextContent(
+      "/accounting/overview"
+    )
   })
 })
 

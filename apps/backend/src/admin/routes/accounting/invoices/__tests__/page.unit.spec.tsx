@@ -25,7 +25,7 @@ jest.mock("../../../../lib/sdk", () => ({
 }))
 
 import InvoicesPage, { config as invoicesConfig } from "../page"
-import AccountingPage, { config as accountingConfig } from "../../page"
+import { config as accountingConfig } from "../../page"
 
 let queryClient: QueryClient
 
@@ -586,27 +586,5 @@ describe("route configs", () => {
   it("labels the list Invoices with no nested override", () => {
     expect(invoicesConfig.label).toBe("Invoices")
     expect((invoicesConfig as { nested?: string }).nested).toBeUndefined()
-  })
-
-  it("redirects /accounting to /accounting/invoices", async () => {
-    serverInvoices = [makeInvoice(1)]
-    queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
-    })
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={["/accounting"]}>
-          <Routes>
-            <Route path="/accounting" element={<AccountingPage />} />
-            <Route path="/accounting/invoices" element={<InvoicesPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>
-    )
-
-    expect(
-      await screen.findByRole("heading", { name: "Invoices" })
-    ).toBeInTheDocument()
-    expect(await screen.findByText("INV-0001")).toBeInTheDocument()
   })
 })
