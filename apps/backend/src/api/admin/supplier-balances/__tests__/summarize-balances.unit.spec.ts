@@ -1,4 +1,4 @@
-import { summarizeBalances } from "../summarize-balances"
+import { summarizeBalances, sumBalances } from "../summarize-balances"
 
 const today = new Date("2026-11-10T12:00:00Z")
 
@@ -139,5 +139,43 @@ describe("summarizeBalances", () => {
       "sup_b",
       "sup_c",
     ])
+  })
+})
+
+describe("sumBalances", () => {
+  const row = (balance_owed: number, overdue_total = 0, open_invoices = 1) => ({
+    balance_owed,
+    overdue_total,
+    open_invoices,
+  })
+
+  it("sums two suppliers", () => {
+    expect(sumBalances([row(110, 70, 2), row(30.5, 0, 1)])).toEqual({
+      balance_owed: 140.5,
+      overdue_total: 70,
+      open_invoices: 3,
+      suppliers: 2,
+    })
+  })
+
+  it("is cent exact", () => {
+    expect(sumBalances([row(0.1), row(0.2)]).balance_owed).toBe(0.3)
+  })
+
+  it("returns zeros for an empty list", () => {
+    expect(sumBalances([])).toEqual({
+      balance_owed: 0,
+      overdue_total: 0,
+      open_invoices: 0,
+      suppliers: 0,
+    })
+  })
+
+  it("counts suppliers as the row count", () => {
+    expect(sumBalances([row(1), row(2), row(3)]).suppliers).toBe(3)
+  })
+
+  it("sums open invoices", () => {
+    expect(sumBalances([row(1, 0, 4), row(1, 0, 6)]).open_invoices).toBe(10)
   })
 })

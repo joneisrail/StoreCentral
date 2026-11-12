@@ -5,7 +5,7 @@ import { INVOICE_FIELDS } from "../invoices/map-invoice"
 import type { InvoiceRow } from "../invoices/map-invoice"
 import { calculateInvoiceTotals } from "../../../modules/accounting/utils"
 import type { ListSupplierBalancesQuerySchema } from "./middlewares"
-import { summarizeBalances } from "./summarize-balances"
+import { summarizeBalances, sumBalances } from "./summarize-balances"
 
 const UNKNOWN_SUPPLIER = "(unknown supplier)"
 
@@ -82,9 +82,12 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
     ? withNames.filter((row) => row.supplier.name.toLowerCase().includes(term))
     : withNames
 
+  const totals = sumBalances(matching)
+
   res.json({
     balances: matching.slice(offset, offset + limit),
     count: matching.length,
+    totals,
     offset,
     limit,
   })

@@ -154,8 +154,53 @@ medusaIntegrationTestRunner({
             },
           ],
           count: 2,
+          totals: {
+            balance_owed: 135.5,
+            overdue_total: 110,
+            open_invoices: 3,
+            suppliers: 2,
+          },
           offset: 0,
           limit: 20,
+        })
+      })
+
+      it("totals cover every matching supplier, not just the page", async () => {
+        for (const [i, name] of ["Pure A", "Pure B", "Pure C", "Other"].entries()) {
+          await invoiceFor(await setup(name), 10 * (i + 1))
+        }
+
+        const paged = (await list("?limit=1")).data
+        expect(paged.balances).toHaveLength(1)
+        expect(paged.count).toBe(4)
+        expect(paged.totals).toEqual({
+          balance_owed: 100,
+          overdue_total: 0,
+          open_invoices: 4,
+          suppliers: 4,
+        })
+        expect(paged.totals.suppliers).toBe(paged.count)
+
+        const narrowed = (await list("?q=pure&limit=1")).data
+        expect(narrowed.count).toBe(3)
+        expect(narrowed.totals).toEqual({
+          balance_owed: 60,
+          overdue_total: 0,
+          open_invoices: 3,
+          suppliers: 3,
+        })
+      })
+
+      it("returns zero totals when nothing is posted", async () => {
+        const ctx = await setup("Draft Only")
+        await invoiceFor(ctx, 10, "draft")
+        const { data } = await list()
+        expect(data.balances).toEqual([])
+        expect(data.totals).toEqual({
+          balance_owed: 0,
+          overdue_total: 0,
+          open_invoices: 0,
+          suppliers: 0,
         })
       })
 

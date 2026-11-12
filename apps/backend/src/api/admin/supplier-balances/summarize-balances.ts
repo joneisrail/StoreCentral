@@ -85,3 +85,30 @@ export const summarizeBalances = (
     )
     .map(({ _owed, ...row }) => row)
 }
+
+export type BalanceTotals = {
+  balance_owed: number
+  overdue_total: number
+  open_invoices: number
+  suppliers: number
+}
+
+// Totals across a set of supplier rows, summed in integer cents.
+export const sumBalances = (
+  rows: Pick<SupplierBalance, "balance_owed" | "overdue_total" | "open_invoices">[]
+): BalanceTotals => {
+  let owed = 0
+  let overdue = 0
+  let open = 0
+  for (const row of rows) {
+    owed += toCents(row.balance_owed)
+    overdue += toCents(row.overdue_total)
+    open += row.open_invoices
+  }
+  return {
+    balance_owed: owed / 100,
+    overdue_total: overdue / 100,
+    open_invoices: open,
+    suppliers: rows.length,
+  }
+}
