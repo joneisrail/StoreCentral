@@ -59,7 +59,9 @@ const ProfitPage = () => {
     data.summary.orders === 0 &&
     data.summary.net_revenue === 0 &&
     data.summary.cogs === 0 &&
-    data.by_product.length === 0
+    data.summary.expenses === 0 &&
+    data.by_product.length === 0 &&
+    data.expenses_by_category.length === 0
 
   return (
     <Container>
@@ -223,7 +225,9 @@ const ProfitPage = () => {
                 <Table.Body>
                   {data.expenses_by_category.map((row) => (
                     <Table.Row key={row.category}>
-                      <Table.Cell>{expenseCategoryLabel(row.category)}</Table.Cell>
+                      <Table.Cell>
+                        {expenseCategoryLabel(row.category)}
+                      </Table.Cell>
                       <Table.Cell>{formatUsd(row.amount)}</Table.Cell>
                     </Table.Row>
                   ))}

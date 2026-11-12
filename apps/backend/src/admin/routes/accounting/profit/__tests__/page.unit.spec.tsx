@@ -621,6 +621,7 @@ describe("ProfitPage", () => {
       summary: { ...ZERO },
       trend: [{ ...ZERO, period: "2026-11-01" }],
       by_product: [],
+      expenses_by_category: [],
     })
 
     renderPage()
@@ -644,6 +645,31 @@ describe("ProfitPage", () => {
     expect(screen.queryByText("No orders in this range")).not.toBeInTheDocument()
     expect(card("Net revenue")).toHaveTextContent("-$25.00")
     expect(card("Margin")).toHaveTextContent("—")
+  })
+
+  it("shows the report, not the empty state, when there are only expenses", async () => {
+    serverReport = makeReport({
+      summary: {
+        ...ZERO,
+        expenses: 1200,
+        net_profit: -1200,
+        net_margin_pct: null,
+      },
+      trend: [{ ...ZERO, period: "2026-11-01", expenses: 1200, net_profit: -1200 }],
+      by_product: [],
+      expenses_by_category: [{ category: "rent", amount: 1200 }],
+    })
+    renderPage()
+
+    await waitFor(() =>
+      expect(screen.getAllByTestId("profit-card").length).toBeGreaterThan(0)
+    )
+    expect(screen.queryByText("No orders in this range")).not.toBeInTheDocument()
+    expect(card("Expenses")).toHaveTextContent("$1,200.00")
+    expect(card("Net profit")).toHaveTextContent("-$1,200.00")
+    expect(card("Net margin")).toHaveTextContent("—")
+    expect(screen.getByText("Expenses by category")).toBeInTheDocument()
+    expect(rowStarting("Rent")).toHaveTextContent("$1,200.00")
   })
 
   it("shows an error with a working Retry that repeats the same request", async () => {
