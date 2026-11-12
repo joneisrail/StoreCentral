@@ -56,6 +56,7 @@ export async function getViteConfig(
         "react-i18next",
         "@medusajs/ui",
         "@medusajs/dashboard",
+        "@medusajs/dashboard/components",
         "@medusajs/js-sdk",
         "@tanstack/react-query",
       ],
