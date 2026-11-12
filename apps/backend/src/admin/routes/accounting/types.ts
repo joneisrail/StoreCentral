@@ -38,6 +38,13 @@ export type SupplierBalance = {
   open_invoices: number
 }
 
+export type SupplierBalanceTotals = {
+  balance_owed: number
+  overdue_total: number
+  open_invoices: number
+  suppliers: number
+}
+
 export type AdminInvoiceItem = {
   id: string
   purchase_item_id: string | null
