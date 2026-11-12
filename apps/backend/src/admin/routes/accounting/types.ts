@@ -159,3 +159,37 @@ export type ProfitReport = {
     units_without_cost: number
   }[]
 }
+
+export type ExpenseCategory =
+  | "rent"
+  | "marketing"
+  | "software"
+  | "payroll"
+  | "shipping_packaging"
+  | "fees"
+  | "utilities"
+  | "other"
+
+export type Expense = {
+  id: string
+  // EXP-0001
+  reference: string
+  // Calendar date, "YYYY-MM-DD".
+  expense_date: string
+  // Unknown values from the server are possible; render with expenseCategoryLabel.
+  category: ExpenseCategory | (string & {})
+  amount: number
+  description: string
+  payee: string | null
+  currency_code: string
+  created_at: string
+}
+
+export type ExpensesResponse = {
+  expenses: Expense[]
+  count: number
+  offset: number
+  limit: number
+  // Sum over every match, not just the page.
+  total_amount: number
+}
