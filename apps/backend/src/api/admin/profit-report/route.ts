@@ -3,6 +3,7 @@ import { buildProfitReport } from "../../../modules/accounting/profit"
 import { DAY_MS, resolveRange } from "../../../modules/accounting/sales"
 import { loadSalesData } from "../sales-report/load-sales-data"
 import { loadCostData } from "./load-cost-data"
+import { loadExpenseData } from "./load-expense-data"
 import type { ProfitReportQuerySchema } from "./middlewares"
 
 export async function GET(req: MedusaRequest, res: MedusaResponse) {
@@ -17,13 +18,14 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
 
   const { orders, refunds } = await loadSalesData(req.scope, range)
   const purchases = await loadCostData(req.scope, endExclusive)
+  const expenses = await loadExpenseData(req.scope, range)
 
   res.json(
     buildProfitReport({
       orders,
       refunds,
       purchases,
-      expenses: [], // Task 4 replaces this with the real expense loader.
+      expenses,
       ...range,
       granularity,
       top,

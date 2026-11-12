@@ -473,6 +473,9 @@ medusaIntegrationTestRunner({
           gross_profit: 0,
           margin_pct: null,
           units_without_cost: 0,
+          expenses: 0,
+          net_profit: 0,
+          net_margin_pct: null,
         })
         expect(r.trend.map((p: any) => p.period)).toEqual([
           "2026-03-01",
@@ -528,6 +531,171 @@ medusaIntegrationTestRunner({
           .get("/admin/profit-report?top=0", adminHeaders)
           .catch(() => undefined)
         expect(await counts()).toEqual(before)
+      })
+
+      describe("expenses", () => {
+        const addExpense = async (
+          expense_date: string,
+          category: string,
+          amount: number
+        ) =>
+          (
+            await api.post(
+              "/admin/expenses",
+              { expense_date, category, amount, description: "x" },
+              adminHeaders
+            )
+          ).data.expense as { id: string }
+
+        const oneOrder = async () => {
+          const v = await createVariant()
+          await receivedPurchase({
+            lines: [{ variant_id: v.id, quantity: 10, unit_cost: 4 }],
+            shipping_cost: 10,
+            receivedAt: "2026-03-01T00:00:00.000Z",
+          })
+          await makeOrder({
+            at: "2026-03-02T10:00:00Z",
+            items: [
+              { title: "W", quantity: 2, unit_price: 20, variant_id: v.id },
+            ],
+          })
+        }
+
+        it("computes exact net profit and net margin with two expenses", async () => {
+          await oneOrder()
+          await addExpense("2026-03-02", "rent", 12.5)
+          await addExpense("2026-03-03", "rent", 7.5)
+
+          const r = await profit()
+          expect(r.summary).toMatchObject({
+            net_revenue: 40,
+            cogs: 10,
+            gross_profit: 30,
+            margin_pct: 75,
+            expenses: 20,
+            net_profit: 10,
+            net_margin_pct: 25,
+          })
+          expect(r.trend[1]).toMatchObject({
+            period: "2026-03-02",
+            expenses: 12.5,
+            net_profit: 17.5,
+          })
+          expect(r.trend[2]).toMatchObject({
+            period: "2026-03-03",
+            expenses: 7.5,
+            net_profit: -7.5,
+          })
+        })
+
+        it("totals expenses_by_category largest first", async () => {
+          await addExpense("2026-03-02", "rent", 5)
+          await addExpense("2026-03-03", "utilities", 30.25)
+          await addExpense("2026-03-04", "rent", 10)
+
+          const r = await profit()
+          expect(r.expenses_by_category).toEqual([
+            { category: "utilities", amount: 30.25 },
+            { category: "rent", amount: 15 },
+          ])
+          expect(r.summary.expenses).toBe(45.25)
+        })
+
+        it("ignores expenses before from and after to", async () => {
+          await addExpense("2026-02-28", "rent", 100)
+          await addExpense("2026-03-07", "rent", 200)
+          await addExpense("2026-03-03", "rent", 1)
+
+          const r = await profit()
+          expect(r.summary.expenses).toBe(1)
+          expect(r.expenses_by_category).toEqual([
+            { category: "rent", amount: 1 },
+          ])
+        })
+
+        it("counts an expense on from and on to, not the day before from or after to", async () => {
+          await addExpense("2026-02-28", "rent", 1000)
+          await addExpense("2026-03-01", "rent", 1)
+          await addExpense("2026-03-06", "rent", 2)
+          await addExpense("2026-03-07", "rent", 4000)
+
+          const r = await profit()
+          expect(r.summary.expenses).toBe(3)
+          expect(r.trend[0]).toMatchObject({
+            period: "2026-03-01",
+            expenses: 1,
+          })
+          expect(r.trend[5]).toMatchObject({
+            period: "2026-03-06",
+            expenses: 2,
+          })
+        })
+
+        it("stops counting a deleted expense", async () => {
+          await addExpense("2026-03-02", "rent", 3)
+          const gone = await addExpense("2026-03-03", "rent", 9)
+          expect((await profit()).summary.expenses).toBe(12)
+
+          await api.delete(`/admin/expenses/${gone.id}`, adminHeaders)
+
+          const r = await profit()
+          expect(r.summary.expenses).toBe(3)
+          expect(r.expenses_by_category).toEqual([
+            { category: "rent", amount: 3 },
+          ])
+        })
+
+        it("returns a null net margin with a 200 when net revenue is zero", async () => {
+          await addExpense("2026-03-02", "rent", 5)
+
+          const res = await api.get(
+            `/admin/profit-report${RANGE}`,
+            adminHeaders
+          )
+          expect(res.status).toBe(200)
+          expect(res.data.summary).toMatchObject({
+            net_revenue: 0,
+            expenses: 5,
+            net_profit: -5,
+            net_margin_pct: null,
+          })
+        })
+
+        it("leaves cogs and gross profit unchanged by expenses", async () => {
+          await oneOrder()
+          const before = (await profit()).summary
+          await addExpense("2026-03-02", "rent", 12.5)
+          const after = (await profit()).summary
+
+          expect(after.cogs).toBe(before.cogs)
+          expect(after.gross_profit).toBe(before.gross_profit)
+          expect(after.margin_pct).toBe(before.margin_pct)
+          expect(before.expenses).toBe(0)
+          expect(after.expenses).toBe(12.5)
+        })
+
+        it("returns zero expenses and an empty category list with no expenses", async () => {
+          await oneOrder()
+          const r = await profit()
+          expect(r.summary).toMatchObject({
+            expenses: 0,
+            net_profit: 30,
+            net_margin_pct: 75,
+          })
+          expect(r.expenses_by_category).toEqual([])
+        })
+
+        it("does not write expenses when reading the report", async () => {
+          await addExpense("2026-03-02", "rent", 5)
+          const count = async () =>
+            Number(
+              (await sql().raw('select count(*) from "expense"')).rows[0].count
+            )
+          const before = await count()
+          await profit()
+          expect(await count()).toBe(before)
+        })
       })
 
       it("requires admin auth", async () => {
