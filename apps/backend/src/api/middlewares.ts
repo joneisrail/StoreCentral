@@ -8,6 +8,7 @@ import { profitReportMiddlewares } from './admin/profit-report/middlewares'
 import { purchaseMiddlewares } from './admin/purchases/middlewares'
 import { supplierOfferMiddlewares } from './admin/supplier-offers/middlewares'
 import { supplierMiddlewares } from './admin/suppliers/middlewares'
+import { marketplaceConnectionMiddlewares } from './admin/marketplace-connections/middlewares'
 import { reviewMiddlewares } from './store/reviews/middlewares'
 
 // The product index declares filterable `status` and `sales_channel_ids`, so
@@ -39,6 +40,7 @@ export default defineMiddlewares({
     ...supplierBalanceMiddlewares,
     ...salesReportMiddlewares,
     ...profitReportMiddlewares,
+    ...marketplaceConnectionMiddlewares,
     {
       // The EasyPost webhook route verifies the `X-Hmac-Signature` header
       // against the exact raw request bytes, so the JSON bodyparser must
