@@ -53,4 +53,11 @@ CREATE TABLE IF NOT EXISTS seller_hub.sync_job (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (integration_account_id, sync_type, external_id)
 );
+
+-- Shopify connector: account credentials/location and per-listing Shopify ids.
+ALTER TABLE seller_hub.integration_account ADD COLUMN IF NOT EXISTS shop_domain TEXT;
+ALTER TABLE seller_hub.integration_account ADD COLUMN IF NOT EXISTS access_token_encrypted TEXT;
+ALTER TABLE seller_hub.integration_account ADD COLUMN IF NOT EXISTS shopify_location_id TEXT;
+ALTER TABLE seller_hub.channel_listing ADD COLUMN IF NOT EXISTS external_variant_id TEXT;
+ALTER TABLE seller_hub.channel_listing ADD COLUMN IF NOT EXISTS external_inventory_item_id TEXT;
 `
