@@ -567,3 +567,114 @@ test("a rejecting WooCommerce queue does not stop the others or change the 200",
   expect(shopify.inventoryQueue.add).toHaveBeenCalledTimes(1)
   server.close()
 })
+
+// ---- Per-request dep resolution + internal handler ----
+
+const startDynamicServer = (opts: {
+  shopify?: () => ReturnType<typeof makeShopify> | null
+  woocommerce?: () => ReturnType<typeof makeWoo> | null
+  internalHandler?: (req: any, res: any) => void | Promise<void>
+}) => {
+  const amazon = {
+    inventoryQueue: { add: vi.fn() } as unknown as Queue,
+    priceQueue: { add: vi.fn() } as unknown as Queue,
+  }
+  const server = createWebhookServer({ ...amazon, ...opts })
+  server.listen(0)
+  const port = (server.address() as AddressInfo).port
+  return { server, amazon, url: `http://localhost:${port}` }
+}
+
+test("getter returning deps behaves like the object form", async () => {
+  const shopify = makeShopify()
+  const woo = makeWoo()
+  const { server, url } = startDynamicServer({
+    shopify: () => shopify,
+    woocommerce: () => woo,
+  })
+  expect((await postShopify(url, "orders/create", JSON.stringify({ id: 9 }))).status).toBe(200)
+  expect(shopify.orderQueue.add).toHaveBeenCalledTimes(1)
+  expect((await postWoo(url, "order.created", JSON.stringify({ id: 9 }))).status).toBe(200)
+  expect(woo.orderQueue.add).toHaveBeenCalledTimes(1)
+  server.close()
+})
+
+test("getter returning null gives 503 on order routes and unchanged 200 on medusa", async () => {
+  const { server, amazon, url } = startDynamicServer({
+    shopify: () => null,
+    woocommerce: () => null,
+  })
+  expect((await postShopify(url, "orders/create", JSON.stringify({ id: 9 }))).status).toBe(503)
+  expect((await postWoo(url, "order.created", JSON.stringify({ id: 9 }))).status).toBe(503)
+  const res = await fetch(`${url}/webhooks/medusa`, {
+    method: "POST",
+    body: JSON.stringify({ event: "inventory-level.updated", data: { id: "il_1" } }),
+  })
+  expect(res.status).toBe(200)
+  expect(amazon.inventoryQueue.add).toHaveBeenCalledTimes(1)
+  server.close()
+})
+
+test("swapping the getter value between requests changes which queue receives the order", async () => {
+  const a = makeShopify()
+  const b = makeShopify()
+  let current = a
+  const { server, url } = startDynamicServer({ shopify: () => current })
+  await postShopify(url, "orders/create", JSON.stringify({ id: 1 }))
+  current = b
+  await postShopify(url, "orders/create", JSON.stringify({ id: 2 }))
+  expect(a.orderQueue.add).toHaveBeenCalledTimes(1)
+  expect(b.orderQueue.add).toHaveBeenCalledTimes(1)
+  server.close()
+})
+
+test("medusa fan-out uses the getter's current value per request", async () => {
+  const a = makeShopify()
+  let current: ReturnType<typeof makeShopify> | null = a
+  const { server, url } = startDynamicServer({ shopify: () => current })
+  const send = () =>
+    fetch(`${url}/webhooks/medusa`, {
+      method: "POST",
+      body: JSON.stringify({ event: "inventory-level.updated", data: { id: "il_1" } }),
+    })
+  expect((await send()).status).toBe(200)
+  current = null
+  expect((await send()).status).toBe(200)
+  expect(a.inventoryQueue.add).toHaveBeenCalledTimes(1)
+  server.close()
+})
+
+test("/internal/* goes to internalHandler when supplied, 404 otherwise", async () => {
+  const handler = vi.fn((_req: any, res: any) => {
+    res.writeHead(204).end()
+  })
+  const withHandler = startDynamicServer({ internalHandler: handler })
+  expect((await fetch(`${withHandler.url}/internal/anything`)).status).toBe(204)
+  expect(handler).toHaveBeenCalledTimes(1)
+  withHandler.server.close()
+
+  const without = startDynamicServer({})
+  expect((await fetch(`${without.url}/internal/anything`)).status).toBe(404)
+  without.server.close()
+})
+
+test("a throwing or rejecting internalHandler yields 500 without crashing", async () => {
+  const err = vi.spyOn(console, "error").mockImplementation(() => {})
+  const sync = startDynamicServer({
+    internalHandler: () => {
+      throw new Error("boom")
+    },
+  })
+  expect((await fetch(`${sync.url}/internal/x`)).status).toBe(500)
+  sync.server.close()
+
+  const async_ = startDynamicServer({
+    internalHandler: async () => {
+      throw new Error("boom")
+    },
+  })
+  expect((await fetch(`${async_.url}/internal/x`)).status).toBe(500)
+  expect((await fetch(`${async_.url}/internal/x`)).status).toBe(500)
+  async_.server.close()
+  err.mockRestore()
+})

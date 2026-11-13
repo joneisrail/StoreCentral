@@ -21,10 +21,19 @@ export type CreateWebhookServerDeps = {
   inventoryQueue: Queue
   priceQueue: Queue
   /** When present, enables `POST /webhooks/shopify` and the Medusa fan-out. */
-  shopify?: ShopifyWebhookDeps
+  shopify?: ShopifyWebhookDeps | (() => ShopifyWebhookDeps | null)
   /** When present, enables `POST /webhooks/woocommerce` and the WooCommerce Medusa fan-out. */
-  woocommerce?: WooCommerceWebhookDeps
+  woocommerce?: WooCommerceWebhookDeps | (() => WooCommerceWebhookDeps | null)
+  /** Owns the response for any request whose URL starts with `/internal/`. */
+  internalHandler?: (
+    req: http.IncomingMessage,
+    res: http.ServerResponse
+  ) => void | Promise<void>
 }
+
+/** Resolves a deps object or getter; null means "configured but not live". */
+const resolveDeps = <T>(x: T | (() => T | null) | undefined): T | null =>
+  typeof x === "function" ? (x as () => T | null)() : (x ?? null)
 
 const WOO_ORDER_TOPICS = new Set([
   "order.created",
@@ -37,6 +46,13 @@ const SHOPIFY_ORDER_TOPICS = new Set([
   "orders/paid",
   "orders/cancelled",
 ])
+
+type ResolvedQueues = {
+  inventoryQueue: Queue
+  priceQueue: Queue
+  shopify?: ShopifyWebhookDeps
+  woocommerce?: WooCommerceWebhookDeps
+}
 
 type MedusaWebhookBody = {
   event: string
@@ -60,10 +76,44 @@ type MedusaWebhookBody = {
 export const createWebhookServer = (
   deps: CreateWebhookServerDeps
 ): http.Server => {
-  const { inventoryQueue, priceQueue, shopify, woocommerce } = deps
+  const { inventoryQueue, priceQueue, internalHandler } = deps
+
+  const unavailable = (req: http.IncomingMessage, res: http.ServerResponse) => {
+    req.resume()
+    res.writeHead(503).end()
+  }
 
   return http.createServer((req, res) => {
-    if (shopify && req.method === "POST" && req.url === "/webhooks/shopify") {
+    if (req.url?.startsWith("/internal/")) {
+      if (!internalHandler) {
+        res.writeHead(404).end()
+        return
+      }
+      const fail = (err: unknown) => {
+        console.error("[webhook] internal handler failed:", err)
+        if (!res.headersSent) {
+          res.writeHead(500).end()
+        } else {
+          res.end()
+        }
+      }
+      try {
+        void Promise.resolve(internalHandler(req, res)).catch(fail)
+      } catch (err) {
+        fail(err)
+      }
+      return
+    }
+
+    // Resolve once per request so a live connector swap takes effect immediately.
+    const shopify = resolveDeps(deps.shopify)
+    const woocommerce = resolveDeps(deps.woocommerce)
+
+    if (req.method === "POST" && req.url === "/webhooks/shopify" && deps.shopify) {
+      if (!shopify) {
+        unavailable(req, res)
+        return
+      }
       // Raw Buffer chunks: the HMAC must cover the exact bytes Shopify sent.
       const chunks: Buffer[] = []
       req.on("data", (chunk: Buffer) => {
@@ -81,10 +131,14 @@ export const createWebhookServer = (
     }
 
     if (
-      woocommerce &&
+      deps.woocommerce &&
       req.method === "POST" &&
       req.url === "/webhooks/woocommerce"
     ) {
+      if (!woocommerce) {
+        unavailable(req, res)
+        return
+      }
       // Raw Buffer chunks: the HMAC must cover the exact bytes WooCommerce sent.
       const chunks: Buffer[] = []
       req.on("data", (chunk: Buffer) => {
@@ -115,8 +169,8 @@ export const createWebhookServer = (
       void handleRequestBody(rawBody, res, {
         inventoryQueue,
         priceQueue,
-        shopify,
-        woocommerce,
+        shopify: shopify ?? undefined,
+        woocommerce: woocommerce ?? undefined,
       })
     })
   })
@@ -133,7 +187,7 @@ export const createWebhookServer = (
 const handleRequestBody = async (
   rawBody: string,
   res: http.ServerResponse,
-  queues: CreateWebhookServerDeps
+  queues: ResolvedQueues
 ): Promise<void> => {
   let body: unknown
   try {
@@ -418,7 +472,7 @@ const PRICE_EVENT_PREFIX = "product-variant."
  */
 const routeEvent = async (
   body: MedusaWebhookBody,
-  queues: CreateWebhookServerDeps
+  queues: ResolvedQueues
 ): Promise<void> => {
   const { event, data } = body
 
