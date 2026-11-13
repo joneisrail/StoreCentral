@@ -229,5 +229,16 @@ export const startShopifyIfConfigured = async (
     )
     return null
   }
-  return startShopify({ ...deps, config })
+  // Failure-isolated: a broken Shopify setup (un-migrated column, Redis error,
+  // ...) must never stop the Amazon sync from starting. Only the message is
+  // logged, never the config (token/secret).
+  try {
+    return await startShopify({ ...deps, config })
+  } catch (err) {
+    console.error(
+      "[seller-hub] Shopify startup failed, continuing without Shopify:",
+      err instanceof Error ? err.message : String(err)
+    )
+    return null
+  }
 }

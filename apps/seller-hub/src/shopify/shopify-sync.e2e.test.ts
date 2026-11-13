@@ -564,6 +564,40 @@ test("with Shopify unconfigured nothing Shopify is started", async () => {
   expect(log.mock.calls.filter((c) => String(c[0]).includes("Shopify"))).toHaveLength(1)
 })
 
+test("a Shopify startup failure is isolated: logged once, null returned, Amazon webhook server still works", async () => {
+  const h = await harness()
+  const err = vi.spyOn(console, "error").mockImplementation(() => {})
+  const failingPool = {
+    query: async () => {
+      throw new Error("column \"shop_domain\" does not exist")
+    },
+  } as unknown as Pool
+
+  const runtime = await startShopifyIfConfigured(config, { ...h.deps, pool: failingPool })
+
+  expect(runtime).toBeNull()
+  expect(err).toHaveBeenCalledTimes(1)
+  const logged = JSON.stringify(err.mock.calls[0])
+  expect(logged).toContain("Shopify startup failed, continuing without Shopify:")
+  expect(logged).not.toContain(config.accessToken)
+  expect(logged).not.toContain(config.webhookSecret)
+
+  // main() then builds the webhook server without Shopify deps
+  const amazonInventory = new FakeQueue("inventory-sync")
+  const amazonPrice = new FakeQueue("price-sync")
+  server = createWebhookServer({
+    inventoryQueue: amazonInventory as never,
+    priceQueue: amazonPrice as never,
+    ...(runtime ? { shopify: (runtime as ShopifyRuntime).webhook } : {}),
+  })
+  await new Promise<void>((r) => server!.listen(0, "127.0.0.1", () => r()))
+  const base = `http://127.0.0.1:${(server!.address() as AddressInfo).port}`
+  expect((await medusaEvent(base, "inventory-level.updated", "ilev_1")).status).toBe(200)
+  expect(amazonInventory.added).toHaveLength(1)
+  const body = JSON.stringify({ id: 1 })
+  expect((await orderWebhook(base, body, sign(body))).status).toBe(404)
+})
+
 beforeEach(() => {
   vi.restoreAllMocks()
 })
