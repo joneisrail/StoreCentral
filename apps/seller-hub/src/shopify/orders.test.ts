@@ -33,6 +33,8 @@ test("normalizes a happy-path order", () => {
     shopifyOrderId: "gid://shopify/Order/100",
     orderName: "#1001",
     financialStatus: "PAID",
+    currencyCode: "USD",
+    lineItemsTruncated: false,
     cancelledAt: null,
     buyerEmail: "b@example.com",
     items: [
@@ -48,6 +50,21 @@ test("normalizes a happy-path order", () => {
       postal_code: "89501",
     },
   })
+})
+
+test("currencyCode prefers the order currency, else the line shop money", () => {
+  expect(normalizeShopifyOrder(raw({ currencyCode: "CAD" })).currencyCode).toBe(
+    "CAD"
+  )
+  expect(normalizeShopifyOrder(raw()).currencyCode).toBe("USD")
+})
+
+test("flags orders whose line items span more than one page", () => {
+  const paged = raw({
+    lineItems: { pageInfo: { hasNextPage: true }, nodes: [line("A", 1, "1")] },
+  })
+  expect(normalizeShopifyOrder(paged).lineItemsTruncated).toBe(true)
+  expect(normalizeShopifyOrder(raw()).lineItemsTruncated).toBe(false)
 })
 
 test("shipping and tax lines are not items", () => {

@@ -5,6 +5,15 @@ export type NormalizedShopifyOrder = {
   shopifyOrderId: string
   orderName: string
   financialStatus: string
+  /** ISO currency of `items[].unitPrice` (shop money). "" if Shopify omitted it. */
+  currencyCode: string
+  /**
+   * True when the order has more line items than one `lineItems(first: 100)`
+   * page returned, i.e. `items` is incomplete. The importer fails such an
+   * order permanently rather than importing a truncated one; it is a flag
+   * (not a throw) so one oversized order cannot abort a whole polling batch.
+   */
+  lineItemsTruncated: boolean
   cancelledAt: string | null
   buyerEmail: string
   items: { sku: string; quantity: number; unitPrice: number }[]
@@ -19,9 +28,10 @@ export type NormalizedShopifyOrder = {
 }
 
 const ORDER_FIELDS = `
-  id name displayFinancialStatus cancelledAt email
+  id name displayFinancialStatus currencyCode cancelledAt email
   shippingAddress { firstName lastName address1 city countryCodeV2 zip }
   lineItems(first: 100) {
+    pageInfo { hasNextPage }
     nodes {
       sku quantity
       discountedUnitPriceSet { shopMoney { amount currencyCode } }
@@ -78,11 +88,17 @@ export const normalizeShopifyOrder = (raw: unknown): NormalizedShopifyOrder => {
     return { sku: str(n.sku), quantity, unitPrice }
   })
 
+  const currencyCode =
+    str(o.currencyCode) ||
+    str(nodes[0]?.discountedUnitPriceSet?.shopMoney?.currencyCode)
+
   const a = o.shippingAddress ?? {}
   return {
     shopifyOrderId: o.id,
     orderName: o.name,
     financialStatus: str(o.displayFinancialStatus),
+    currencyCode,
+    lineItemsTruncated: o.lineItems?.pageInfo?.hasNextPage === true,
     cancelledAt: typeof o.cancelledAt === "string" ? o.cancelledAt : null,
     buyerEmail: str(o.email),
     items,

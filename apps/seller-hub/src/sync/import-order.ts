@@ -1,5 +1,6 @@
 import type { Pool } from "pg"
 import type {
+  CreateDraftOrderInput,
   DraftOrderLineItemInput,
   MedusaAdminClient,
 } from "../medusa/admin-client.js"
@@ -200,11 +201,74 @@ const toClaimed = (row: ClaimedRow): OrderSyncClaim => ({
  * touching Medusa and must not record any outcome: the new holder owns the
  * row now.
  */
-class LeaseLostError extends Error {
+export class LeaseLostError extends Error {
   constructor(syncJobId: string) {
     super(`Lost claim on order sync_job ${syncJobId} to a newer attempt`)
     this.name = "LeaseLostError"
   }
+}
+
+/**
+ * Everything that differs between marketplaces in the claimed-import flow.
+ * The claim, lease renewal, existing-order / draft recovery, no-partial-order
+ * SKU check, draft persistence, convert and failure recording are shared;
+ * an adapter supplies only the marketplace-specific parts. The Amazon adapter
+ * (`amazonImportAdapter`) reproduces the original behaviour exactly.
+ */
+export type OrderImportAdapter<TOrder> = {
+  /** Used in log/error text, e.g. "Amazon order". */
+  label: string
+  /** Medusa order metadata key holding the marketplace order id. */
+  metadataKey: string
+  /**
+   * Runs before any Medusa write once the order is loaded. Returns a reason
+   * to settle the job as an intentional no-op (`skipped`), returns null to
+   * proceed, or throws (a plain Error / DeferSyncError to retry later, a
+   * PermanentSyncError to fail for good).
+   */
+  gate: (order: TOrder, externalOrderId: string) => string | null
+  lineItems: (
+    order: TOrder
+  ) => { sku: string; quantity: number; unitPrice?: number }[]
+  draftFields: (
+    order: TOrder,
+    externalOrderId: string
+  ) => Pick<CreateDraftOrderInput, "email" | "shipping_address" | "metadata">
+}
+
+export const amazonImportAdapter: OrderImportAdapter<NormalizedAmazonOrder> = {
+  label: "Amazon order",
+  metadataKey: "amazon_order_id",
+  gate: (order, amazonOrderId) => {
+    // A Canceled order is never imported -- that's terminal, so this is
+    // recorded `succeeded` (an intentional no-op, not a failure) rather than
+    // `failed`, and settles the row for good: a later duplicate notification
+    // for the same order will find it already `succeeded` and skip without
+    // re-checking anything.
+    if (order.orderStatus === CANCELED_ORDER_STATUS) {
+      return `Amazon order ${amazonOrderId} is Canceled; not imported`
+    }
+    // A Pending order's payment hasn't cleared yet -- unlike Canceled, this
+    // can still become importable later, so it must stay retryable rather
+    // than being settled. Throwing a plain (non-Permanent) Error marks the
+    // row `failed` and leaves it reclaimable: either BullMQ's own
+    // retry/backoff, or the next real ORDER_CHANGE notification Amazon sends
+    // once the order advances, will try again via the normal `failed`-row
+    // reclaim path in `claimOrderSyncJob`.
+    if (order.orderStatus === PENDING_ORDER_STATUS) {
+      throw new Error(
+        `Amazon order ${amazonOrderId} is still Pending (unpaid); will ` +
+          `retry once Amazon reports it ready`
+      )
+    }
+    return null
+  },
+  lineItems: (order) => order.items,
+  draftFields: (order) => ({
+    email: order.buyerEmail,
+    shipping_address: order.shippingAddress,
+    metadata: { amazon_order_id: order.amazonOrderId },
+  }),
 }
 
 type ClaimedImportDeps = {
@@ -226,7 +290,7 @@ type ClaimedImportDeps = {
  * so a reclaim that turns out to be already done never spends SP-API's
  * `getOrder` budget.
  */
-export const importClaimedAmazonOrder = async (
+export const importClaimedAmazonOrder = (
   amazonOrderId: string,
   claim: Extract<OrderSyncClaim, { kind: "claimed" }>,
   loadContext: () => Promise<{
@@ -234,9 +298,34 @@ export const importClaimedAmazonOrder = async (
     salesChannelId: string
   }>,
   deps: ClaimedImportDeps
+): Promise<ImportAmazonOrderResult> =>
+  importClaimedOrder(
+    amazonOrderId,
+    claim,
+    loadContext,
+    deps,
+    amazonImportAdapter
+  )
+
+/** Marketplace-agnostic form of `importClaimedAmazonOrder`. */
+export const importClaimedOrder = async <TOrder>(
+  amazonOrderId: string,
+  claim: Extract<OrderSyncClaim, { kind: "claimed" }>,
+  loadContext: () => Promise<{
+    order: TOrder
+    salesChannelId: string
+  }>,
+  deps: ClaimedImportDeps,
+  adapter: OrderImportAdapter<TOrder>
 ): Promise<ImportAmazonOrderResult> => {
   try {
-    return await executeClaimedImport(amazonOrderId, claim, loadContext, deps)
+    return await executeClaimedImport(
+      amazonOrderId,
+      claim,
+      loadContext,
+      deps,
+      adapter
+    )
   } catch (err) {
     if (err instanceof LeaseLostError) {
       console.warn(`[import-order] ${err.message}; leaving it to that attempt`)
@@ -259,14 +348,15 @@ export const importClaimedAmazonOrder = async (
   }
 }
 
-const executeClaimedImport = async (
+const executeClaimedImport = async <TOrder>(
   amazonOrderId: string,
   claim: Extract<OrderSyncClaim, { kind: "claimed" }>,
   loadContext: () => Promise<{
-    order: NormalizedAmazonOrder
+    order: TOrder
     salesChannelId: string
   }>,
-  deps: ClaimedImportDeps
+  deps: ClaimedImportDeps,
+  adapter: OrderImportAdapter<TOrder>
 ): Promise<ImportAmazonOrderResult> => {
   const { pool, integrationAccountId, medusaClient } = deps
   const fence = { attempts: claim.attempts }
@@ -309,7 +399,7 @@ const executeClaimedImport = async (
   // convert that landed server-side but looked like a failure client-side
   // would create a second real order for the same Amazon order.
   const existingOrder = await medusaClient.findOrderByMetadata(
-    "amazon_order_id",
+    adapter.metadataKey,
     amazonOrderId
   )
   if (existingOrder) {
@@ -338,38 +428,20 @@ const executeClaimedImport = async (
     // its items, address and sales channel.
     const { order, salesChannelId } = await loadContext()
 
-    // Step 1c: a Canceled order is never imported -- that's terminal, so
-    // this is recorded `succeeded` (an intentional no-op, not a failure)
-    // rather than `failed`, and settles the row for good: a later duplicate
-    // notification for the same order will find it already `succeeded` and
-    // skip without re-checking anything.
-    if (order.orderStatus === CANCELED_ORDER_STATUS) {
+    // Step 1c/1d: marketplace-specific gate (cancelled -> settled no-op,
+    // unpaid -> retryable throw, wrong currency -> permanent throw).
+    const skipReason = adapter.gate(order, amazonOrderId)
+    if (skipReason !== null) {
       await recordSucceeded(undefined)
-      return {
-        status: "skipped",
-        reason: `Amazon order ${amazonOrderId} is Canceled; not imported`,
-      }
-    }
-
-    // Step 1d: a Pending order's payment hasn't cleared yet -- unlike
-    // Canceled, this can still become importable later, so it must stay
-    // retryable rather than being settled. Throwing a plain (non-Permanent)
-    // Error marks the row `failed` and leaves it reclaimable: either
-    // BullMQ's own retry/backoff, or the next real ORDER_CHANGE notification
-    // Amazon sends once the order advances, will try again via the normal
-    // `failed`-row reclaim path in `claimOrderSyncJob`.
-    if (order.orderStatus === PENDING_ORDER_STATUS) {
-      throw new Error(
-        `Amazon order ${amazonOrderId} is still Pending (unpaid); will ` +
-          `retry once Amazon reports it ready`
-      )
+      return { status: "skipped", reason: skipReason }
     }
 
     // Step 2: resolve every line item's SKU to a Medusa variant via
     // channel_listing. Any unmapped SKU fails the whole order before any
     // Medusa write (no partial order) -- permanently, since retrying with
     // the same mapping can't succeed.
-    const skus = order.items.map((item) => item.sku)
+    const orderItems = adapter.lineItems(order)
+    const skus = orderItems.map((item) => item.sku)
     const listings = await pool.query<{
       external_sku: string
       medusa_variant_id: string
@@ -390,7 +462,7 @@ const executeClaimedImport = async (
       )
     }
 
-    const items: DraftOrderLineItemInput[] = order.items.map((item) => ({
+    const items: DraftOrderLineItemInput[] = orderItems.map((item) => ({
       variant_id: variantIdBySku.get(item.sku)!,
       quantity: item.quantity,
       // Preserves what the buyer actually paid on Amazon; omitted (falls
@@ -407,10 +479,8 @@ const executeClaimedImport = async (
     await renewLease()
     const draft = await medusaClient.createDraftOrder({
       sales_channel_id: salesChannelId,
-      email: order.buyerEmail,
       items,
-      shipping_address: order.shippingAddress,
-      metadata: { amazon_order_id: order.amazonOrderId },
+      ...adapter.draftFields(order, amazonOrderId),
     })
     const { rowCount } = await pool.query(
       `UPDATE seller_hub.sync_job SET medusa_entity_id = $1, updated_at = now()
