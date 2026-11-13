@@ -702,3 +702,225 @@ test("a throwing getter is treated as null: 503 on its order route, 200 on medus
   server.close()
   errSpy.mockRestore()
 })
+
+// ---- Per-connection routes + registry fan-out ----
+
+type Deps = ReturnType<typeof makeShopify>
+const secretFor = (secret: string, body: string) =>
+  crypto.createHmac("sha256", secret).update(body).digest("base64")
+
+const makeRegistry = (
+  conns: Record<string, { marketplace: "shopify" | "woocommerce"; deps: Deps; legacy?: boolean }>,
+  opts: { known?: string[]; throws?: boolean } = {}
+) => ({
+  get: (marketplace: "shopify" | "woocommerce", accountId?: string) => {
+    if (opts.throws) throw new TypeError("secret-detail")
+    if (accountId !== undefined) {
+      const c = conns[accountId]
+      return c && c.marketplace === marketplace ? c.deps : null
+    }
+    const ofType = Object.values(conns).filter((c) => c.marketplace === marketplace)
+    return (ofType.find((c) => c.legacy) ?? ofType[0])?.deps ?? null
+  },
+  all: (marketplace: "shopify" | "woocommerce") => {
+    if (opts.throws) throw new TypeError("secret-detail")
+    return Object.values(conns)
+      .filter((c) => c.marketplace === marketplace)
+      .map((c) => c.deps)
+  },
+  known: (_m: "shopify" | "woocommerce", id: string) => (opts.known ?? []).includes(id),
+})
+
+const startRegistryServer = (connectors: ReturnType<typeof makeRegistry>) => {
+  const amazon = {
+    inventoryQueue: { add: vi.fn() } as unknown as Queue,
+    priceQueue: { add: vi.fn() } as unknown as Queue,
+  }
+  const server = createWebhookServer({ ...amazon, connectors })
+  server.listen(0)
+  const port = (server.address() as AddressInfo).port
+  return { server, amazon, url: `http://localhost:${port}` }
+}
+
+const postTo = (url: string, path: string, topic: string, body: string, secret = SECRET) =>
+  fetch(`${url}${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Shopify-Topic": topic,
+      "X-Shopify-Hmac-Sha256": secretFor(secret, body),
+    },
+    body,
+  })
+
+const withSecret = (secret: string): Deps => ({ ...makeShopify(), webhookSecret: secret })
+
+test("per-id shopify webhook routes to that connection's queues", async () => {
+  const a = withSecret("sa")
+  const b = withSecret("sb")
+  const { server, url } = startRegistryServer(
+    makeRegistry({ a: { marketplace: "shopify", deps: a }, b: { marketplace: "shopify", deps: b } })
+  )
+  const res = await postTo(url, "/webhooks/shopify/b?x=1", "orders/create", JSON.stringify({ id: 5 }), "sb")
+  expect(res.status).toBe(200)
+  expect(b.orderQueue.add).toHaveBeenCalledTimes(1)
+  expect(a.orderQueue.add).not.toHaveBeenCalled()
+  server.close()
+})
+
+test("per-id woocommerce webhook routes to that connection's queues", async () => {
+  const a = withSecret("sa")
+  const { server, url } = startRegistryServer(makeRegistry({ w1: { marketplace: "woocommerce", deps: a } }))
+  const body = JSON.stringify({ id: 5 })
+  const res = await fetch(`${url}/webhooks/woocommerce/w1`, {
+    method: "POST",
+    headers: { "X-WC-Webhook-Topic": "order.created", "X-WC-Webhook-Signature": secretFor("sa", body) },
+    body,
+  })
+  expect(res.status).toBe(200)
+  expect(a.orderQueue.add).toHaveBeenCalledTimes(1)
+  server.close()
+})
+
+test("unknown id returns 404", async () => {
+  const { server, url } = startRegistryServer(makeRegistry({}))
+  expect((await postTo(url, "/webhooks/shopify/nope", "orders/create", "{}")).status).toBe(404)
+  expect((await postTo(url, "/webhooks/shopify/nope/extra", "orders/create", "{}")).status).toBe(404)
+  server.close()
+})
+
+test("stopped connection returns 503", async () => {
+  const { server, url } = startRegistryServer(makeRegistry({}, { known: ["gone"] }))
+  expect((await postTo(url, "/webhooks/shopify/gone", "orders/create", "{}")).status).toBe(503)
+  server.close()
+})
+
+test("a signature made with another connection's secret is rejected 401", async () => {
+  const a = withSecret("sa")
+  const b = withSecret("sb")
+  const { server, url } = startRegistryServer(
+    makeRegistry({ a: { marketplace: "shopify", deps: a }, b: { marketplace: "shopify", deps: b } })
+  )
+  const res = await postTo(url, "/webhooks/shopify/a", "orders/create", JSON.stringify({ id: 5 }), "sb")
+  expect(res.status).toBe(401)
+  expect(a.orderQueue.add).not.toHaveBeenCalled()
+  expect(b.orderQueue.add).not.toHaveBeenCalled()
+  server.close()
+})
+
+test("old /webhooks/shopify still routes to the legacy runtime", async () => {
+  const managed = withSecret("sm")
+  const legacy = withSecret("sl")
+  const { server, url } = startRegistryServer(
+    makeRegistry({
+      m: { marketplace: "shopify", deps: managed },
+      l: { marketplace: "shopify", deps: legacy, legacy: true },
+    })
+  )
+  const res = await postTo(url, "/webhooks/shopify", "orders/create", JSON.stringify({ id: 5 }), "sl")
+  expect(res.status).toBe(200)
+  expect(legacy.orderQueue.add).toHaveBeenCalledTimes(1)
+  expect(managed.orderQueue.add).not.toHaveBeenCalled()
+  server.close()
+})
+
+test("old url falls back to the oldest managed runtime", async () => {
+  const first = withSecret("s1")
+  const second = withSecret("s2")
+  const { server, url } = startRegistryServer(
+    makeRegistry({ a: { marketplace: "shopify", deps: first }, b: { marketplace: "shopify", deps: second } })
+  )
+  const res = await postTo(url, "/webhooks/shopify", "orders/create", JSON.stringify({ id: 5 }), "s1")
+  expect(res.status).toBe(200)
+  expect(first.orderQueue.add).toHaveBeenCalledTimes(1)
+  server.close()
+})
+
+test("old url with no live runtime returns 503", async () => {
+  const { server, url } = startRegistryServer(makeRegistry({}))
+  expect((await postTo(url, "/webhooks/shopify", "orders/create", "{}")).status).toBe(503)
+  server.close()
+})
+
+test("medusa inventory event enqueues on every shopify connection", async () => {
+  const a = withSecret("sa")
+  const b = withSecret("sb")
+  const w = withSecret("sw")
+  const { server, amazon, url } = startRegistryServer(
+    makeRegistry({
+      a: { marketplace: "shopify", deps: a },
+      b: { marketplace: "shopify", deps: b },
+      w: { marketplace: "woocommerce", deps: w },
+    })
+  )
+  const res = await fetch(`${url}/webhooks/medusa`, {
+    method: "POST",
+    body: JSON.stringify({ event: "inventory-level.updated", data: { id: "il_1" } }),
+  })
+  expect(res.status).toBe(200)
+  expect(amazon.inventoryQueue.add).toHaveBeenCalledTimes(1)
+  expect(a.inventoryQueue.add).toHaveBeenCalledTimes(1)
+  expect(b.inventoryQueue.add).toHaveBeenCalledTimes(1)
+  expect(w.inventoryQueue.add).toHaveBeenCalledTimes(1)
+  server.close()
+})
+
+test("one connection's queue failure does not stop the others or change the 200", async () => {
+  const errSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+  const a = withSecret("sa")
+  const b = withSecret("sb")
+  ;(a.priceQueue.add as ReturnType<typeof vi.fn>).mockRejectedValue(new RangeError("redis-secret"))
+  const { server, url } = startRegistryServer(
+    makeRegistry({ a: { marketplace: "shopify", deps: a }, b: { marketplace: "shopify", deps: b } })
+  )
+  const res = await fetch(`${url}/webhooks/medusa`, {
+    method: "POST",
+    body: JSON.stringify({ event: "product-variant.updated", data: { id: "v1" } }),
+  })
+  expect(res.status).toBe(200)
+  expect(await res.json()).toEqual({ received: true })
+  expect(b.priceQueue.add).toHaveBeenCalledTimes(1)
+  const logged = JSON.stringify(errSpy.mock.calls)
+  expect(logged).toContain("RangeError")
+  expect(logged).toContain("product-variant.updated")
+  expect(logged).not.toContain("redis-secret")
+  server.close()
+  errSpy.mockRestore()
+})
+
+test("a throwing registry is treated as not live", async () => {
+  const errSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+  const { server, amazon, url } = startRegistryServer(makeRegistry({}, { throws: true }))
+  expect((await postTo(url, "/webhooks/shopify/a", "orders/create", "{}")).status).toBe(503)
+  expect((await postTo(url, "/webhooks/shopify", "orders/create", "{}")).status).toBe(503)
+  const res = await fetch(`${url}/webhooks/medusa`, {
+    method: "POST",
+    body: JSON.stringify({ event: "inventory-level.updated", data: { id: "il_1" } }),
+  })
+  expect(res.status).toBe(200)
+  expect(amazon.inventoryQueue.add).toHaveBeenCalledTimes(1)
+  expect(JSON.stringify(errSpy.mock.calls)).toContain("TypeError")
+  expect(JSON.stringify(errSpy.mock.calls)).not.toContain("secret-detail")
+  server.close()
+  errSpy.mockRestore()
+})
+
+test("connectors wins over the shopify option", async () => {
+  const legacyOpt = withSecret("so")
+  const reg = withSecret("sr")
+  const amazon = {
+    inventoryQueue: { add: vi.fn() } as unknown as Queue,
+    priceQueue: { add: vi.fn() } as unknown as Queue,
+  }
+  const server = createWebhookServer({
+    ...amazon,
+    shopify: legacyOpt,
+    connectors: makeRegistry({ a: { marketplace: "shopify", deps: reg } }),
+  })
+  server.listen(0)
+  const url = `http://localhost:${(server.address() as AddressInfo).port}`
+  expect((await postTo(url, "/webhooks/shopify", "orders/create", JSON.stringify({ id: 1 }), "sr")).status).toBe(200)
+  expect(reg.orderQueue.add).toHaveBeenCalledTimes(1)
+  expect(legacyOpt.orderQueue.add).not.toHaveBeenCalled()
+  server.close()
+})

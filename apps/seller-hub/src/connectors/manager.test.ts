@@ -306,6 +306,7 @@ describe("connector manager", () => {
     // apply("l") with a managed row present yields no legacy config in the real
     // resolver; here the fake returns env, so it is live and must sort last.
     expect(mgr.list().map((c) => c.id)).toEqual(["m", "l"])
+    expect(mgr.list().map((c) => c.legacy)).toEqual([false, true])
   })
 
   it("amazon rows are ignored", async () => {

@@ -17,6 +17,21 @@ export type WooCommerceWebhookDeps = {
   priceQueue: Queue
 }
 
+export type WebhookMarketplace = "shopify" | "woocommerce"
+
+/** Per-connection webhook lookup. Wins over the single-deps `shopify`/`woocommerce` options. */
+export type WebhookRegistry = {
+  /** With an id: that live connection. Without: the legacy live one, else the oldest managed one. null = not live. */
+  get(
+    marketplace: WebhookMarketplace,
+    accountId?: string
+  ): ShopifyWebhookDeps | WooCommerceWebhookDeps | null
+  /** Every live connection of the marketplace (Medusa fan-out). */
+  all(marketplace: WebhookMarketplace): Array<ShopifyWebhookDeps | WooCommerceWebhookDeps>
+  /** Optional: true when the id is a known connection that is merely not live (503 rather than 404). */
+  known?(marketplace: WebhookMarketplace, accountId: string): boolean
+}
+
 export type CreateWebhookServerDeps = {
   inventoryQueue: Queue
   priceQueue: Queue
@@ -24,6 +39,8 @@ export type CreateWebhookServerDeps = {
   shopify?: ShopifyWebhookDeps | (() => ShopifyWebhookDeps | null)
   /** When present, enables `POST /webhooks/woocommerce` and the WooCommerce Medusa fan-out. */
   woocommerce?: WooCommerceWebhookDeps | (() => WooCommerceWebhookDeps | null)
+  /** Enables per-connection routes `/webhooks/<marketplace>/<id>` and the multi-connection Medusa fan-out. */
+  connectors?: WebhookRegistry
   /** Owns the response for any request whose URL starts with `/internal/`. */
   internalHandler?: (
     req: http.IncomingMessage,
@@ -60,8 +77,31 @@ const SHOPIFY_ORDER_TOPICS = new Set([
 type ResolvedQueues = {
   inventoryQueue: Queue
   priceQueue: Queue
-  shopify?: ShopifyWebhookDeps
-  woocommerce?: WooCommerceWebhookDeps
+  shopify: ShopifyWebhookDeps[]
+  woocommerce: WooCommerceWebhookDeps[]
+}
+
+const errName = (err: unknown): string =>
+  err instanceof Error ? err.constructor.name : typeof err
+
+/** Runs a registry call; a throwing registry is treated as "not live" (class name only is logged). */
+const safeRegistry = <T>(fn: () => T, fallback: T): T => {
+  try {
+    return fn()
+  } catch (err) {
+    console.error("[seller-hub] webhook registry threw:", errName(err))
+    return fallback
+  }
+}
+
+/** `/webhooks/<marketplace>[/<id>]`, ignoring any query string; ids match exactly. */
+const parseWebhookPath = (
+  url: string | undefined
+): { marketplace: WebhookMarketplace; accountId?: string } | null => {
+  const path = (url ?? "").split("?")[0]
+  const m = /^\/webhooks\/(shopify|woocommerce)(?:\/([^/]+))?$/.exec(path)
+  if (!m) return null
+  return { marketplace: m[1] as WebhookMarketplace, accountId: m[2] }
 }
 
 type MedusaWebhookBody = {
@@ -115,60 +155,74 @@ export const createWebhookServer = (
       return
     }
 
-    // Resolve once per request so a live connector swap takes effect immediately.
-    const shopify = resolveDeps(deps.shopify)
-    const woocommerce = resolveDeps(deps.woocommerce)
+    const route = req.method === "POST" ? parseWebhookPath(req.url) : null
+    const registry = deps.connectors
 
-    if (req.method === "POST" && req.url === "/webhooks/shopify" && deps.shopify) {
-      if (!shopify) {
-        unavailable(req, res)
+    if (route) {
+      const { marketplace, accountId } = route
+      // The registry owns both marketplaces' routes; otherwise only configured ones exist.
+      const configured = registry ? true : Boolean(deps[marketplace])
+      if (configured) {
+        let order: ShopifyWebhookDeps | WooCommerceWebhookDeps | null
+        if (registry) {
+          let threw = false
+          try {
+            order = registry.get(marketplace, accountId)
+          } catch (err) {
+            threw = true
+            order = null
+            console.error("[seller-hub] webhook registry threw:", errName(err))
+          }
+          if (!order) {
+            // Unknown id -> 404; a known-but-stopped id, no live legacy/oldest
+            // runtime, or a throwing registry -> 503.
+            const known =
+              accountId !== undefined && safeRegistry(() => registry.known?.(marketplace, accountId) ?? false, false)
+            if (accountId !== undefined && !known && !threw) {
+              req.resume()
+              res.writeHead(404).end()
+              return
+            }
+            unavailable(req, res)
+            return
+          }
+        } else if (accountId !== undefined) {
+          req.resume()
+          res.writeHead(404).end()
+          return
+        } else {
+          order = resolveDeps(deps[marketplace])
+          if (!order) {
+            unavailable(req, res)
+            return
+          }
+        }
+        // Raw Buffer chunks: the HMAC must cover the exact bytes the marketplace sent.
+        const chunks: Buffer[] = []
+        req.on("data", (chunk: Buffer) => {
+          chunks.push(chunk)
+        })
+        const handler = marketplace === "shopify" ? handleShopifyRequest : handleWooCommerceRequest
+        const target = order
+        req.on("end", () => {
+          void handler(Buffer.concat(chunks), req.headers, res, target)
+        })
         return
       }
-      // Raw Buffer chunks: the HMAC must cover the exact bytes Shopify sent.
-      const chunks: Buffer[] = []
-      req.on("data", (chunk: Buffer) => {
-        chunks.push(chunk)
-      })
-      req.on("end", () => {
-        void handleShopifyRequest(
-          Buffer.concat(chunks),
-          req.headers,
-          res,
-          shopify
-        )
-      })
-      return
     }
 
-    if (
-      deps.woocommerce &&
-      req.method === "POST" &&
-      req.url === "/webhooks/woocommerce"
-    ) {
-      if (!woocommerce) {
-        unavailable(req, res)
-        return
-      }
-      // Raw Buffer chunks: the HMAC must cover the exact bytes WooCommerce sent.
-      const chunks: Buffer[] = []
-      req.on("data", (chunk: Buffer) => {
-        chunks.push(chunk)
-      })
-      req.on("end", () => {
-        void handleWooCommerceRequest(
-          Buffer.concat(chunks),
-          req.headers,
-          res,
-          woocommerce
-        )
-      })
-      return
-    }
-
-    if (req.method !== "POST" || req.url !== "/webhooks/medusa") {
+    if (req.method !== "POST" || req.url?.split("?")[0] !== "/webhooks/medusa") {
       res.writeHead(404).end()
       return
     }
+
+    // Resolve once per request so a live connector swap takes effect immediately.
+    const fan = (marketplace: WebhookMarketplace) =>
+      registry
+        ? safeRegistry(() => registry.all(marketplace), [])
+        : [resolveDeps(deps[marketplace])].filter((d) => d !== null)
+    const shopify = fan("shopify") as ShopifyWebhookDeps[]
+    const woocommerce = fan("woocommerce") as WooCommerceWebhookDeps[]
 
     let rawBody = ""
     req.on("data", (chunk) => {
@@ -179,8 +233,8 @@ export const createWebhookServer = (
       void handleRequestBody(rawBody, res, {
         inventoryQueue,
         priceQueue,
-        shopify: shopify ?? undefined,
-        woocommerce: woocommerce ?? undefined,
+        shopify,
+        woocommerce,
       })
     })
   })
@@ -238,28 +292,20 @@ const handleRequestBody = async (
     )
   }
 
-  // Fan out to Shopify independently of (and after) the Amazon enqueue; a
-  // failure here is logged only and never changes the response.
-  if (queues.shopify) {
-    try {
-      await routeShopifyEvent(webhookBody, queues.shopify)
-    } catch (err) {
-      console.error(
-        `[webhook] failed to enqueue Shopify job for event "${webhookBody.event}":`,
-        err
-      )
-    }
-  }
-
-  // Same for WooCommerce: independent, logged-only on failure.
-  if (queues.woocommerce) {
-    try {
-      await routeWooCommerceEvent(webhookBody, queues.woocommerce)
-    } catch (err) {
-      console.error(
-        `[webhook] failed to enqueue WooCommerce job for event "${webhookBody.event}":`,
-        err
-      )
+  // Fan out to every live connection independently of (and after) the Amazon
+  // enqueue; a failure on one is logged (event + class name only) and isolated.
+  for (const [label, targets, route] of [
+    ["Shopify", queues.shopify, routeShopifyEvent],
+    ["WooCommerce", queues.woocommerce, routeWooCommerceEvent],
+  ] as const) {
+    for (const target of targets) {
+      try {
+        await route(webhookBody, target)
+      } catch (err) {
+        console.error(
+          `[webhook] failed to enqueue ${label} job for event "${webhookBody.event}" (${errName(err)})`
+        )
+      }
     }
   }
 

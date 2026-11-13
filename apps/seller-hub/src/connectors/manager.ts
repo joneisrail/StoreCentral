@@ -31,8 +31,8 @@ export type ConnectorManagerDeps = {
 }
 
 export type LiveConnector =
-  | { id: string; marketplace: "shopify"; runtime: ShopifyRuntime }
-  | { id: string; marketplace: "woocommerce"; runtime: WooCommerceRuntime }
+  | { id: string; marketplace: "shopify"; legacy: boolean; runtime: ShopifyRuntime }
+  | { id: string; marketplace: "woocommerce"; legacy: boolean; runtime: WooCommerceRuntime }
 
 export type ConnectorManager = {
   get(id: string): LiveConnector | null
@@ -118,7 +118,7 @@ export const createConnectorManager = (deps: ConnectorManagerDeps): ConnectorMan
   }
 
   const register = (id: string, marketplace: LegacyMarketplace, runtime: unknown, legacy: boolean) => {
-    live.set(id, { id, marketplace, runtime } as LiveConnector)
+    live.set(id, { id, marketplace, legacy, runtime } as LiveConnector)
     if (legacy) legacyIds.add(id)
   }
 
