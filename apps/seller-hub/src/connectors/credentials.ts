@@ -47,10 +47,13 @@ export type ConnectionRow = {
 /** Thrown when a required connection field is missing or invalid. Never carries values. */
 export class ConnectionInputError extends Error {
   fields: string[]
-  constructor(fields: string[], message?: string) {
+  /** `missing`: required values absent; `invalid`: a supplied value was rejected. */
+  kind: "missing" | "invalid"
+  constructor(fields: string[], message?: string, kind: "missing" | "invalid" = "missing") {
     super(message ?? `Missing or invalid fields: ${fields.join(", ")}`)
     this.name = "ConnectionInputError"
     this.fields = fields
+    this.kind = kind
   }
 }
 
@@ -93,7 +96,7 @@ export const mergeWooInput = (stored: WooCommerceConfig | null, input: WooInput)
   const missing = (Object.keys(merged) as (keyof WooCommerceConfig)[]).filter((k) => !merged[k])
   if (missing.length > 0) throw new ConnectionInputError(missing)
   if (!merged.siteUrl.startsWith("https://")) {
-    throw new ConnectionInputError(["siteUrl"], "siteUrl must start with https://")
+    throw new ConnectionInputError(["siteUrl"], "siteUrl must start with https://", "invalid")
   }
   return merged
 }
@@ -168,6 +171,11 @@ export const listConnectionRows = async (pool: Pool): Promise<ConnectionRow[]> =
     shopifyLocationId: r.shopify_location_id,
     apiKeyPresent: r.api_key_present,
   }))
+}
+
+/** Best-effort rollback of a row created moments ago (no listings can be attached yet). */
+export const deleteConnectionRow = async (pool: Pool, id: string): Promise<void> => {
+  await pool.query(`DELETE FROM seller_hub.integration_account WHERE id = $1 AND managed = true`, [id])
 }
 
 const UNIQUE_VIOLATION = "23505"

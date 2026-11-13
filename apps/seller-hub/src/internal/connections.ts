@@ -4,6 +4,7 @@ import {
   ConnectionInputError,
   clearConnectionById,
   createConnectionRow,
+  deleteConnectionRow,
   listConnectionRows,
   loadStoredConfig,
   mergeAmazonInput,
@@ -276,17 +277,45 @@ export const createInternalHandler = (deps: InternalHandlerDeps) => {
       throw err
     }
 
-    let config: Config
     try {
-      config = mergeConfig(kind, null, b)
+      let config: Config
+      try {
+        config = mergeConfig(kind, null, b)
+      } catch (err) {
+        // The channel keeps a credential-less, disconnected row; tell the caller why.
+        if (err instanceof ConnectionInputError) {
+          const connection = await viewOf(id)
+          if (err.kind === "invalid") {
+            return send(res, 200, {
+              ok: false,
+              error: "invalid_input",
+              message: err.message,
+              input_problem: "invalid",
+              fields: err.fields,
+              connection,
+              test: null,
+            })
+          }
+          return send(res, 200, {
+            ok: true,
+            input_problem: "missing",
+            fields: err.fields,
+            connection,
+            test: null,
+          })
+        }
+        throw err
+      }
+      await saveAndApply(res, id, kind, config, false)
     } catch (err) {
-      // Incomplete input: the channel keeps a credential-less, disconnected row.
-      if (err instanceof ConnectionInputError) {
-        return send(res, 200, { ok: true, connection: await viewOf(id), test: null })
+      // Roll back so a retry does not hit "already linked". Class name only.
+      try {
+        await deleteConnectionRow(deps.pool, id)
+      } catch (e) {
+        console.error(`[seller-hub] create rollback failed (${e instanceof Error ? e.constructor.name : typeof e})`)
       }
       throw err
     }
-    await saveAndApply(res, id, kind, config, false)
   }
 
   const edit = async (id: string, req: http.IncomingMessage, res: http.ServerResponse) => {
@@ -298,13 +327,24 @@ export const createInternalHandler = (deps: InternalHandlerDeps) => {
     if (!b) return send(res, 400, { error: "invalid_input", fields: [] })
     const marketplace = row.marketplace as Marketplace
 
-    const stored = await resolveStored(() => loadStoredConfig(deps.pool, deps.encryptionKey, id))
+    let stored: Config | null
+    try {
+      stored = await loadStoredConfig(deps.pool, deps.encryptionKey, id)
+    } catch {
+      // Undecryptable: a request that supplies every required field replaces it outright.
+      try {
+        mergeConfig(marketplace, null, b)
+      } catch {
+        throw new UnreadableError()
+      }
+      stored = null
+    }
     let config: Config
     try {
       config = mergeConfig(marketplace, stored, b)
     } catch (err) {
       if (err instanceof ConnectionInputError) {
-        return send(res, 400, { error: "invalid_input", fields: err.fields })
+        return send(res, 400, { error: "invalid_input", message: err.message, fields: err.fields })
       }
       throw err
     }
@@ -354,7 +394,7 @@ export const createInternalHandler = (deps: InternalHandlerDeps) => {
     const row = await findRow(id)
     if (!row) return send(res, 404, { error: "not_found" })
     if (!row.managed) return send(res, 400, { error: "read_only" })
-    await deps.manager.stop(id)
+    if (row.marketplace !== "amazon") await deps.manager.stop(id)
     await clearConnectionById(deps.pool, id)
     send(res, 200, { ok: true })
   }

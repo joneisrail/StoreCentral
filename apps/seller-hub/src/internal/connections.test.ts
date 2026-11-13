@@ -621,3 +621,106 @@ test("unexpected errors answer 500 and log only the constructor name", async () 
   expect(logs.join("\n")).toContain("TypeError")
   expectNoSecrets(logs.join("\n"))
 })
+
+test("create with a Woo http:// URL keeps the row disconnected and reports the invalid field without values", async () => {
+  await start([])
+  const r = await call("POST", "/internal/connections", {
+    marketplace: "woocommerce",
+    sales_channel_id: "sc_w",
+    site_url: "http://woo.example.com",
+    consumer_key: "ck_new",
+    consumer_secret: WOO_SECRET,
+    webhook_secret: WOO_WH,
+  })
+  expect(r.status).toBe(200)
+  expect(r.json.ok).toBe(false)
+  expect(r.json.error).toBe("invalid_input")
+  expect(r.json.input_problem).toBe("invalid")
+  expect(r.json.fields).toEqual(["siteUrl"])
+  expect(typeof r.json.message).toBe("string")
+  expect(r.json.test).toBeNull()
+  expect(r.json.connection.status).toBe("disconnected")
+  expectNoSecrets(r.text)
+  expect(r.text).not.toContain("woo.example.com")
+  expect(rows.find((x) => x.medusa_sales_channel_id === "sc_w")!.status).toBe("disconnected")
+  expect(testWoo).not.toHaveBeenCalled()
+})
+
+test("create with missing-only fields is ok with input_problem missing and the field names", async () => {
+  await start()
+  const r = await call("POST", "/internal/connections", {
+    marketplace: "shopify",
+    sales_channel_id: "sc_new",
+    shop_domain: "second.myshopify.com",
+    access_token: NEW_TOKEN,
+  })
+  expect(r.status).toBe(200)
+  expect(r.json.ok).toBe(true)
+  expect(r.json.input_problem).toBe("missing")
+  expect(r.json.fields).toEqual(expect.arrayContaining(["webhookSecret", "locationId"]))
+  expect(r.json.test).toBeNull()
+  expectNoSecrets(r.text)
+})
+
+test("delete of an amazon connection never touches the manager", async () => {
+  await start([
+    {
+      id: AMAZON_ID,
+      marketplace: "amazon",
+      managed: true,
+      status: "disconnected",
+      medusa_sales_channel_id: "sc_amz",
+      amazon_seller_id: "SELLER1",
+      lwa_refresh_token_encrypted: encrypt(REFRESH, KEY),
+    },
+  ])
+  const r = await call("DELETE", `/internal/connections/${AMAZON_ID}`)
+  expect(r.json).toEqual({ ok: true })
+  expect(manager.stop).not.toHaveBeenCalled()
+  expect(manager.get).not.toHaveBeenCalled()
+  const row = rows.find((x) => x.id === AMAZON_ID)!
+  expect(row.lwa_refresh_token_encrypted).toBeNull()
+  expect(row.medusa_sales_channel_id).toBe("sc_amz")
+})
+
+test("an unexpected error after the row is created removes the row so a retry can succeed", async () => {
+  await start()
+  manager.apply.mockRejectedValueOnce(new TypeError(`boom ${NEW_TOKEN}`))
+  const r = await call("POST", "/internal/connections", shopifyCreate())
+  expect(r.status).toBe(500)
+  expect(rows.find((x) => x.medusa_sales_channel_id === "sc_new")).toBeUndefined()
+  expectNoSecrets(logs.join("\n"))
+  const retry = await call("POST", "/internal/connections", shopifyCreate())
+  expect(retry.status).toBe(200)
+  expect(retry.json.ok).toBe(true)
+})
+
+test("edit with undecryptable stored ciphertext replaces it when every field is supplied", async () => {
+  await start([shopifyRow({ access_token_encrypted: "garbage" })])
+  const full = await call("PUT", `/internal/connections/${SHOPIFY_ID}`, {
+    shop_domain: "shop.myshopify.com",
+    access_token: NEW_TOKEN,
+    webhook_secret: NEW_WH,
+    location_id: "123",
+  })
+  expect(full.status).toBe(200)
+  expect(full.json.ok).toBe(true)
+  expectNoSecrets(full.text)
+  const row = rows.find((x) => x.id === SHOPIFY_ID)!
+  expect(decrypt(row.access_token_encrypted as string, KEY)).toBe(NEW_TOKEN)
+})
+
+test("edit with undecryptable stored ciphertext and partial input stays 500", async () => {
+  await start([shopifyRow({ access_token_encrypted: "garbage" })])
+  const r = await call("PUT", `/internal/connections/${SHOPIFY_ID}`, { location_id: "456" })
+  expect(r.status).toBe(500)
+  expect(r.json).toEqual({ error: "stored_credentials_unreadable" })
+})
+
+test("edit invalid input is 400 with message and fields", async () => {
+  await start()
+  const r = await call("PUT", `/internal/connections/${WOO_ID}`, { site_url: "http://woo.example.com" })
+  expect(r.status).toBe(400)
+  expect(r.json.fields).toEqual(["siteUrl"])
+  expect(typeof r.json.message).toBe("string")
+})

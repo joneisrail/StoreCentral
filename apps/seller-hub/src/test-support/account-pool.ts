@@ -37,6 +37,11 @@ export const accountPool = (seed: AccountRow[] = []) => {
       rows.push(row)
       return { rows: [{ id: row.id }] }
     }
+    if (/^\s*DELETE/i.test(sql)) {
+      const i = rows.findIndex((r) => r.id === params[0])
+      if (i >= 0) rows.splice(i, 1)
+      return { rows: [] }
+    }
     if (/^\s*UPDATE/i.test(sql)) {
       const row = rows.find((r) => r.id === params[params.length - 1])
       if (!row) return { rows: [] }
