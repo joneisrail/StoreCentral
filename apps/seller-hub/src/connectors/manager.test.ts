@@ -7,6 +7,7 @@ type Row = {
   displayName: string | null
   salesChannelId: string | null
   hasStoredCredentials: boolean
+  status: string
 }
 
 const state = vi.hoisted(() => ({
@@ -50,6 +51,7 @@ const row = (id: string, marketplace: string, over: Partial<Row> = {}): Row => (
   displayName: `name-${id}`,
   salesChannelId: `sc_${id}`,
   hasStoredCredentials: true,
+  status: "connected",
   ...over,
 })
 
@@ -256,6 +258,33 @@ describe("connector manager", () => {
     expect(startShopify).toHaveBeenCalledTimes(1)
     expect(startShopify.mock.calls[0]![0].accountId).toBe("m")
     expect(mgr.get("l")).toBeNull()
+  })
+
+  it("applyAll starts only managed rows that are connected; error and disconnected rows stay off untouched", async () => {
+    const { mgr, startShopify } = setup()
+    state.rows = [
+      row("ok", "shopify"),
+      row("err", "shopify", { status: "error" }),
+      row("off", "shopify", { status: "disconnected" }),
+    ]
+    state.stored.ok = cfg("a")
+    state.stored.err = cfg("b")
+    state.stored.off = cfg("c")
+    await mgr.applyAll()
+    expect(startShopify).toHaveBeenCalledTimes(1)
+    expect(mgr.get("ok")).not.toBeNull()
+    expect(mgr.get("err")).toBeNull()
+    expect(mgr.get("off")).toBeNull()
+    expect(state.statuses.filter((x) => x.id === "err" || x.id === "off")).toEqual([])
+  })
+
+  it("an off managed row still stops the legacy env connector for its marketplace", async () => {
+    const { mgr, startShopify } = setup()
+    state.rows = [row("m", "shopify", { status: "error" }), row("l", "shopify", { managed: false, displayName: null })]
+    state.stored.m = cfg("tm")
+    state.legacy.shopify = cfg("env")
+    await mgr.applyAll()
+    expect(startShopify).not.toHaveBeenCalled()
   })
 
   it("applyAll stops a running legacy connector once a managed row exists", async () => {

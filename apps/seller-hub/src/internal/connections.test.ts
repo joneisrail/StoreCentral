@@ -567,17 +567,31 @@ test("test route tests stored credentials and records status", async () => {
   expect(row.status).toBe("connected")
 })
 
-test("successful test with no live runtime writes no status", async () => {
+test("successful test with no live runtime starts the connection through the manager", async () => {
   await start()
   manager.live.clear()
-  const row = rows.find((x) => x.id === SHOPIFY_ID)!
-  row.status = "error"
-  row.last_error = "earlier failure"
+  const r = await call("POST", `/internal/connections/${SHOPIFY_ID}/test`)
+  expect(r.status).toBe(200)
+  expect(r.json.ok).toBe(true)
+  expect(manager.apply).toHaveBeenCalledWith(SHOPIFY_ID)
+})
+
+test("successful test with a live runtime only marks it connected and does not re-apply", async () => {
+  await start()
   const r = await call("POST", `/internal/connections/${SHOPIFY_ID}/test`)
   expect(r.json.ok).toBe(true)
-  expect(row.status).toBe("error")
-  expect(row.last_error).toBe("earlier failure")
-  expect(writes()).toHaveLength(0)
+  expect(manager.apply).not.toHaveBeenCalled()
+  expect(rows.find((x) => x.id === SHOPIFY_ID)!.status).toBe("connected")
+})
+
+test("failed test never applies, even with no live runtime", async () => {
+  await start()
+  manager.live.clear()
+  testShopify.mockResolvedValueOnce({ ok: false, message: "credentials rejected" })
+  const r = await call("POST", `/internal/connections/${SHOPIFY_ID}/test`)
+  expect(r.json).toEqual({ ok: false, message: "credentials rejected" })
+  expect(manager.apply).not.toHaveBeenCalled()
+  expect(rows.find((x) => x.id === SHOPIFY_ID)!.status).toBe("error")
 })
 
 test("test route is 409 not_configured without stored credentials", async () => {

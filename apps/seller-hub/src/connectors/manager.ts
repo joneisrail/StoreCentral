@@ -253,7 +253,8 @@ export const createConnectorManager = (deps: ConnectorManagerDeps): ConnectorMan
     for (const marketplace of MARKETPLACES) {
       const ofMarketplace = rows.filter((r) => r.marketplace === marketplace)
       const managed = ofMarketplace.filter((r) => r.managed)
-      for (const r of managed) if (r.hasStoredCredentials) jobs.push(apply(r.id))
+      // A row in `error`/`disconnected` (e.g. it failed its test) stays off until a Test or Edit passes.
+      for (const r of managed) if (r.hasStoredCredentials && r.status === "connected") jobs.push(apply(r.id))
       if (managed.length > 0) {
         for (const r of ofMarketplace) if (!r.managed) jobs.push(stop(r.id))
         continue

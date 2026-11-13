@@ -383,6 +383,10 @@ export const createInternalHandler = (deps: InternalHandlerDeps) => {
       // Only mark connected when a runtime is actually live; otherwise the badge
       // would claim a sync that is not running.
       await setStatusById(deps.pool, id, "connected", null)
+    } else if (row.managed) {
+      // A passing test is what re-enables a connection that was kept off; apply
+      // sets connected on success or error + last_error on a start failure.
+      await deps.manager.apply(id)
     }
     send(res, 200, result)
   }

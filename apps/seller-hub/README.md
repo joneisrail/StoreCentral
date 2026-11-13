@@ -219,8 +219,12 @@ affecting the other connections.
 - **Disconnecting.** Disconnect stops that connection only and clears its stored
   credentials. A legacy env connection cannot be disconnected from the admin;
   unset its env variables instead.
-- **Restart.** On startup every managed connection with saved credentials is
-  started again; one failing to start (status `error`) never stops the others.
+- **Restart.** On startup every managed connection with saved credentials and
+  status `connected` is started again. A connection in `error` or
+  `disconnected` (for example one whose test failed when it was created) stays
+  off, and its status is left as it was, until a Test or Edit passes; a passing
+  Test on a connection that is not running starts it. One failing to start
+  (status `error`) never stops the others.
 - **Network exposure.** The internal API must be reachable only from the
   backend (private network or firewall rule). Do not expose `/internal/*`
   publicly; only `/webhooks/*` needs to be reachable from the internet.

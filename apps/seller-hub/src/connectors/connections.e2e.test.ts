@@ -447,6 +447,38 @@ test("restart (applyAll) brings back every saved connection", async () => {
   expect(first.creds.rows.find((r) => r.id === a)!.status).toBe("connected")
 })
 
+test("restart does not start a connection whose create failed its test; Test passing starts it, failing leaves it off", async () => {
+  const first = await boot()
+  const a = await createConnection(first.manager, GOOD_TOKEN, WH1, "sc_a", "a.myshopify.com")
+  const bad = await internal("POST", "/internal/connections", shopifyBody("shpat_bad", WH2, "sc_bad"))
+  const badId = bad.json.connection.id as string
+  expect(first.creds.rows.find((r) => r.id === badId)!.status).toBe("error")
+  await first.manager.stopAll()
+
+  const second = await boot({ creds: first.creds })
+  expect(second.manager.get(a)).not.toBeNull()
+  expect(second.manager.get(badId)).toBeNull()
+  expect(first.creds.rows.find((r) => r.id === badId)!.status).toBe("error")
+  expect(await sendShopifyWebhook(WH2, 3101, badId)).toBe(503)
+
+  // Test still failing: stays off.
+  const stillBad = await internal("POST", `/internal/connections/${badId}/test`)
+  expect(stillBad.json.ok).toBe(false)
+  expect(second.manager.get(badId)).toBeNull()
+
+  // The owner fixes the credential at the source; a passing Test starts it.
+  SKU_BY_TOKEN.shpat_bad = "SKU-A"
+  try {
+    const passing = await internal("POST", `/internal/connections/${badId}/test`)
+    expect(passing.json.ok).toBe(true)
+    expect(second.manager.get(badId)).not.toBeNull()
+    expect(first.creds.rows.find((r) => r.id === badId)!.status).toBe("connected")
+    expect(await sendShopifyWebhook(WH2, 3102, badId)).toBe(200)
+  } finally {
+    delete SKU_BY_TOKEN.shpat_bad
+  }
+})
+
 test("legacy env connection and its old webhook URL keep working with no managed row", async () => {
   const { manager, creds } = await boot({ env: ENV_SHOPIFY })
   expect(creds.rows.some((r) => r.managed)).toBe(false)
