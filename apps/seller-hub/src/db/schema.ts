@@ -64,4 +64,10 @@ ALTER TABLE seller_hub.channel_listing ADD COLUMN IF NOT EXISTS external_invento
 -- WooCommerce connector: consumer key and the parent product id for variations.
 ALTER TABLE seller_hub.integration_account ADD COLUMN IF NOT EXISTS api_key TEXT;
 ALTER TABLE seller_hub.channel_listing ADD COLUMN IF NOT EXISTS external_parent_id TEXT;
+
+-- Admin-managed marketplace connections: sales channel link, encrypted webhook
+-- secret (non-null marks a database-managed connection) and the last error.
+ALTER TABLE seller_hub.integration_account ADD COLUMN IF NOT EXISTS medusa_sales_channel_id TEXT;
+ALTER TABLE seller_hub.integration_account ADD COLUMN IF NOT EXISTS webhook_secret_encrypted TEXT;
+ALTER TABLE seller_hub.integration_account ADD COLUMN IF NOT EXISTS last_error TEXT;
 `

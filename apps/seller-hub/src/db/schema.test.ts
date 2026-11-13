@@ -26,3 +26,11 @@ test("schema adds the WooCommerce columns idempotently", () => {
     expect(SCHEMA_SQL.split(stmt)).toHaveLength(2)
   }
 })
+
+test("schema adds the marketplace connection columns idempotently", () => {
+  for (const col of ["medusa_sales_channel_id", "webhook_secret_encrypted", "last_error"]) {
+    const stmt = `ALTER TABLE seller_hub.integration_account ADD COLUMN IF NOT EXISTS ${col} TEXT;`
+    expect(SCHEMA_SQL).toContain(stmt)
+    expect(SCHEMA_SQL.split(stmt)).toHaveLength(2)
+  }
+})
