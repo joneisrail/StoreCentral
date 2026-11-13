@@ -11,6 +11,7 @@ import {
 import {
   listConnectionRows,
   loadStoredConfig,
+  managedSupersedesLegacy,
   resolveLegacyConfig,
   setStatusById,
   type ConnectionRow,
@@ -40,7 +41,7 @@ export type ConnectorManager = {
   list(marketplace?: LegacyMarketplace): LiveConnector[]
   apply(id: string): Promise<{ started: boolean; error?: string }>
   stop(id: string): Promise<void>
-  /** Every managed row with credentials, plus the legacy env connector per marketplace with no managed row. */
+  /** Every managed row with credentials, plus the legacy env connector per marketplace with no connected managed row. */
   applyAll(): Promise<void>
   stopAll(): Promise<void>
 }
@@ -164,7 +165,7 @@ export const createConnectorManager = (deps: ConnectorManagerDeps): ConnectorMan
       if (row.managed) {
         config = await loadStoredConfig(deps.pool, deps.encryptionKey, id)
       } else {
-        // A managed row supersedes the env connector (resolveLegacyConfig yields null then).
+        // A connected managed row supersedes the env connector (resolveLegacyConfig yields null then).
         config = (await resolveLegacyConfig(deps.pool, deps.encryptionKey, marketplace, deps.env))?.config ?? null
       }
     } catch (err) {
@@ -255,7 +256,7 @@ export const createConnectorManager = (deps: ConnectorManagerDeps): ConnectorMan
       const managed = ofMarketplace.filter((r) => r.managed)
       // A row in `error`/`disconnected` (e.g. it failed its test) stays off until a Test or Edit passes.
       for (const r of managed) if (r.hasStoredCredentials && r.status === "connected") jobs.push(apply(r.id))
-      if (managed.length > 0) {
+      if (managedSupersedesLegacy(ofMarketplace)) {
         for (const r of ofMarketplace) if (!r.managed) jobs.push(stop(r.id))
         continue
       }

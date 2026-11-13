@@ -18,7 +18,9 @@ const state = vi.hoisted(() => ({
   rows: [] as any[],
 }))
 
-vi.mock("./credentials.js", () => ({
+vi.mock("./credentials.js", async (importOriginal) => ({
+  // Real shared predicate: the manager and resolveLegacyConfig must agree on it.
+  managedSupersedesLegacy: (await importOriginal<typeof import("./credentials.js")>()).managedSupersedesLegacy,
   loadStoredConfig: vi.fn(async (_p: unknown, _k: string, id: string) => {
     if (state.decryptFail) throw new Error("bad decrypt SECRET_IN_DECRYPT")
     return state.stored[id] ?? null
@@ -278,13 +280,41 @@ describe("connector manager", () => {
     expect(state.statuses.filter((x) => x.id === "err" || x.id === "off")).toEqual([])
   })
 
-  it("an off managed row still stops the legacy env connector for its marketplace", async () => {
+  it("an error managed row does not supersede the legacy env connector (existing legacy row)", async () => {
     const { mgr, startShopify } = setup()
     state.rows = [row("m", "shopify", { status: "error" }), row("l", "shopify", { managed: false, displayName: null })]
     state.stored.m = cfg("tm")
     state.legacy.shopify = cfg("env")
     await mgr.applyAll()
-    expect(startShopify).not.toHaveBeenCalled()
+    expect(startShopify).toHaveBeenCalledTimes(1)
+    expect(startShopify.mock.calls[0]![0].accountId).toBeUndefined()
+    expect(mgr.get("l")).not.toBeNull()
+    expect(mgr.get("m")).toBeNull()
+  })
+
+  it("env-only plus one managed row in error: the legacy env connector still starts", async () => {
+    const { mgr, startShopify } = setup()
+    state.rows = [row("m", "shopify", { status: "error" })]
+    state.legacy.shopify = cfg("env")
+    startShopify.mockImplementationOnce(async () => {
+      state.rows = [...state.rows, row("created", "shopify", { managed: false, displayName: null })]
+      return makeRuntime([], "s") as any
+    })
+    await mgr.applyAll()
+    expect(startShopify).toHaveBeenCalledTimes(1)
+    expect(mgr.get("created")).toMatchObject({ legacy: true })
+  })
+
+  it("a disconnected managed row does not supersede the legacy env connector", async () => {
+    const { mgr, startShopify } = setup()
+    state.rows = [
+      row("m", "shopify", { status: "disconnected" }),
+      row("l", "shopify", { managed: false, displayName: null }),
+    ]
+    state.legacy.shopify = cfg("env")
+    await mgr.applyAll()
+    expect(startShopify).toHaveBeenCalledTimes(1)
+    expect(startShopify.mock.calls[0]![0].config.accessToken).toBe("env")
   })
 
   it("applyAll stops a running legacy connector once a managed row exists", async () => {

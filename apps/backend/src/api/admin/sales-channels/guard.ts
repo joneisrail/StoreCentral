@@ -8,8 +8,9 @@ import { callSellerHub } from "../marketplace-connections/seller-hub-client"
 export const DELETE_BLOCKED_MESSAGE =
   "Disconnect the marketplace before deleting this sales channel"
 
-// Blocks deleting a sales channel that still has a marketplace connection (any
-// status). When seller-hub cannot be asked the delete is allowed, so an outage
+// Blocks deleting a sales channel that still has a marketplace connection that
+// is not disconnected (an `error` connection still holds credentials; Disconnect
+// keeps the link but frees the channel). When seller-hub cannot be asked the delete is allowed, so an outage
 // never makes a channel undeletable.
 export async function guardSalesChannelDelete(
   req: MedusaRequest,
@@ -22,7 +23,9 @@ export async function guardSalesChannelDelete(
     linked =
       status === 200 &&
       Array.isArray(body?.connections) &&
-      body.connections.some((c: any) => c?.sales_channel_id === req.params.id)
+      body.connections.some(
+        (c: any) => c?.sales_channel_id === req.params.id && c?.status !== "disconnected"
+      )
   } catch {
     linked = false
   }

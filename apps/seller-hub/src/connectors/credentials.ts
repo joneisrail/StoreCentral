@@ -348,8 +348,18 @@ export const setStatusById = async (
 type LegacyRow = StoredRow & { managed: boolean }
 
 /**
+ * A managed row supersedes the legacy env connector of its marketplace only
+ * when it can actually run: it has stored credentials and is `connected`.
+ * A failed, incomplete or disconnected managed row leaves the env connector
+ * running. `rows` are the rows of ONE marketplace.
+ */
+export const managedSupersedesLegacy = (
+  rows: Pick<ConnectionRow, "managed" | "status" | "hasStoredCredentials">[]
+): boolean => rows.some((r) => r.managed && r.hasStoredCredentials && r.status === "connected")
+
+/**
  * Env / unmanaged-row configuration for the pre-existing single-account path.
- * Used only while no managed row exists for the marketplace; Amazon stays
+ * Used unless a connected managed row supersedes it (`managedSupersedesLegacy`); Amazon stays
  * env-driven elsewhere, so it yields null here.
  */
 export const resolveLegacyConfig = async (
@@ -366,8 +376,9 @@ export const resolveLegacyConfig = async (
      WHERE marketplace = $1 ORDER BY created_at`,
     [marketplace]
   )
-  if (rows.some((r) => r.managed)) return null
-  const row = rows[0]
+  const marketplaceRows = (await listConnectionRows(pool)).filter((r) => r.marketplace === marketplace)
+  if (managedSupersedesLegacy(marketplaceRows)) return null
+  const row = rows.find((r) => !r.managed)
   if (marketplace === "shopify") {
     if (row?.webhook_secret_encrypted && row.access_token_encrypted && row.shop_domain && row.shopify_location_id) {
       return {

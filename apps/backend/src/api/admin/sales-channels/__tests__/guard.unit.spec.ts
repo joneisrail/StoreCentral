@@ -30,6 +30,26 @@ describe("guardSalesChannelDelete", () => {
     expect(next).not.toHaveBeenCalled()
   })
 
+  it("delete guard blocks a connected channel", async () => {
+    mocked.mockResolvedValue({
+      status: 200,
+      body: { connections: [{ id: "c1", sales_channel_id: "sc_1", status: "connected" }] },
+    })
+    const { res, next } = await run()
+    expect(res.statusCode).toBe(400)
+    expect(next).not.toHaveBeenCalled()
+  })
+
+  it("delete guard allows a channel whose connection is disconnected", async () => {
+    mocked.mockResolvedValue({
+      status: 200,
+      body: { connections: [{ id: "c1", sales_channel_id: "sc_1", status: "disconnected" }] },
+    })
+    const { res, next } = await run()
+    expect(res.statusCode).toBe(200)
+    expect(next).toHaveBeenCalled()
+  })
+
   it("delete guard allows a channel with none", async () => {
     mocked.mockResolvedValue({
       status: 200,

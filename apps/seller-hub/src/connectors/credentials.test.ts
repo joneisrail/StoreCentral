@@ -11,6 +11,7 @@ import {
   mergeAmazonInput,
   mergeShopifyInput,
   mergeWooInput,
+  managedSupersedesLegacy,
   resolveLegacyConfig,
   saveConnectionById,
   setStatusById,
@@ -323,15 +324,37 @@ test("setStatusById updates one row", async () => {
   expect(rows[0]!.status).toBeUndefined()
 })
 
-test("resolveLegacyConfig is used only when no managed row exists for the marketplace", async () => {
+test("resolveLegacyConfig yields only to a connected managed row that has credentials", async () => {
   const empty = idPool()
   expect((await resolveLegacyConfig(empty.pool, KEY, "shopify", env))?.source).toBe("environment")
-  const managed = idPool([{ id: "m1", marketplace: "shopify", managed: true }])
-  expect(await resolveLegacyConfig(managed.pool, KEY, "shopify", env)).toBeNull()
-  expect(await resolveLegacyConfig(managed.pool, KEY, "woocommerce", NO_ENV)).toBeNull()
+  const shopifyManaged = (over: Partial<Row>): Row => ({ ...shopifyRow(true), id: "m1", managed: true, ...over })
+  // connected + credentials supersedes the env connector
+  const live = idPool([shopifyManaged({ status: "connected" })])
+  expect(await resolveLegacyConfig(live.pool, KEY, "shopify", env)).toBeNull()
+  // other marketplaces are unaffected by it
+  expect(await resolveLegacyConfig(live.pool, KEY, "woocommerce", NO_ENV)).toBeNull()
+  // error / disconnected / credential-less managed rows do not supersede it
+  for (const over of [
+    { status: "error" },
+    { status: "disconnected" },
+    { status: "connected", webhook_secret_encrypted: null },
+  ]) {
+    const off = idPool([shopifyManaged(over)])
+    expect((await resolveLegacyConfig(off.pool, KEY, "shopify", env))?.source).toBe("environment")
+  }
   const legacy = idPool([{ ...shopifyRow(false), managed: false }])
   expect((await resolveLegacyConfig(legacy.pool, KEY, "shopify", env))?.source).toBe("environment")
   expect(await resolveLegacyConfig(legacy.pool, KEY, "amazon", env)).toBeNull()
+})
+
+test("managedSupersedesLegacy needs a managed, connected row with credentials", () => {
+  const r = { managed: true, status: "connected", hasStoredCredentials: true }
+  expect(managedSupersedesLegacy([r])).toBe(true)
+  expect(managedSupersedesLegacy([{ ...r, status: "error" }])).toBe(false)
+  expect(managedSupersedesLegacy([{ ...r, status: "disconnected" }])).toBe(false)
+  expect(managedSupersedesLegacy([{ ...r, hasStoredCredentials: false }])).toBe(false)
+  expect(managedSupersedesLegacy([{ ...r, managed: false }])).toBe(false)
+  expect(managedSupersedesLegacy([])).toBe(false)
 })
 
 test("mergeAmazonInput defaults the marketplace id and requires seller id and refresh token", () => {
