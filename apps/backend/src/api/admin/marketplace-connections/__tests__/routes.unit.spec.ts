@@ -46,6 +46,12 @@ describe("schemas", () => {
     expect(SaveConnectionSchema.safeParse({ access_token: 5 }).success).toBe(false)
     expect(SaveConnectionSchema.safeParse({ sales_channel_id: "sc" }).success).toBe(false)
   })
+  it("save does not accept display_name (ignored on edit); create still does", () => {
+    expect(SaveConnectionSchema.safeParse({ display_name: "x" }).success).toBe(false)
+    expect(
+      CreateConnectionSchema.safeParse({ marketplace: "amazon", name: "A", display_name: "x" }).success
+    ).toBe(true)
+  })
   it("create with an unknown marketplace is 400 (schema rejects it)", () => {
     expect(CreateConnectionSchema.safeParse({ marketplace: "ebay", name: "x" }).success).toBe(false)
     expect(CreateConnectionSchema.safeParse({ marketplace: "shopify", name: "" }).success).toBe(false)

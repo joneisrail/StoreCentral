@@ -3,10 +3,9 @@ import { z } from "@medusajs/framework/zod"
 
 const field = z.string().trim().max(2000).optional()
 
-// Credential fields shared by create and edit. Blank strings are accepted here
+// Credential fields shared by create and edit (display_name is create-only). Blank strings are accepted here
 // and dropped by the route, so a blank secret keeps the stored one.
 const credentialFields = {
-  display_name: field,
   shop_domain: field,
   access_token: field,
   location_id: field,
@@ -29,6 +28,7 @@ export const CreateConnectionSchema = z
     name: z.string().trim().min(1).max(255).optional(),
     sales_channel_id: z.string().trim().min(1).max(255).optional(),
     description: z.string().trim().max(2000).optional(),
+    display_name: field,
     is_disabled: z.boolean().optional(),
     ...credentialFields,
   })
