@@ -12304,9 +12304,117 @@
             "syncNotLive": {
               "type": "string"
             },
+            "sectionTitle": {
+              "type": "string"
+            },
+            "loading": {
+              "type": "string"
+            },
+            "loadError": {
+              "type": "string"
+            },
+            "retry": {
+              "type": "string"
+            },
+            "noConnection": {
+              "type": "string"
+            },
+            "connect": {
+              "type": "string"
+            },
+            "connectTitle": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            },
+            "sync": {
+              "type": "string"
+            },
+            "lastSync": {
+              "type": "string"
+            },
+            "never": {
+              "type": "string"
+            },
+            "linkedListings": {
+              "type": "string"
+            },
+            "lastError": {
+              "type": "string"
+            },
+            "webhookUrl": {
+              "type": "string"
+            },
+            "editCredentials": {
+              "type": "string"
+            },
+            "editTitle": {
+              "type": "string"
+            },
+            "editHint": {
+              "type": "string"
+            },
+            "stored": {
+              "type": "string"
+            },
+            "test": {
+              "type": "string"
+            },
+            "linkProducts": {
+              "type": "string"
+            },
+            "disconnect": {
+              "type": "string"
+            },
+            "disconnectWarning": {
+              "type": "string"
+            },
+            "testFailedUnchanged": {
+              "type": "string"
+            },
             "toast": {
               "type": "object",
               "properties": {
+                "saved": {
+                  "type": "string"
+                },
+                "saveTestFailed": {
+                  "type": "string"
+                },
+                "testPassed": {
+                  "type": "string"
+                },
+                "testFailed": {
+                  "type": "string"
+                },
+                "linked": {
+                  "type": "string"
+                },
+                "disconnectedOk": {
+                  "type": "string"
+                },
+                "copied": {
+                  "type": "string"
+                },
+                "copyFailed": {
+                  "type": "string"
+                },
+                "attached": {
+                  "type": "string"
+                },
+                "attachError": {
+                  "type": "string"
+                },
+                "attachUnavailable": {
+                  "type": "string"
+                },
+                "attachDisconnected": {
+                  "type": "string"
+                },
                 "connected": {
                   "type": "string"
                 },
@@ -12330,6 +12438,18 @@
                 }
               },
               "required": [
+                "saved",
+                "saveTestFailed",
+                "testPassed",
+                "testFailed",
+                "linked",
+                "disconnectedOk",
+                "copied",
+                "copyFailed",
+                "attached",
+                "attachError",
+                "attachUnavailable",
+                "attachDisconnected",
                 "connected",
                 "error",
                 "unavailable",
@@ -12347,6 +12467,30 @@
             "none",
             "credentialsHint",
             "syncNotLive",
+            "sectionTitle",
+            "loading",
+            "loadError",
+            "retry",
+            "noConnection",
+            "connect",
+            "connectTitle",
+            "type",
+            "status",
+            "sync",
+            "lastSync",
+            "never",
+            "linkedListings",
+            "lastError",
+            "webhookUrl",
+            "editCredentials",
+            "editTitle",
+            "editHint",
+            "stored",
+            "test",
+            "linkProducts",
+            "disconnect",
+            "disconnectWarning",
+            "testFailedUnchanged",
             "toast"
           ],
           "additionalProperties": false

@@ -8,6 +8,7 @@ import {
 } from "../../../components/layout-composer"
 import { useSalesChannel } from "../../../hooks/api/sales-channels"
 import { SalesChannelGeneralSection } from "./components/sales-channel-general-section"
+import { SalesChannelMarketplaceSection } from "./components/sales-channel-marketplace-section"
 import { SalesChannelProductSection } from "./components/sales-channel-product-section"
 import { salesChannelLoader } from "./loader"
 
@@ -35,6 +36,11 @@ export const SalesChannelDetail = () => {
           <>
             <LayoutComposer.Entry id="SalesChannelGeneralSection">
               <SalesChannelGeneralSection salesChannel={sales_channel} />
+            </LayoutComposer.Entry>
+            <LayoutComposer.Entry id="SalesChannelMarketplaceSection">
+              <SalesChannelMarketplaceSection
+                salesChannelId={sales_channel.id}
+              />
             </LayoutComposer.Entry>
             <LayoutComposer.Entry id="SalesChannelProductSection">
               <SalesChannelProductSection salesChannel={sales_channel} />
