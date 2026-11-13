@@ -32,16 +32,16 @@ test("gate imports processing and completed", () => {
   }
 })
 
-test("gate skips cancelled/refunded/failed/trash", () => {
-  for (const status of ["cancelled", "refunded", "failed", "trash"]) {
+test("gate skips cancelled/refunded/trash", () => {
+  for (const status of ["cancelled", "refunded", "trash"]) {
     expect(woocommerceImportAdapter.gate(order({ status }), "7")).toMatch(
       /not imported/
     )
   }
 })
 
-test("gate defers pending/on-hold by the shared recheck window", () => {
-  for (const status of ["pending", "on-hold"]) {
+test("gate defers pending/on-hold/failed by the shared recheck window", () => {
+  for (const status of ["pending", "on-hold", "failed"]) {
     const before = Date.now()
     try {
       woocommerceImportAdapter.gate(order({ status }), "7")

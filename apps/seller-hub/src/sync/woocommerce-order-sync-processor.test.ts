@@ -316,8 +316,8 @@ test("a stale processing claim is reclaimed and the order still imports once", a
   expect(realOrders()).toHaveLength(1)
 })
 
-test("cancelled, refunded, failed and trash orders are skipped and settled", async () => {
-  for (const status of ["cancelled", "refunded", "failed", "trash"]) {
+test("cancelled, refunded and trash orders are skipped and settled", async () => {
+  for (const status of ["cancelled", "refunded", "trash"]) {
     const medusa = makeMedusa()
     const result = await processWooOrderSyncJob(
       { wooOrderId: `skip-${status}` },
@@ -332,8 +332,8 @@ test("cancelled, refunded, failed and trash orders are skipped and settled", asy
   expect(orders).toHaveLength(0)
 })
 
-test("pending and on-hold orders are deferred, then a processing one imports", async () => {
-  for (const held of ["pending", "on-hold"]) {
+test("pending, on-hold and failed orders are deferred, then a processing one imports", async () => {
+  for (const held of ["pending", "on-hold", "failed"]) {
     jobs = []
     orders = []
     const medusa = makeMedusa()
@@ -457,4 +457,24 @@ test("a Medusa 4xx is permanent, a 5xx is retryable", async () => {
   expect(transient).toBeInstanceOf(Error)
   expect(transient).not.toBeInstanceOf(PermanentSyncError)
   expect(orders).toHaveLength(0)
+})
+
+test("a failed order is deferred with no draft, then the SAME id imports once it is processing", async () => {
+  const medusa = makeMedusa()
+  let status = "failed"
+  const d = deps(medusa, { fetchOrder: async () => wooOrder({ status }) })
+
+  const err = await run(medusa, d).catch((e) => e)
+  expect(err).toBeInstanceOf(DeferSyncError)
+  expect(medusa.createDraftOrder).not.toHaveBeenCalled()
+  expect(orders).toHaveLength(0)
+  expect(jobs[0]!.status).toBe("failed")
+
+  status = "processing"
+  const result = await run(medusa, d)
+  expect(result.status).toBe("created")
+  expect(realOrders()).toHaveLength(1)
+  expect(jobs).toHaveLength(1)
+  expect(jobs[0]!.status).toBe("succeeded")
+  expect(medusa.createDraftOrder).toHaveBeenCalledTimes(1)
 })

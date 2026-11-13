@@ -15,10 +15,18 @@ const IMPORT_CURRENCY = "USD"
 
 /** Money is committed (or the merchant ships against it): import. */
 const IMPORTABLE_STATUSES = new Set(["processing", "completed"])
-/** Awaiting payment: parked and re-checked (the webhook also re-enqueues). */
-const DEFERRED_STATUSES = new Set(["pending", "on-hold"])
-/** Terminal: the sale did not (or no longer does) stand. Settled, not failed. */
-const SKIPPED_STATUSES = new Set(["cancelled", "refunded", "failed", "trash"])
+/**
+ * Not paid (yet): parked and re-checked (the webhook also re-enqueues). `failed`
+ * is here, not skipped: a customer can retry payment and WooCommerce moves the
+ * SAME order to `processing`; settling it as succeeded-with-no-order would make
+ * the later delivery stop at the claim and lose a paid order.
+ */
+const DEFERRED_STATUSES = new Set(["pending", "on-hold", "failed"])
+/**
+ * Terminal: the sale did not (or no longer does) stand. Settled, not failed.
+ * Known limitation: a cancelled order that is later re-opened is not imported.
+ */
+const SKIPPED_STATUSES = new Set(["cancelled", "refunded", "trash"])
 
 /**
  * The WooCommerce specialisation of the shared claimed-import flow. The

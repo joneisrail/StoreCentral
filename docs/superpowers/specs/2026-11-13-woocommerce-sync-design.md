@@ -106,9 +106,9 @@ never logged.
   **WordPress** sales channel with the WooCommerce unit prices (line `total`
   after discounts, tax excluded, divided by quantity, rounded to a cent) and
   completes it. Imports are idempotent on the WooCommerce order id.
-  Status handling: `processing` and `completed` import; `pending` and `on-hold`
-  are deferred (`DeferSyncError`) until paid; `cancelled`, `refunded` and `failed`
-  (and `trash`) are skipped. A non-USD order, an order with an unmatched SKU, or
+  Status handling: `processing` and `completed` import; `pending`, `on-hold`
+  and `failed` are deferred (`DeferSyncError`) until paid (a failed payment can be
+  retried on the same order); `cancelled`, `refunded` and `trash` are skipped. A non-USD order, an order with an unmatched SKU, or
   a line with no SKU fails permanently with a clear `last_error` and creates no
   draft or order.
 - **Stock out:** on `inventory-level.updated`, the variant's available quantity
