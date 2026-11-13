@@ -72,6 +72,26 @@ describe("callSellerHub", () => {
     expect(err.message).toBe("Cannot reach seller-hub")
   })
 
+  it("honors opts.timeoutMs instead of the 15 s default", async () => {
+    const fetchImpl = ((_u: string, init: { signal: AbortSignal }) =>
+      new Promise((_r, reject) => {
+        init.signal.addEventListener("abort", () => reject(new Error("aborted")))
+      })) as unknown as typeof fetch
+    jest.useFakeTimers()
+    let settled = false
+    const p = failure(
+      callSellerHub("POST", "/x", undefined, { fetchImpl, env, timeoutMs: 120_000 })
+    ).finally(() => {
+      settled = true
+    })
+    await jest.advanceTimersByTimeAsync(60_000)
+    expect(settled).toBe(false)
+    await jest.advanceTimersByTimeAsync(60_001)
+    const err = await p
+    jest.useRealTimers()
+    expect(err.status).toBe(502)
+  })
+
   it("maps seller-hub 401 to 502", async () => {
     const err = await failure(
       callSellerHub("GET", "/x", undefined, { fetchImpl: reply(401, {}), env })

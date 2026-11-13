@@ -10,7 +10,7 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
     Object.entries(body).filter(([, v]) => typeof v === "string" && v !== "")
   )
   await withMarketplace(req, res, (m) =>
-    callSellerHub("PUT", `/internal/connections/${m}`, forwarded)
+    callSellerHub("PUT", `/internal/connections/${m}`, forwarded, { timeoutMs: 120_000 })
   )
 }
 

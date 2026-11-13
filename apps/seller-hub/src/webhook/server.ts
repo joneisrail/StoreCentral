@@ -32,8 +32,18 @@ export type CreateWebhookServerDeps = {
 }
 
 /** Resolves a deps object or getter; null means "configured but not live". */
-const resolveDeps = <T>(x: T | (() => T | null) | undefined): T | null =>
-  typeof x === "function" ? (x as () => T | null)() : (x ?? null)
+const resolveDeps = <T>(x: T | (() => T | null) | undefined): T | null => {
+  try {
+    return typeof x === "function" ? (x as () => T | null)() : (x ?? null)
+  } catch (err) {
+    // A throwing getter is treated as "not live"; log only the error class.
+    console.error(
+      "[seller-hub] webhook deps getter threw:",
+      err instanceof Error ? err.constructor.name : typeof err
+    )
+    return null
+  }
+}
 
 const WOO_ORDER_TOPICS = new Set([
   "order.created",

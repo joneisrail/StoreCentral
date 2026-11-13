@@ -101,3 +101,15 @@ test("without salesChannelId the Shopify name lookup still happens", async () =>
   expect(await resolveFrom(deps, workers)).toBe("sc_named")
   expect(medusa.findSalesChannelIdByName).toHaveBeenCalledWith("Shopify")
 })
+
+test("a failing boot link logs only a message string", async () => {
+  const err = vi.spyOn(console, "error").mockImplementation(() => {})
+  const { deps } = setup()
+  mocks.link.mockReset().mockRejectedValue(new Error("link boom"))
+  const rt = await startShopify(deps)
+  await rt.linked
+  const call = err.mock.calls.find((c) => String(c[0]).includes("SKU link failed"))!
+  expect(call[1]).toBe("link boom")
+  expect(typeof call[1]).toBe("string")
+  expect(JSON.stringify(err.mock.calls)).not.toContain("at ")
+})

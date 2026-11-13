@@ -678,3 +678,27 @@ test("a throwing or rejecting internalHandler yields 500 without crashing", asyn
   async_.server.close()
   err.mockRestore()
 })
+
+test("a throwing getter is treated as null: 503 on its order route, 200 on medusa, still serving", async () => {
+  const errSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+  const woo = makeWoo()
+  const { server, amazon, url } = startDynamicServer({
+    shopify: () => {
+      throw new TypeError("secret-detail")
+    },
+    woocommerce: () => woo,
+  })
+  expect((await postShopify(url, "orders/create", JSON.stringify({ id: 9 }))).status).toBe(503)
+  const res = await fetch(`${url}/webhooks/medusa`, {
+    method: "POST",
+    body: JSON.stringify({ event: "inventory-level.updated", data: { id: "il_1" } }),
+  })
+  expect(res.status).toBe(200)
+  expect(amazon.inventoryQueue.add).toHaveBeenCalledTimes(1)
+  expect((await postWoo(url, "order.created", JSON.stringify({ id: 9 }))).status).toBe(200)
+  expect(woo.orderQueue.add).toHaveBeenCalledTimes(1)
+  expect(JSON.stringify(errSpy.mock.calls)).toContain("TypeError")
+  expect(JSON.stringify(errSpy.mock.calls)).not.toContain("secret-detail")
+  server.close()
+  errSpy.mockRestore()
+})

@@ -367,6 +367,29 @@ test("POST test tests stored credentials and records status", async () => {
   expect(row.status).toBe("connected")
 })
 
+test("successful test with no live runtime writes no status", async () => {
+  await start()
+  manager.getShopify.mockReturnValue(null)
+  const row = rows.find((x) => x.marketplace === "shopify")!
+  row.status = "error"
+  row.last_error = "earlier failure"
+  const before = calls.length
+  const r = await call("POST", "/internal/connections/shopify/test")
+  expect(r.json.ok).toBe(true)
+  expect(row.status).toBe("error")
+  expect(row.last_error).toBe("earlier failure")
+  expect(calls.slice(before).some((c) => /^\s*UPDATE/i.test(c.sql))).toBe(false)
+})
+
+test("successful test with a live runtime sets connected", async () => {
+  await start()
+  const row = rows.find((x) => x.marketplace === "shopify")!
+  row.status = "error"
+  const r = await call("POST", "/internal/connections/shopify/test")
+  expect(r.json.ok).toBe(true)
+  expect(row.status).toBe("connected")
+})
+
 test("link returns counts, and 409 when not running", async () => {
   await start()
   const r = await call("POST", "/internal/connections/shopify/link")

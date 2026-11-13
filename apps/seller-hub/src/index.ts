@@ -1,3 +1,4 @@
+import { resolveInternalSecret } from "./internal/secret.js"
 import {
   DeleteMessageCommand,
   ReceiveMessageCommand,
@@ -235,7 +236,8 @@ const main = async (): Promise<void> => {
 
   // The internal API (used by the backend admin) is only mounted when a shared
   // secret is configured; otherwise /internal/* is a 404.
-  const internalSecret = process.env.SELLER_HUB_INTERNAL_SECRET
+  const secretDecision = resolveInternalSecret(process.env.SELLER_HUB_INTERNAL_SECRET)
+  const internalSecret = secretDecision.secret
   const internalHandler = internalSecret
     ? createInternalHandler({
         pool,
@@ -247,7 +249,9 @@ const main = async (): Promise<void> => {
     : undefined
   if (!internalHandler) {
     console.log(
-      "[seller-hub] internal API disabled (SELLER_HUB_INTERNAL_SECRET not set)"
+      secretDecision.reason === "too_short"
+        ? "[seller-hub] internal API disabled (SELLER_HUB_INTERNAL_SECRET is too short, need at least 16 characters)"
+        : "[seller-hub] internal API disabled (SELLER_HUB_INTERNAL_SECRET not set)"
     )
   }
 

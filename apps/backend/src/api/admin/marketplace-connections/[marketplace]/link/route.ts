@@ -4,6 +4,6 @@ import { callSellerHub } from "../../seller-hub-client"
 
 export async function POST(req: MedusaRequest, res: MedusaResponse) {
   await withMarketplace(req, res, (m) =>
-    callSellerHub("POST", `/internal/connections/${m}/link`)
+    callSellerHub("POST", `/internal/connections/${m}/link`, undefined, { timeoutMs: 120_000 })
   )
 }

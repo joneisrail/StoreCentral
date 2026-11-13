@@ -180,8 +180,8 @@ switch over immediately.
 - **Internal secret.** The admin talks to this service through an internal API
   that is authenticated with a shared secret. Set the same
   `SELLER_HUB_INTERNAL_SECRET` in both seller-hub and the backend, and set
-  `SELLER_HUB_INTERNAL_URL` in the backend to this service's address. When the
-  secret is unset here, the internal API is disabled and `/internal/*` returns
+  `SELLER_HUB_INTERNAL_URL` in the backend to this service's address. The secret must be at
+  least 16 characters (after trimming). When it is unset or too short here, the internal API is disabled and `/internal/*` returns
   404.
 - **Public URL.** Set `SELLER_HUB_PUBLIC_URL` (for example
   `https://hub.example.com`) so the admin can show the webhook URLs to register

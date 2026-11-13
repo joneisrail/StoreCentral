@@ -58,7 +58,7 @@ describe("routes", () => {
     )
     expect(mocked).toHaveBeenCalledWith("PUT", "/internal/connections/shopify", {
       shop_domain: "a.myshopify.com",
-    })
+    }, { timeoutMs: 120_000 })
     expect(res.statusCode).toBe(200)
   })
 
@@ -90,6 +90,20 @@ describe("routes", () => {
     expect(res.statusCode).toBe(502)
     expect(JSON.stringify(res.payload)).not.toContain("topsecret")
     expect(res.payload.message).toBe("Cannot reach seller-hub")
+  })
+
+  it("passes long timeouts for save, link and test only", async () => {
+    mocked.mockResolvedValue({ status: 200, body: { ok: true } })
+    await save(makeReq("shopify", { shop_domain: "a.myshopify.com" }), makeRes())
+    await link(makeReq("shopify"), makeRes())
+    await test(makeReq("shopify"), makeRes())
+    await disconnect(makeReq("shopify"), makeRes())
+    expect(mocked.mock.calls.map((c) => c[3])).toEqual([
+      { timeoutMs: 120_000 },
+      { timeoutMs: 120_000 },
+      { timeoutMs: 30_000 },
+      undefined,
+    ])
   })
 
   it("delete, test and link forward", async () => {

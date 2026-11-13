@@ -109,7 +109,10 @@ export const startShopify = async (
       return result
     },
     (err) => {
-      console.error("[seller-hub] Shopify SKU link failed:", err)
+      console.error(
+        "[seller-hub] Shopify SKU link failed:",
+        err instanceof Error ? err.message : String(err)
+      )
       return null
     }
   )

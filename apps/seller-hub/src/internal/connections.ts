@@ -248,12 +248,15 @@ export const createInternalHandler = (deps: InternalHandlerDeps) => {
       if (!stored) return send(res, 409, { error: "not_configured" })
       result = await testWoo(stored.config)
     }
-    await setConnectionStatus(
-      deps.pool,
-      marketplace,
-      result.ok ? "connected" : "error",
-      result.ok ? null : result.message
-    )
+    if (!result.ok) {
+      await setConnectionStatus(deps.pool, marketplace, "error", result.message)
+    } else {
+      // Only mark connected when a runtime is actually live; otherwise the badge
+      // would claim a sync that is not running.
+      const live =
+        marketplace === "shopify" ? deps.manager.getShopify() : deps.manager.getWooCommerce()
+      if (live) await setConnectionStatus(deps.pool, marketplace, "connected", null)
+    }
     send(res, 200, result)
   }
 

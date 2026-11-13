@@ -1,5 +1,7 @@
 const TIMEOUT_MS = 15_000
 
+// Long seller-hub operations (save, link, test) pass a larger `timeoutMs`.
+
 export type SellerHubMethod = "GET" | "PUT" | "POST" | "DELETE"
 
 export type SellerHubResult = { status: number; body: any }
@@ -24,7 +26,7 @@ export async function callSellerHub(
   method: SellerHubMethod,
   path: string,
   body?: unknown,
-  opts: { fetchImpl?: typeof fetch; env?: NodeJS.ProcessEnv } = {}
+  opts: { fetchImpl?: typeof fetch; env?: NodeJS.ProcessEnv; timeoutMs?: number } = {}
 ): Promise<SellerHubResult> {
   const env = opts.env ?? process.env
   const fetchImpl = opts.fetchImpl ?? fetch
@@ -35,7 +37,7 @@ export async function callSellerHub(
   }
 
   const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
+  const timer = setTimeout(() => controller.abort(), opts.timeoutMs ?? TIMEOUT_MS)
   let status: number
   let text: string
   try {
