@@ -1,10 +1,26 @@
 import http from "node:http"
 import type { Queue } from "bullmq"
+import { verifyShopifyHmac } from "../shopify/webhook.js"
+
+export type ShopifyWebhookDeps = {
+  webhookSecret: string
+  orderQueue: Queue
+  inventoryQueue: Queue
+  priceQueue: Queue
+}
 
 export type CreateWebhookServerDeps = {
   inventoryQueue: Queue
   priceQueue: Queue
+  /** When present, enables `POST /webhooks/shopify` and the Medusa fan-out. */
+  shopify?: ShopifyWebhookDeps
 }
+
+const SHOPIFY_ORDER_TOPICS = new Set([
+  "orders/create",
+  "orders/paid",
+  "orders/cancelled",
+])
 
 type MedusaWebhookBody = {
   event: string
@@ -28,9 +44,26 @@ type MedusaWebhookBody = {
 export const createWebhookServer = (
   deps: CreateWebhookServerDeps
 ): http.Server => {
-  const { inventoryQueue, priceQueue } = deps
+  const { inventoryQueue, priceQueue, shopify } = deps
 
   return http.createServer((req, res) => {
+    if (shopify && req.method === "POST" && req.url === "/webhooks/shopify") {
+      // Raw Buffer chunks: the HMAC must cover the exact bytes Shopify sent.
+      const chunks: Buffer[] = []
+      req.on("data", (chunk: Buffer) => {
+        chunks.push(chunk)
+      })
+      req.on("end", () => {
+        void handleShopifyRequest(
+          Buffer.concat(chunks),
+          req.headers,
+          res,
+          shopify
+        )
+      })
+      return
+    }
+
     if (req.method !== "POST" || req.url !== "/webhooks/medusa") {
       res.writeHead(404).end()
       return
@@ -42,7 +75,7 @@ export const createWebhookServer = (
     })
 
     req.on("end", () => {
-      void handleRequestBody(rawBody, res, { inventoryQueue, priceQueue })
+      void handleRequestBody(rawBody, res, { inventoryQueue, priceQueue, shopify })
     })
   })
 }
@@ -97,6 +130,112 @@ const handleRequestBody = async (
       `[webhook] failed to enqueue job for event "${webhookBody.event}":`,
       err
     )
+  }
+
+  // Fan out to Shopify independently of (and after) the Amazon enqueue; a
+  // failure here is logged only and never changes the response.
+  if (queues.shopify) {
+    try {
+      await routeShopifyEvent(webhookBody, queues.shopify)
+    } catch (err) {
+      console.error(
+        `[webhook] failed to enqueue Shopify job for event "${webhookBody.event}":`,
+        err
+      )
+    }
+  }
+
+  res.writeHead(200, { "Content-Type": "application/json" }).end(
+    JSON.stringify({ received: true })
+  )
+}
+
+const routeShopifyEvent = async (
+  body: MedusaWebhookBody,
+  shopify: ShopifyWebhookDeps
+): Promise<void> => {
+  const { event, data } = body
+  if (event.startsWith(INVENTORY_EVENT_PREFIX)) {
+    await shopify.inventoryQueue.add(event, { inventoryLevelId: data.id })
+  } else if (event.startsWith(PRICE_EVENT_PREFIX)) {
+    await shopify.priceQueue.add(event, { variantId: data.id })
+  }
+}
+
+/**
+ * Handles `POST /webhooks/shopify`. The HMAC is verified over the raw bytes
+ * BEFORE any JSON parsing or queueing. Order jobs carry the order's GraphQL
+ * id (`gid://shopify/Order/<n>`), the form `fetchShopifyOrder` expects; the
+ * BullMQ job id is the bare numeric id (BullMQ custom ids may not contain
+ * ":"), so duplicate deliveries of the same order collapse into one job.
+ */
+const handleShopifyRequest = async (
+  rawBody: Buffer,
+  headers: http.IncomingHttpHeaders,
+  res: http.ServerResponse,
+  shopify: ShopifyWebhookDeps
+): Promise<void> => {
+  const signature = headers["x-shopify-hmac-sha256"]
+  if (
+    !verifyShopifyHmac(
+      rawBody,
+      Array.isArray(signature) ? signature[0] : signature,
+      shopify.webhookSecret
+    )
+  ) {
+    res.writeHead(401).end()
+    return
+  }
+
+  const topicHeader = headers["x-shopify-topic"]
+  const topic = Array.isArray(topicHeader) ? topicHeader[0] : topicHeader
+  if (!topic || !SHOPIFY_ORDER_TOPICS.has(topic)) {
+    console.log(`[webhook] ignoring Shopify topic "${topic ?? ""}"`)
+    res.writeHead(200).end()
+    return
+  }
+
+  let payload: { id?: unknown; admin_graphql_api_id?: unknown }
+  try {
+    payload = JSON.parse(rawBody.toString("utf8"))
+  } catch {
+    respondBadRequest(res, "Malformed JSON body")
+    return
+  }
+  if (typeof payload !== "object" || payload === null) {
+    respondBadRequest(res, "Request body must be a JSON object")
+    return
+  }
+
+  const gidPrefix = "gid://shopify/Order/"
+  let numericId: string | undefined
+  if (
+    typeof payload.admin_graphql_api_id === "string" &&
+    payload.admin_graphql_api_id.startsWith(gidPrefix)
+  ) {
+    numericId = payload.admin_graphql_api_id.slice(gidPrefix.length)
+  } else if (
+    typeof payload.id === "number" ||
+    (typeof payload.id === "string" && payload.id)
+  ) {
+    numericId = String(payload.id)
+  }
+  if (!numericId) {
+    respondBadRequest(res, "Missing required field: id")
+    return
+  }
+
+  try {
+    await shopify.orderQueue.add(
+      topic,
+      { shopifyOrderId: `${gidPrefix}${numericId}` },
+      { jobId: numericId }
+    )
+  } catch (err) {
+    // Non-2xx makes Shopify retry the delivery, which is what we want here.
+    console.error(`[webhook] failed to enqueue Shopify order ${numericId}:`, err)
+    res.writeHead(500).end()
+    return
   }
 
   res.writeHead(200, { "Content-Type": "application/json" }).end(
