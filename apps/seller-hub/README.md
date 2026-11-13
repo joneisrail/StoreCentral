@@ -91,6 +91,10 @@ pushed from Medusa to Shopify, and edits made in Shopify are overwritten on the
 next sync or drift check. Variants are linked by exact SKU at boot; unmatched
 and duplicate SKUs are not linked and are recorded as failed `product` sync jobs.
 
+**First sync overwrites Shopify.** Right after variants are linked, the next
+drift check (hourly) pushes StoreCentral's stock and price for every newly
+linked listing to Shopify, overwriting whatever Shopify had.
+
 **Setup**
 
 1. Create the "Shopify" sales channel in Medusa (links it to the stock

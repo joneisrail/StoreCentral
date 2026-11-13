@@ -81,9 +81,9 @@ re-read from env after the first connect.
   StoreCentral variant with the same SKU. Unmatched and duplicate SKUs are
   recorded on `sync_job` (`last_error`) and skipped; nothing is guessed or
   created. Re-running only adds missing links.
-- **Order in:** Shopify `orders/create` and `orders/cancelled` webhooks are
+- **Order in:** Shopify `orders/create`, `orders/paid` and `orders/cancelled` webhooks are
   verified against `X-Shopify-Hmac-Sha256` (raw body, constant-time compare,
-  400 on mismatch). A paid or authorized order is queued; the import creates a
+  401 on mismatch). A paid or authorized order is queued; the import creates a
   draft order in the **Shopify** sales channel with Shopify's unit prices and
   completes it (the Amazon importer's approach). Imports are idempotent on the
   Shopify order id: redelivery or a retry never creates a second order.

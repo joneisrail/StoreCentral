@@ -112,3 +112,10 @@ test("fetchShopifyOrdersSince paginates with the updated_at filter", async () =>
   expect(v.query).toBe("updated_at:>=2026-11-01T00:00:00Z")
   expect(JSON.parse(f.mock.calls[1][1].body).variables.after).toBe("c1")
 })
+
+test("trims stray whitespace from line item SKUs, blank stays empty", () => {
+  const order = normalizeShopifyOrder(
+    raw({ lineItems: { nodes: [line("  SKU-1 ", 1, "1.00"), line("   ", 1, "1.00")] } })
+  )
+  expect(order.items.map((i) => i.sku)).toEqual(["SKU-1", ""])
+})

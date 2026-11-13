@@ -140,7 +140,9 @@ const FIRST_SCAN_LOOKBACK_MS = 24 * 60 * 60 * 1000
  * `pushShopifyInventory`) and re-enqueues Shopify orders updated since the
  * account's `last_synced_at` (24h back when null) using the webhook's job
  * shape/id so duplicates collapse. It never writes to Medusa or Shopify.
- * `last_synced_at` advances (to the scan start) only after a clean scan.
+ * A listing with a NULL baseline (never pushed) is enqueued as drift.
+ * `last_synced_at` advances (to the scan start) once the order catch-up
+ * succeeded, regardless of per-listing check failures.
  */
 export const reconcileShopify = async (
   deps: ReconcileShopifyDeps
@@ -201,7 +203,12 @@ export const reconcileShopify = async (
   }
 
   for (const row of rows) {
-    if (row.last_synced_quantity !== null) {
+    // A NULL baseline means the listing was never pushed (freshly linked):
+    // StoreCentral is the master, so push it now rather than skip it.
+    if (row.last_synced_quantity === null) {
+      await inventoryQueue.add("reconcile", { channelListingId: row.id })
+      inventoryRequeued++
+    } else {
       await runCheck(row, "inventory", async () => {
         const inventory = await medusaClient.getVariantInventory(
           row.medusa_variant_id
@@ -217,7 +224,10 @@ export const reconcileShopify = async (
       })
     }
 
-    if (row.last_synced_price !== null) {
+    if (row.last_synced_price === null) {
+      await priceQueue.add("reconcile", { channelListingId: row.id })
+      priceRequeued++
+    } else {
       await runCheck(row, "price", async () => {
         const pricing = await medusaClient.getVariantPricing(
           row.medusa_variant_id
@@ -262,7 +272,9 @@ export const reconcileShopify = async (
     console.error("[reconcile-shopify] missed-order catch-up failed:", err)
   }
 
-  if (failedChecks === 0 && ordersFetched) {
+  // Watermark depends only on the order scan: a permanently bad listing must
+  // not freeze it and grow the scan window without bound.
+  if (ordersFetched) {
     await pool.query(
       `UPDATE seller_hub.integration_account
        SET last_synced_at = $1, updated_at = now()

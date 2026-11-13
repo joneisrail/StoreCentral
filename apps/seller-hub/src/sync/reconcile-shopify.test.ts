@@ -78,7 +78,7 @@ const setup = (opts: {
 
 test("quantity drift requeues exactly one inventory job", async () => {
   const s = setup({
-    listings: [listing({ id: "L1", last_synced_quantity: 5 })],
+    listings: [listing({ id: "L1", last_synced_quantity: 5, last_synced_price: "10" })],
     stock: { var_L1: 9 },
   })
   const r = await s.run()
@@ -102,7 +102,7 @@ test("clamped quantity (negative / fractional) is not permanent drift", async ()
 
 test("price drift requeues exactly one price job", async () => {
   const s = setup({
-    listings: [listing({ id: "L1", last_synced_price: "10.00" })],
+    listings: [listing({ id: "L1", last_synced_quantity: 0, last_synced_price: "10.00" })],
     price: { var_L1: { amount: 12, currencyCode: "usd" } },
   })
   const r = await s.run()
@@ -127,17 +127,40 @@ test("price_rule is applied before comparing, so a marked-up listing does not lo
   expect(s.priceQueue.add).not.toHaveBeenCalled()
 })
 
-test("no drift requeues nothing, and a listing with no baseline is skipped", async () => {
+test("no drift requeues nothing for a listing that has a baseline", async () => {
   const s = setup({
-    listings: [
-      listing({ id: "L1", last_synced_quantity: 4, last_synced_price: "10" }),
-      listing({ id: "L2" }),
-    ],
-    stock: { var_L1: 4, var_L2: 99 },
+    listings: [listing({ id: "L1", last_synced_quantity: 4, last_synced_price: "10" })],
+    stock: { var_L1: 4 },
   })
   const r = await s.run()
   expect(r).toMatchObject({ inventoryRequeued: 0, priceRequeued: 0 })
-  expect(s.medusaClient.getVariantInventory).not.toHaveBeenCalledWith("var_L2")
+})
+
+test("a never-pushed listing (NULL baseline) is enqueued once per run until it is pushed", async () => {
+  const s = setup({ listings: [listing({ id: "NEW" })] })
+  const r1 = await s.run()
+  expect(r1).toMatchObject({ inventoryRequeued: 1, priceRequeued: 1 })
+  expect(s.inventoryQueue.add).toHaveBeenCalledWith("reconcile", { channelListingId: "NEW" })
+  expect(s.priceQueue.add).toHaveBeenCalledWith("reconcile", { channelListingId: "NEW" })
+  // not pushed yet -> still no baseline -> enqueued again, exactly once per run
+  await s.run()
+  expect(s.inventoryQueue.add).toHaveBeenCalledTimes(2)
+  expect(s.priceQueue.add).toHaveBeenCalledTimes(2)
+})
+
+test("only the missing baseline is enqueued: NULL quantity -> inventory, NULL price -> price", async () => {
+  const s = setup({
+    listings: [
+      listing({ id: "Q", last_synced_price: "10" }),
+      listing({ id: "P", last_synced_quantity: 0 }),
+    ],
+    stock: { var_P: 0 },
+  })
+  await s.run()
+  expect(s.inventoryQueue.add).toHaveBeenCalledTimes(1)
+  expect(s.inventoryQueue.add).toHaveBeenCalledWith("reconcile", { channelListingId: "Q" })
+  expect(s.priceQueue.add).toHaveBeenCalledTimes(1)
+  expect(s.priceQueue.add).toHaveBeenCalledWith("reconcile", { channelListingId: "P" })
 })
 
 test("two consecutive runs with no changes enqueue nothing the second time", async () => {
@@ -202,7 +225,7 @@ test("orders are fetched since last_synced_at, or 24h back when null", async () 
   expect(arg).toBeLessThanOrEqual(Date.now() - 24 * 3600_000 + 1000)
 })
 
-test("a failing listing is isolated and last_synced_at does not advance", async () => {
+test("a failing listing is isolated and last_synced_at still advances when orders were fetched", async () => {
   const err = vi.spyOn(console, "error").mockImplementation(() => {})
   try {
     const s = setup({
@@ -217,7 +240,8 @@ test("a failing listing is isolated and last_synced_at does not advance", async 
     expect(r.inventoryRequeued).toBe(1)
     expect(r.ordersRequeued).toBe(1)
     expect(s.inventoryQueue.add).toHaveBeenCalledWith("reconcile", { channelListingId: "GOOD" })
-    expect(s.updates).toHaveLength(0)
+    expect(r.failedChecks).toBe(1)
+    expect(s.updates).toHaveLength(1)
   } finally {
     err.mockRestore()
   }

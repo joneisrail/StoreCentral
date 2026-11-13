@@ -85,7 +85,7 @@ export const normalizeShopifyOrder = (raw: unknown): NormalizedShopifyOrder => {
     ) {
       return bad("invalid line item")
     }
-    return { sku: str(n.sku), quantity, unitPrice }
+    return { sku: str(n.sku).trim(), quantity, unitPrice }
   })
 
   const currencyCode =
