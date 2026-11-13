@@ -859,6 +859,7 @@ export class Order {
         location_id?: string
         shipment_id: string
         rate_id: string
+        no_notification?: boolean
       }[]
     },
     headers?: ClientHeaders

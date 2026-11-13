@@ -66,6 +66,10 @@ export type BulkFulfillOrdersStepInput = {
      * buy for this order.
      */
     rate_id: string
+    /**
+     * Whether to skip the fulfillment-created notification for this order.
+     */
+    no_notification?: boolean
   }[]
 }
 
@@ -404,6 +408,9 @@ export const bulkFulfillOrdersStep = createStep(
               location_id: fulfillment.location_id,
               provider_id: EASYPOST_FULFILLMENT_PROVIDER_ID,
               provider_data_override: providerDataOverride,
+              ...(fulfillment.no_notification !== undefined
+                ? { no_notification: fulfillment.no_notification }
+                : {}),
             },
           })
 

@@ -199,6 +199,42 @@ describe("bulkFulfillOrdersStep", () => {
     resolveEasyPostFulfillmentProvider.mockReset()
   })
 
+  it("forwards no_notification per order only when it was given", async () => {
+    const run = jest.fn().mockResolvedValue({})
+    createOrderFulfillmentWorkflow.mockReturnValue({ run })
+
+    const { container } = buildContainer({
+      orders: {
+        order_1: fulfillableOrder("order_1"),
+        order_2: fulfillableOrder("order_2"),
+      },
+      buyRate: async () => ({ id: "shp_1" }),
+      createLabelBatch: async () => ({ labelUrl: "batch.pdf" }),
+    })
+
+    await runStep(container, {
+      fulfillments: [
+        {
+          order_id: "order_1",
+          location_id: "sloc_1",
+          shipment_id: "s1",
+          rate_id: "r1",
+          no_notification: true,
+        },
+        {
+          order_id: "order_2",
+          location_id: "sloc_1",
+          shipment_id: "s2",
+          rate_id: "r2",
+        },
+      ],
+    })
+
+    expect(run).toHaveBeenCalledTimes(2)
+    expect(run.mock.calls[0][0].input.no_notification).toBe(true)
+    expect("no_notification" in run.mock.calls[1][0].input).toBe(false)
+  })
+
   it("buys the chosen rate and creates the fulfillment under the EasyPost provider with the bought shipment's data", async () => {
     const run = jest.fn().mockResolvedValue({})
     createOrderFulfillmentWorkflow.mockReturnValue({ run })

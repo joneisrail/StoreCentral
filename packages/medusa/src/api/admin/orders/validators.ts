@@ -204,6 +204,7 @@ export const AdminBulkFulfillOrders = z
           location_id: z.string().optional(),
           shipment_id: z.string(),
           rate_id: z.string(),
+          no_notification: z.boolean().optional(),
         })
       )
       .min(1),
