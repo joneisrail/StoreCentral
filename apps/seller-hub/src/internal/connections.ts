@@ -2,26 +2,24 @@ import type http from "node:http"
 import type { Pool } from "pg"
 import {
   ConnectionInputError,
-  clearConnection,
+  clearConnectionById,
+  createConnectionRow,
   listConnectionRows,
+  loadStoredConfig,
+  mergeAmazonInput,
   mergeShopifyInput,
   mergeWooInput,
-  resolveShopifyConfig,
-  resolveWooConfig,
-  saveConnection,
-  setConnectionStatus,
-  type ConfigSource,
+  resolveLegacyConfig,
+  saveConnectionById,
+  setStatusById,
+  type AmazonConfig,
   type ConnectionRow,
-  type LegacyMarketplace as Marketplace,
-  type ShopifyInput,
-  type WooInput,
+  type Marketplace,
 } from "../connectors/credentials.js"
-import type { LegacyConnectorManager as ConnectorManager } from "../connectors/manager.js" // TEMP (Task 4 removes)
+import type { ConnectorManager } from "../connectors/manager.js"
 import { testShopifyConnection, testWooCommerceConnection } from "../connectors/test-connection.js"
 import type { ShopifyConfig } from "../shopify/config.js"
-import { loadShopifyConfig } from "../shopify/config.js"
 import type { WooCommerceConfig } from "../woocommerce/config.js"
-import { loadWooCommerceConfig } from "../woocommerce/config.js"
 import { isAuthorized } from "./auth.js"
 
 export type InternalHandlerDeps = {
@@ -36,8 +34,16 @@ export type InternalHandlerDeps = {
 }
 
 const MAX_BODY_BYTES = 64 * 1024
-const LISTED = ["shopify", "woocommerce", "amazon"] as const
+const MARKETPLACES: readonly string[] = ["shopify", "woocommerce", "amazon"]
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const DEFAULT_NAMES: Record<Marketplace, string> = {
+  shopify: "Shopify",
+  woocommerce: "WooCommerce",
+  amazon: "Amazon",
+}
 const BODY_KEYS = [
+  "marketplace",
+  "display_name",
   "shop_domain",
   "access_token",
   "webhook_secret",
@@ -45,6 +51,9 @@ const BODY_KEYS = [
   "site_url",
   "consumer_key",
   "consumer_secret",
+  "seller_id",
+  "marketplace_id",
+  "refresh_token",
   "sales_channel_id",
 ] as const
 
@@ -115,68 +124,60 @@ const resolveStored = async <T>(fn: () => Promise<T>): Promise<T> => {
   }
 }
 
+type Config = ShopifyConfig | WooCommerceConfig | AmazonConfig
+type Input = Partial<Record<(typeof BODY_KEYS)[number], string>>
+type TestOutcome = { ok: true } | { ok: false; message: string }
+
 export const createInternalHandler = (deps: InternalHandlerDeps) => {
   const env = deps.env ?? process.env
   const testShopify = deps.testShopify ?? testShopifyConnection
   const testWoo = deps.testWoo ?? testWooCommerceConnection
   const base = (deps.publicUrl ?? "").replace(/\/+$/, "")
 
-  const webhookUrl = (m: string): string => `${base}/webhooks/${m}`
-
-  const storedShopify = () =>
-    resolveStored(() => resolveShopifyConfig(deps.pool, deps.encryptionKey, env))
-  const storedWoo = () => resolveStored(() => resolveWooConfig(deps.pool, deps.encryptionKey, env))
-
-  const view = (
-    marketplace: (typeof LISTED)[number],
-    row: ConnectionRow | undefined,
-    source: ConfigSource,
-    fields: Record<string, unknown>
-  ) => ({
-    marketplace,
-    status: row?.status ?? "disconnected",
-    last_error: row?.lastError ?? null,
-    last_synced_at: row?.lastSyncedAt ?? null,
-    linked_listings: row?.linkedListings ?? 0,
-    sales_channel_id: row?.salesChannelId ?? null,
-    credentials_source: source,
-    read_only: marketplace === "amazon",
-    fields,
-    webhook_url: webhookUrl(marketplace),
-  })
-
-  const shopifyFields = (c: ShopifyConfig | undefined) =>
-    c ? { shop_domain: c.shopDomain, location_id: c.locationId } : {}
-  const wooFields = (c: WooCommerceConfig | undefined) =>
-    c ? { site_url: c.siteUrl, consumer_key_set: Boolean(c.consumerKey) } : {}
-
-  const connectionView = async (marketplace: Marketplace) => {
-    const rows = await listConnectionRows(deps.pool)
-    const row = rows.find((r) => r.marketplace === marketplace)
+  const view = (row: ConnectionRow) => {
+    const marketplace = row.marketplace as Marketplace
+    let fields: Record<string, unknown> = {}
     if (marketplace === "shopify") {
-      const r = await storedShopify()
-      return view("shopify", row, r?.source ?? "none", shopifyFields(r?.config))
+      fields = { shop_domain: row.shopDomain, location_id: row.shopifyLocationId }
+    } else if (marketplace === "woocommerce") {
+      fields = { site_url: row.shopDomain, consumer_key_set: row.apiKeyPresent }
+    } else if (marketplace === "amazon") {
+      fields = { seller_id: row.amazonSellerId, marketplace_id: row.amazonMarketplaceId }
     }
-    const r = await storedWoo()
-    return view("woocommerce", row, r?.source ?? "none", wooFields(r?.config))
+    return {
+      id: row.id,
+      marketplace,
+      display_name: row.displayName ?? DEFAULT_NAMES[marketplace] ?? row.marketplace,
+      status: row.status,
+      last_error: row.lastError,
+      last_synced_at: row.lastSyncedAt,
+      linked_listings: row.linkedListings,
+      sales_channel_id: row.salesChannelId,
+      managed: row.managed,
+      read_only: !row.managed,
+      credentials_source: !row.managed ? "environment" : row.hasStoredCredentials ? "database" : "none",
+      // Amazon never has a runtime: saved credentials only.
+      sync_live: marketplace !== "amazon" && deps.manager.get(row.id) !== null,
+      fields,
+      webhook_url: `${base}/webhooks/${row.marketplace}/${row.id}`,
+    }
+  }
+
+  const findRow = async (id: string): Promise<ConnectionRow | undefined> =>
+    (await listConnectionRows(deps.pool)).find((r) => r.id === id)
+
+  const viewOf = async (id: string) => {
+    const row = await findRow(id)
+    return row ? view(row) : null
   }
 
   const list = async (res: http.ServerResponse) => {
     const rows = await listConnectionRows(deps.pool)
-    const find = (m: string) => rows.find((r) => r.marketplace === m)
-    const s = await storedShopify()
-    const w = await storedWoo()
-    send(res, 200, {
-      connections: [
-        view("shopify", find("shopify"), s?.source ?? "none", shopifyFields(s?.config)),
-        view("woocommerce", find("woocommerce"), w?.source ?? "none", wooFields(w?.config)),
-        view("amazon", find("amazon"), "environment", {}),
-      ],
-    })
+    send(res, 200, { connections: rows.map(view) })
   }
 
-  const stringKeys = (body: Record<string, unknown>): Record<string, string | undefined> | null => {
-    const out: Record<string, string | undefined> = {}
+  const stringKeys = (body: Record<string, unknown>): Input | null => {
+    const out: Input = {}
     for (const k of BODY_KEYS) {
       const v = body[k]
       if (v === undefined) continue
@@ -186,37 +187,88 @@ export const createInternalHandler = (deps: InternalHandlerDeps) => {
     return out
   }
 
-  const put = async (
+  /** Merges submitted input over the stored config; throws ConnectionInputError when incomplete. */
+  const mergeConfig = (marketplace: Marketplace, stored: Config | null, b: Input): Config => {
+    if (marketplace === "shopify") {
+      return mergeShopifyInput(stored as ShopifyConfig | null, {
+        shopDomain: b.shop_domain,
+        accessToken: b.access_token,
+        webhookSecret: b.webhook_secret,
+        locationId: b.location_id,
+      })
+    }
+    if (marketplace === "woocommerce") {
+      return mergeWooInput(stored as WooCommerceConfig | null, {
+        siteUrl: b.site_url,
+        consumerKey: b.consumer_key,
+        consumerSecret: b.consumer_secret,
+        webhookSecret: b.webhook_secret,
+      })
+    }
+    return mergeAmazonInput(stored as AmazonConfig | null, {
+      sellerId: b.seller_id,
+      marketplaceId: b.marketplace_id,
+      refreshToken: b.refresh_token,
+    })
+  }
+
+  const runTest = async (marketplace: Marketplace, config: Config): Promise<TestOutcome> => {
+    const r =
+      marketplace === "shopify"
+        ? await testShopify(config as ShopifyConfig)
+        : await testWoo(config as WooCommerceConfig)
+    return r.ok ? { ok: true } : { ok: false, message: r.message }
+  }
+
+  /**
+   * Stores a complete config. Shopify/WooCommerce are live-tested first: a pass
+   * saves and starts the connector, a fail saves with status `error` and starts
+   * nothing. Amazon is stored only (no tester, no manager). `guardConnected`
+   * lets an edit of a working connection bail out before anything changes.
+   */
+  const saveAndApply = async (
+    res: http.ServerResponse,
+    id: string,
     marketplace: Marketplace,
-    req: http.IncomingMessage,
-    res: http.ServerResponse
+    config: Config,
+    guardConnected: boolean
   ) => {
+    if (marketplace === "amazon") {
+      await saveConnectionById(deps.pool, deps.encryptionKey, id, config, "disconnected", null)
+      return send(res, 200, { ok: true, connection: await viewOf(id), test: null })
+    }
+    const test = await runTest(marketplace, config)
+    if (!test.ok) {
+      if (guardConnected) return send(res, 422, { error: "test_failed", message: test.message })
+      await saveConnectionById(deps.pool, deps.encryptionKey, id, config, "error", test.message)
+      return send(res, 200, { ok: false, connection: await viewOf(id), test })
+    }
+    await saveConnectionById(deps.pool, deps.encryptionKey, id, config, "connected", null)
+    const applied = await deps.manager.apply(id)
+    const connection = await viewOf(id)
+    if (applied.error) return send(res, 200, { ok: false, error: applied.error, connection, test })
+    send(res, 200, { ok: true, connection, test })
+  }
+
+  const create = async (req: http.IncomingMessage, res: http.ServerResponse) => {
     const raw = (await readJsonBody(req, res)) as Record<string, unknown>
     const b = stringKeys(raw)
     if (!b) return send(res, 400, { error: "invalid_input", fields: [] })
-    const salesChannelId = b.sales_channel_id?.trim() || undefined
+    const marketplace = b.marketplace?.trim() ?? ""
+    if (!MARKETPLACES.includes(marketplace)) {
+      return send(res, 400, { error: "invalid_input", fields: ["marketplace"] })
+    }
+    const salesChannelId = b.sales_channel_id?.trim()
+    if (!salesChannelId) return send(res, 400, { error: "invalid_input", fields: ["sales_channel_id"] })
+    const kind = marketplace as Marketplace
 
-    let config: ShopifyConfig | WooCommerceConfig
+    let id: string
     try {
-      if (marketplace === "shopify") {
-        const stored = await storedShopify()
-        const input: ShopifyInput = {
-          shopDomain: b.shop_domain,
-          accessToken: b.access_token,
-          webhookSecret: b.webhook_secret,
-          locationId: b.location_id,
-        }
-        config = mergeShopifyInput(stored?.config ?? null, input)
-      } else {
-        const stored = await storedWoo()
-        const input: WooInput = {
-          siteUrl: b.site_url,
-          consumerKey: b.consumer_key,
-          consumerSecret: b.consumer_secret,
-          webhookSecret: b.webhook_secret,
-        }
-        config = mergeWooInput(stored?.config ?? null, input)
-      }
+      id = await createConnectionRow(deps.pool, {
+        marketplace: kind,
+        salesChannelId,
+        displayName: b.display_name?.trim() || DEFAULT_NAMES[kind],
+      })
     } catch (err) {
       if (err instanceof ConnectionInputError) {
         return send(res, 400, { error: "invalid_input", fields: err.fields })
@@ -224,47 +276,72 @@ export const createInternalHandler = (deps: InternalHandlerDeps) => {
       throw err
     }
 
-    const result =
-      marketplace === "shopify"
-        ? await testShopify(config as ShopifyConfig)
-        : await testWoo(config as WooCommerceConfig)
-    if (!result.ok) return send(res, 422, { error: "test_failed", message: result.message })
-
-    await saveConnection(deps.pool, deps.encryptionKey, marketplace, config, salesChannelId)
-    const applied = await deps.manager.apply(marketplace)
-    const connection = await connectionView(marketplace)
-    if (applied.error) return send(res, 200, { ok: false, error: applied.error, connection })
-    send(res, 200, { ok: true, connection })
+    let config: Config
+    try {
+      config = mergeConfig(kind, null, b)
+    } catch (err) {
+      // Incomplete input: the channel keeps a credential-less, disconnected row.
+      if (err instanceof ConnectionInputError) {
+        return send(res, 200, { ok: true, connection: await viewOf(id), test: null })
+      }
+      throw err
+    }
+    await saveAndApply(res, id, kind, config, false)
   }
 
-  const testStored = async (marketplace: Marketplace, res: http.ServerResponse) => {
-    let result
-    if (marketplace === "shopify") {
-      const stored = await storedShopify()
-      if (!stored) return send(res, 409, { error: "not_configured" })
-      result = await testShopify(stored.config)
-    } else {
-      const stored = await storedWoo()
-      if (!stored) return send(res, 409, { error: "not_configured" })
-      result = await testWoo(stored.config)
+  const edit = async (id: string, req: http.IncomingMessage, res: http.ServerResponse) => {
+    const row = await findRow(id)
+    if (!row) return send(res, 404, { error: "not_found" })
+    if (!row.managed) return send(res, 400, { error: "read_only" })
+    const raw = (await readJsonBody(req, res)) as Record<string, unknown>
+    const b = stringKeys(raw)
+    if (!b) return send(res, 400, { error: "invalid_input", fields: [] })
+    const marketplace = row.marketplace as Marketplace
+
+    const stored = await resolveStored(() => loadStoredConfig(deps.pool, deps.encryptionKey, id))
+    let config: Config
+    try {
+      config = mergeConfig(marketplace, stored, b)
+    } catch (err) {
+      if (err instanceof ConnectionInputError) {
+        return send(res, 400, { error: "invalid_input", fields: err.fields })
+      }
+      throw err
     }
+    await saveAndApply(res, id, marketplace, config, row.status === "connected")
+  }
+
+  const testStored = async (id: string, res: http.ServerResponse) => {
+    const row = await findRow(id)
+    if (!row) return send(res, 404, { error: "not_found" })
+    const marketplace = row.marketplace as Marketplace
+    if (marketplace === "amazon") return send(res, 400, { error: "not_supported" })
+    const stored = await resolveStored(async () =>
+      row.managed
+        ? await loadStoredConfig(deps.pool, deps.encryptionKey, id)
+        : ((await resolveLegacyConfig(deps.pool, deps.encryptionKey, marketplace, env))?.config ?? null)
+    )
+    if (!stored) return send(res, 409, { error: "not_configured" })
+    const result =
+      marketplace === "shopify"
+        ? await testShopify(stored as ShopifyConfig)
+        : await testWoo(stored as WooCommerceConfig)
     if (!result.ok) {
-      await setConnectionStatus(deps.pool, marketplace, "error", result.message)
-    } else {
+      await setStatusById(deps.pool, id, "error", result.message)
+    } else if (deps.manager.get(id)) {
       // Only mark connected when a runtime is actually live; otherwise the badge
       // would claim a sync that is not running.
-      const live =
-        marketplace === "shopify" ? deps.manager.getShopify() : deps.manager.getWooCommerce()
-      if (live) await setConnectionStatus(deps.pool, marketplace, "connected", null)
+      await setStatusById(deps.pool, id, "connected", null)
     }
     send(res, 200, result)
   }
 
-  const link = async (marketplace: Marketplace, res: http.ServerResponse) => {
-    const runtime =
-      marketplace === "shopify" ? deps.manager.getShopify() : deps.manager.getWooCommerce()
-    if (!runtime) return send(res, 409, { error: "not_running" })
-    const r = await runtime.relink()
+  const link = async (id: string, res: http.ServerResponse) => {
+    const row = await findRow(id)
+    if (!row) return send(res, 404, { error: "not_found" })
+    const live = deps.manager.get(id)
+    if (!live) return send(res, 409, { error: "not_running" })
+    const r = await live.runtime.relink()
     send(res, 200, {
       linked: r.linked,
       already_linked: r.alreadyLinked,
@@ -273,11 +350,13 @@ export const createInternalHandler = (deps: InternalHandlerDeps) => {
     })
   }
 
-  const remove = async (marketplace: Marketplace, res: http.ServerResponse) => {
-    await deps.manager.stop(marketplace)
-    await clearConnection(deps.pool, marketplace)
-    const fallback = marketplace === "shopify" ? loadShopifyConfig(env) : loadWooCommerceConfig(env)
-    send(res, 200, { ok: true, env_fallback: fallback !== null })
+  const remove = async (id: string, res: http.ServerResponse) => {
+    const row = await findRow(id)
+    if (!row) return send(res, 404, { error: "not_found" })
+    if (!row.managed) return send(res, 400, { error: "read_only" })
+    await deps.manager.stop(id)
+    await clearConnectionById(deps.pool, id)
+    send(res, 200, { ok: true })
   }
 
   const route = async (
@@ -286,28 +365,27 @@ export const createInternalHandler = (deps: InternalHandlerDeps) => {
     parts: string[]
   ): Promise<void> => {
     const method = req.method ?? "GET"
-    // parts: ["internal", "connections", marketplace?, action?]
+    // parts: ["internal", "connections", id?, action?]
     if (parts[0] !== "internal" || parts[1] !== "connections" || parts.length > 4) {
       return send(res, 404, { error: "not_found" })
     }
     if (parts.length === 2) {
-      if (method !== "GET") return send(res, 405, { error: "method_not_allowed" })
-      return list(res)
+      if (method === "GET") return list(res)
+      if (method === "POST") return create(req, res)
+      return send(res, 405, { error: "method_not_allowed" })
     }
-    const name = parts[2]!
+    const id = parts[2]!
     const action = parts[3]
-    if (!(LISTED as readonly string[]).includes(name)) return send(res, 404, { error: "not_found" })
+    if (!UUID.test(id)) return send(res, 404, { error: "not_found" })
     if (action !== undefined && action !== "test" && action !== "link") {
       return send(res, 404, { error: "not_found" })
     }
     const expected = action === undefined ? ["PUT", "DELETE"] : ["POST"]
     if (!expected.includes(method)) return send(res, 405, { error: "method_not_allowed" })
-    if (name === "amazon") return send(res, 400, { error: "not_supported" })
-    const marketplace = name as Marketplace
-    if (action === "test") return testStored(marketplace, res)
-    if (action === "link") return link(marketplace, res)
-    if (method === "PUT") return put(marketplace, req, res)
-    return remove(marketplace, res)
+    if (action === "test") return testStored(id, res)
+    if (action === "link") return link(id, res)
+    if (method === "PUT") return edit(id, req, res)
+    return remove(id, res)
   }
 
   return async (req: http.IncomingMessage, res: http.ServerResponse): Promise<void> => {

@@ -4,7 +4,6 @@ import { encrypt } from "../crypto/secret-box.js"
 import { SCHEMA_SQL } from "../db/schema.js"
 import {
   ConnectionInputError,
-  clearConnection,
   clearConnectionById,
   createConnectionRow,
   listConnectionRows,
@@ -13,11 +12,7 @@ import {
   mergeShopifyInput,
   mergeWooInput,
   resolveLegacyConfig,
-  resolveShopifyConfig,
-  resolveWooConfig,
-  saveConnection,
   saveConnectionById,
-  setConnectionStatus,
   setStatusById,
 } from "./credentials.js"
 
@@ -133,51 +128,6 @@ const env = {
   SHOPIFY_LOCATION_ID: "9",
 } as NodeJS.ProcessEnv
 
-test("resolveShopifyConfig prefers a database row with a webhook secret", async () => {
-  const { pool } = fakePool([shopifyRow(true)])
-  const r = await resolveShopifyConfig(pool, KEY, env)
-  expect(r?.source).toBe("database")
-  expect(r?.config).toEqual(shopify)
-})
-
-test("resolveShopifyConfig falls back to env, then null", async () => {
-  const { pool } = fakePool()
-  const r = await resolveShopifyConfig(pool, KEY, env)
-  expect(r?.source).toBe("environment")
-  expect(r?.config.shopDomain).toBe("env.myshopify.com")
-  expect(await resolveShopifyConfig(pool, KEY, NO_ENV)).toBeNull()
-})
-
-test("a row with a token but no webhook secret is not a database connection", async () => {
-  const { pool } = fakePool([shopifyRow(false)])
-  const r = await resolveShopifyConfig(pool, KEY, env)
-  expect(r?.source).toBe("environment")
-  expect(await resolveShopifyConfig(pool, KEY, NO_ENV)).toBeNull()
-})
-
-test("resolveWooConfig reads the database row and falls back to env", async () => {
-  const { pool } = fakePool([
-    {
-      id: "w1",
-      marketplace: "woocommerce",
-      shop_domain: woo.siteUrl,
-      api_key: woo.consumerKey,
-      access_token_encrypted: encrypt(WOO_SECRET, KEY),
-      webhook_secret_encrypted: encrypt(WOO_WH, KEY),
-    },
-  ])
-  expect(await resolveWooConfig(pool, KEY, NO_ENV)).toEqual({ config: woo, source: "database" })
-  const empty = fakePool()
-  const wooEnv = {
-    WOOCOMMERCE_SITE_URL: "https://e.example.com/",
-    WOOCOMMERCE_CONSUMER_KEY: "k",
-    WOOCOMMERCE_CONSUMER_SECRET: "s",
-    WOOCOMMERCE_WEBHOOK_SECRET: "w",
-  } as NodeJS.ProcessEnv
-  expect((await resolveWooConfig(empty.pool, KEY, wooEnv))?.source).toBe("environment")
-  expect(await resolveWooConfig(empty.pool, KEY, NO_ENV)).toBeNull()
-})
-
 test("mergeShopifyInput keeps stored values for blank fields", () => {
   const merged = mergeShopifyInput(shopify, {
     shopDomain: "  ",
@@ -211,43 +161,6 @@ test("mergeWooInput rejects http and strips trailing slashes", () => {
     "https://woo.example.com"
   )
   expect(mergeWooInput(woo, {})).toEqual(woo)
-})
-
-test("saveConnection stores ciphertext only and upserts a single row", async () => {
-  const { pool, rows, calls } = fakePool()
-  await saveConnection(pool, KEY, "shopify", shopify, "sc_1")
-  await saveConnection(pool, KEY, "shopify", shopify)
-  expect(rows).toHaveLength(1)
-  expect(rows[0]!.medusa_sales_channel_id).toBe("sc_1")
-  expect(rows[0]!.status).toBe("connected")
-  expect(rows[0]!.webhook_secret_encrypted).toBeTruthy()
-  await saveConnection(pool, KEY, "woocommerce", woo)
-  expect(rows).toHaveLength(2)
-  const all = JSON.stringify(calls.flatMap((c) => c.params))
-  for (const secret of [SHOPIFY_TOKEN, SHOPIFY_WH, WOO_SECRET, WOO_WH]) {
-    expect(all).not.toContain(secret)
-  }
-  expect(await resolveShopifyConfig(pool, KEY, NO_ENV)).toEqual({ config: shopify, source: "database" })
-  expect(await resolveWooConfig(pool, KEY, NO_ENV)).toEqual({ config: woo, source: "database" })
-})
-
-test("clearConnection nulls the credentials and disconnects", async () => {
-  const { pool, rows } = fakePool([shopifyRow(true)])
-  await clearConnection(pool, "shopify")
-  expect(rows).toHaveLength(1)
-  expect(rows[0]).toMatchObject({
-    shop_domain: null,
-    access_token_encrypted: null,
-    webhook_secret_encrypted: null,
-    status: "disconnected",
-    last_error: null,
-  })
-})
-
-test("setConnectionStatus updates status and last error", async () => {
-  const { pool, rows } = fakePool([shopifyRow(true)])
-  await setConnectionStatus(pool, "shopify", "error", "boom")
-  expect(rows[0]).toMatchObject({ status: "error", last_error: "boom" })
 })
 
 test("listConnectionRows never exposes secrets", async () => {

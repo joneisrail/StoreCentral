@@ -8,6 +8,7 @@ import { createInternalHandler } from "../internal/connections.js"
 import type { MedusaAdminClient } from "../medusa/admin-client.js"
 import { startShopify, type StartShopifyDeps } from "../shopify/bootstrap.js"
 import { startWooCommerce } from "../woocommerce/bootstrap.js"
+import { accountPool, type AccountRow } from "../test-support/account-pool.js"
 import { createWebhookServer } from "../webhook/server.js"
 import { createConnectorManager, legacyManagerView } from "./manager.js"
 import { testShopifyConnection, testWooCommerceConnection } from "./test-connection.js"
@@ -24,81 +25,7 @@ const WH1 = "shopify_wh_secret_one"
 const WH2 = "shopify_wh_secret_two"
 const SHOP = "shop.myshopify.com"
 
-type Row = Record<string, unknown> & { id: string; marketplace: string }
-
-/** Credentials-table pool: recognises the statements connectors/credentials.ts runs. */
-const credentialsPool = () => {
-  const rows: Row[] = []
-  const query = async (sql: string, params: unknown[] = []) => {
-    if (/^\s*INSERT/i.test(sql)) {
-      const row: Row = { id: `id-${rows.length + 1}`, marketplace: "" }
-      const cols = /\(([^)]*)\)\s*VALUES/is.exec(sql)![1]!.split(",").map((c) => c.trim())
-      const values = /VALUES\s*\((.*)\)/is.exec(sql)![1]!.split(",").map((v) => v.trim())
-      cols.forEach((c, i) => {
-        const v = values[i]!
-        row[c] = v.startsWith("$") ? params[Number(v.slice(1)) - 1] : v.replace(/'/g, "")
-      })
-      row.marketplace = String(row.marketplace)
-      rows.push(row)
-      return { rows: [] }
-    }
-    if (/^\s*UPDATE/i.test(sql)) {
-      const key = params[params.length - 1]
-      const row = rows.find((r) => r.marketplace === key || r.id === key)
-      if (!row) return { rows: [] }
-      if (/shop_domain\s*=\s*NULL/i.test(sql)) {
-        for (const c of [
-          "shop_domain",
-          "access_token_encrypted",
-          "api_key",
-          "shopify_location_id",
-          "webhook_secret_encrypted",
-          "medusa_sales_channel_id",
-        ])
-          row[c] = null
-        row.status = "disconnected"
-        row.last_error = null
-      } else {
-        const setClause = /SET\s+(.*?)\s+WHERE/is.exec(sql)![1]!
-        for (const m of setClause.matchAll(/(\w+)\s*=\s*(\$\d+|'[^']*')/g)) {
-          const v = m[2]!
-          row[m[1]!] = v.startsWith("$") ? params[Number(v.slice(1)) - 1] : v.replace(/'/g, "")
-        }
-      }
-      return { rows: [] }
-    }
-    if (/^\s*SELECT/i.test(sql)) {
-      if (/linked_listings/.test(sql)) {
-        return {
-          rows: rows.map((r) => ({
-            id: r.id,
-            display_name: null,
-            managed: r.managed ?? false,
-            amazon_seller_id: null,
-            amazon_marketplace_id: null,
-            marketplace: r.marketplace,
-            status: r.status ?? "disconnected",
-            last_error: r.last_error ?? null,
-            last_synced_at: null,
-            medusa_sales_channel_id: r.medusa_sales_channel_id ?? null,
-            linked_listings: "0",
-            has_stored_credentials: r.webhook_secret_encrypted != null,
-            shop_domain: r.shop_domain ?? null,
-            shopify_location_id: r.shopify_location_id ?? null,
-            api_key_present: r.api_key != null,
-          })),
-        }
-      }
-      // resolveLegacyConfig reads every row of the marketplace (with `managed`).
-      if (/SELECTs+managed/i.test(sql)) {
-        return { rows: rows.filter((r) => r.marketplace === params[0]).map((r) => ({ ...r, managed: r.managed ?? false })) }
-      }
-      return { rows: rows.filter((r) => r.marketplace === params[0]).slice(0, 1) }
-    }
-    throw new Error(`unexpected sql: ${sql}`)
-  }
-  return { pool: { query } as unknown as Pool, rows }
-}
+type Row = AccountRow
 
 /** Pool handed to the real bootstraps: account lookups succeed, everything else is empty. */
 const bootPool = {
@@ -178,7 +105,7 @@ const ensureLegacyRow = (rows: Row[], marketplace: string) => {
 type Harness = { env?: NodeJS.ProcessEnv; internalSecret?: string | null; pool?: Pool }
 
 const boot = async (opts: Harness = {}) => {
-  const creds = credentialsPool()
+  const creds = accountPool()
   const pool = opts.pool ?? creds.pool
   const env = opts.env ?? {}
   const connectors = createConnectorManager({
@@ -210,7 +137,8 @@ const boot = async (opts: Harness = {}) => {
       })
     },
   })
-  const manager = legacyManagerView(connectors, pool) // TEMP adapter (Task 4 removes)
+  // Webhook getters still use the single-connection adapter until Task 5 wires the registry.
+  const manager = legacyManagerView(connectors, pool)
   await manager.applyAll()
 
   const internalHandler =
@@ -218,7 +146,7 @@ const boot = async (opts: Harness = {}) => {
       ? undefined
       : createInternalHandler({
           pool,
-          manager,
+          manager: connectors,
           encryptionKey: ENC_KEY,
           secret: opts.internalSecret ?? INTERNAL,
           publicUrl: "https://hub.example.com",
@@ -264,7 +192,9 @@ const internal = async (method: string, path: string, body?: unknown) => {
   return { status: res.status, text, json: text ? JSON.parse(text) : null }
 }
 
-const shopifyBody = (token: string, secret: string) => ({
+const shopifyBody = (token: string, secret: string, channel = "sc_1") => ({
+  marketplace: "shopify",
+  sales_channel_id: channel,
   shop_domain: SHOP,
   access_token: token,
   webhook_secret: secret,
@@ -282,28 +212,40 @@ const sendShopifyWebhook = async (secret: string, orderId = 1001) => {
   return res.status
 }
 
-const orderJobs = () => queues.filter((q) => q.name === "shopify-order-sync").flatMap((q) => q.added)
+const orderJobs = () => queues.filter((q) => q.name.startsWith("shopify-order-sync")).flatMap((q) => q.added)
 
-test("PUT a Shopify connection with good credentials, then a signed orders/paid webhook is enqueued", async () => {
+test("create a Shopify connection with good credentials, then a signed orders/paid webhook is enqueued", async () => {
   await boot()
   expect(await sendShopifyWebhook(WH1)).toBe(503)
 
-  const put = await internal("PUT", "/internal/connections/shopify", shopifyBody(GOOD_TOKEN, WH1))
-  expect(put.status).toBe(200)
-  expect(put.json.ok).toBe(true)
-  expect(put.text).not.toContain(GOOD_TOKEN)
-  expect(put.text).not.toContain(WH1)
+  const created = await internal("POST", "/internal/connections", shopifyBody(GOOD_TOKEN, WH1))
+  expect(created.status).toBe(200)
+  expect(created.json.ok).toBe(true)
+  expect(created.text).not.toContain(GOOD_TOKEN)
+  expect(created.text).not.toContain(WH1)
 
   expect(await sendShopifyWebhook(WH1)).toBe(200)
   expect(orderJobs()).toHaveLength(1)
   expect(orderJobs()[0]!.name).toBe("orders/paid")
 })
 
-test("PUT with a bad token returns 422 and the earlier connection still accepts webhooks", async () => {
-  await boot()
-  await internal("PUT", "/internal/connections/shopify", shopifyBody(GOOD_TOKEN, WH1))
+test("create with a bad token saves the connection as error and starts nothing", async () => {
+  const { creds } = await boot()
+  const created = await internal("POST", "/internal/connections", shopifyBody("shpat_bad", WH1))
+  expect(created.status).toBe(200)
+  expect(created.json.test.ok).toBe(false)
+  expect(created.json.connection.status).toBe("error")
+  expect(created.text).not.toContain("shpat_bad")
+  expect(creds.rows.find((r) => r.id === created.json.connection.id)!.status).toBe("error")
+  expect(await sendShopifyWebhook(WH1)).toBe(503)
+})
 
-  const bad = await internal("PUT", "/internal/connections/shopify", shopifyBody("shpat_bad", WH2))
+test("edit with a bad token returns 422 and the earlier connection still accepts webhooks", async () => {
+  await boot()
+  const created = await internal("POST", "/internal/connections", shopifyBody(GOOD_TOKEN, WH1))
+  const id = created.json.connection.id as string
+
+  const bad = await internal("PUT", `/internal/connections/${id}`, shopifyBody("shpat_bad", WH2))
   expect(bad.status).toBe(422)
   expect(bad.text).not.toContain("shpat_bad")
 
@@ -311,26 +253,28 @@ test("PUT with a bad token returns 422 and the earlier connection still accepts 
   expect(await sendShopifyWebhook(WH2)).toBe(401)
 })
 
-test("PUT new credentials swaps the webhook secret live without restarting the server", async () => {
+test("edit with new credentials swaps the webhook secret live without restarting the server", async () => {
   await boot()
-  await internal("PUT", "/internal/connections/shopify", shopifyBody(GOOD_TOKEN, WH1))
+  const created = await internal("POST", "/internal/connections", shopifyBody(GOOD_TOKEN, WH1))
+  const id = created.json.connection.id as string
   expect(await sendShopifyWebhook(WH1)).toBe(200)
 
-  const swap = await internal("PUT", "/internal/connections/shopify", shopifyBody(GOOD_TOKEN, WH2))
+  const swap = await internal("PUT", `/internal/connections/${id}`, shopifyBody(GOOD_TOKEN, WH2))
   expect(swap.status).toBe(200)
 
   expect(await sendShopifyWebhook(WH1, 1002)).toBe(401)
   expect(await sendShopifyWebhook(WH2, 1003)).toBe(200)
   // The first runtime's queues were closed when it was replaced.
-  expect(queues.filter((q) => q.name === "shopify-order-sync")[0]!.closed).toBe(true)
+  expect(queues.filter((q) => q.name.startsWith("shopify-order-sync"))[0]!.closed).toBe(true)
 })
 
 test("DELETE makes /webhooks/shopify return 503 and stops the runtime", async () => {
   const { manager } = await boot()
-  await internal("PUT", "/internal/connections/shopify", shopifyBody(GOOD_TOKEN, WH1))
+  const created = await internal("POST", "/internal/connections", shopifyBody(GOOD_TOKEN, WH1))
+  const id = created.json.connection.id as string
   expect(await sendShopifyWebhook(WH1)).toBe(200)
 
-  const del = await internal("DELETE", "/internal/connections/shopify")
+  const del = await internal("DELETE", `/internal/connections/${id}`)
   expect(del.status).toBe(200)
   expect(manager.getShopify()).toBeNull()
   expect(await sendShopifyWebhook(WH1)).toBe(503)
@@ -347,9 +291,11 @@ test("without an internal secret /internal/connections is 404", async () => {
 test("a WooCommerce start failure leaves Shopify serving", async () => {
   wooShouldFail = true
   const { manager } = await boot()
-  await internal("PUT", "/internal/connections/shopify", shopifyBody(GOOD_TOKEN, WH1))
+  await internal("POST", "/internal/connections", shopifyBody(GOOD_TOKEN, WH1))
 
-  const woo = await internal("PUT", "/internal/connections/woocommerce", {
+  const woo = await internal("POST", "/internal/connections", {
+    marketplace: "woocommerce",
+    sales_channel_id: "sc_woo",
     site_url: "https://woo.example.com",
     consumer_key: "ck_key",
     consumer_secret: "cs_secret",

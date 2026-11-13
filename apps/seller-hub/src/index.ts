@@ -242,7 +242,7 @@ const main = async (): Promise<void> => {
   const internalHandler = internalSecret
     ? createInternalHandler({
         pool,
-        manager,
+        manager: connectors,
         encryptionKey: env.encryptionKey,
         secret: internalSecret,
         publicUrl: process.env.SELLER_HUB_PUBLIC_URL,
