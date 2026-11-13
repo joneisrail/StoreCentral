@@ -232,7 +232,11 @@ test("a paid order creates one order in the Shopify channel with Shopify prices"
     email: "b@example.com",
     items: [{ variant_id: "variant_1", quantity: 2, unit_price: 8.5 }],
     shipping_address: shopifyOrder().shippingAddress,
-    metadata: { shopify_order_id: GID, shopify_order_name: "#1001" },
+    metadata: {
+      shopify_order_id: GID,
+      shopify_order_name: "#1001",
+      shopify_account_id: ACCOUNT,
+    },
   })
   expect(jobs).toHaveLength(1)
   expect(jobs[0]).toMatchObject({

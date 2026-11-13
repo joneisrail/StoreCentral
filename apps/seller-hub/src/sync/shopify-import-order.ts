@@ -42,7 +42,9 @@ const SKIPPED_STATUSES = new Set(["VOIDED", "REFUNDED", "EXPIRED"])
  */
 export const shopifyImportAdapter: OrderImportAdapter<NormalizedShopifyOrder> = {
   label: "Shopify order",
+  marketplace: "shopify",
   metadataKey: "shopify_order_id",
+  accountMetadataKey: "shopify_account_id",
   gate: (order, shopifyOrderId) => {
     if (order.cancelledAt) {
       return `Shopify order ${shopifyOrderId} is cancelled; not imported`

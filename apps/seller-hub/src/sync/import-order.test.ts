@@ -537,7 +537,14 @@ test(
 
     expect(retry.status).toBe("recovered")
     expect(retry.medusaOrderId).toBe(first.medusaOrderId)
-    expect(findSpy).toHaveBeenCalledWith("amazon_order_id", order.amazonOrderId)
+    expect(findSpy).toHaveBeenCalledWith(
+      "amazon_order_id",
+      order.amazonOrderId,
+      expect.objectContaining({
+        key: "amazon_account_id",
+        value: integrationAccountId,
+      })
+    )
     expect(createSpy).not.toHaveBeenCalled()
     expect(convertSpy).not.toHaveBeenCalled()
 

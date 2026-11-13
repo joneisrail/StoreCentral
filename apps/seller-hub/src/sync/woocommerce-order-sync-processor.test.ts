@@ -229,7 +229,7 @@ test("a processing order creates one order in the WordPress channel with Woo pri
     email: "b@example.com",
     items: [{ variant_id: "variant_1", quantity: 2, unit_price: 8.5 }],
     shipping_address: wooOrder().shippingAddress,
-    metadata: { woocommerce_order_id: OID },
+    metadata: { woocommerce_order_id: OID, woocommerce_account_id: ACCOUNT },
   })
   expect(jobs).toHaveLength(1)
   expect(jobs[0]).toMatchObject({
@@ -277,7 +277,7 @@ test("a failed row whose order already exists in Medusa is recovered, not duplic
   orders.push({
     id: "order_existing",
     isDraft: false,
-    metadata: { woocommerce_order_id: OID },
+    metadata: { woocommerce_order_id: OID, woocommerce_account_id: ACCOUNT },
   })
   const medusa = makeMedusa()
 
@@ -297,7 +297,7 @@ test("a persisted draft from a previous attempt is converted, never re-created",
   orders.push({
     id: "draft_1",
     isDraft: true,
-    metadata: { woocommerce_order_id: OID },
+    metadata: { woocommerce_order_id: OID, woocommerce_account_id: ACCOUNT },
   })
   const medusa = makeMedusa()
 

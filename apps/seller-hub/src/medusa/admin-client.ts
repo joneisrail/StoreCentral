@@ -48,6 +48,18 @@ const VARIANT_PAGE_SIZE = 200
  * seller-hub needs: logging in as the dedicated admin user, and
  * creating/converting/looking-up orders synced in from Amazon.
  */
+/**
+ * Extra `findOrderByMetadata` match: the order must also carry
+ * `metadata[key] === value` (the importing integration account). An order
+ * with no such metadata (imported before scoping) matches only when
+ * `matchUnscoped()` resolves true.
+ */
+export type OrderMetadataScope = {
+  key: string
+  value: string
+  matchUnscoped: () => Promise<boolean>
+}
+
 export class MedusaAdminClient {
   private readonly config: MedusaAdminClientConfig
   private readonly fetchImpl: typeof fetch
@@ -174,7 +186,8 @@ export class MedusaAdminClient {
    */
   async findOrderByMetadata(
     key: string,
-    value: string
+    value: string,
+    scope?: OrderMetadataScope
   ): Promise<{ id: string } | null> {
     const response = await this.authedFetch(
       "/admin/orders?limit=100&order=-created_at&fields=id,metadata"
@@ -182,8 +195,18 @@ export class MedusaAdminClient {
     const body = (await response.json()) as {
       orders: { id: string; metadata?: Record<string, unknown> | null }[]
     }
-    const match = body.orders.find((order) => order.metadata?.[key] === value)
-    return match ? { id: match.id } : null
+    for (const order of body.orders) {
+      if (order.metadata?.[key] !== value) continue
+      if (!scope) return { id: order.id }
+      const scoped = order.metadata?.[scope.key]
+      if (scoped === scope.value) return { id: order.id }
+      // Orders imported before account scoping carry no account metadata;
+      // they match only when the caller says it owns such legacy orders.
+      if ((scoped === undefined || scoped === null) && (await scope.matchUnscoped())) {
+        return { id: order.id }
+      }
+    }
+    return null
   }
 
   /**

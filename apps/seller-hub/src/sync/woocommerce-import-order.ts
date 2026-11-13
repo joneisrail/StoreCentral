@@ -37,7 +37,9 @@ const SKIPPED_STATUSES = new Set(["cancelled", "refunded", "trash"])
  */
 export const woocommerceImportAdapter: OrderImportAdapter<NormalizedWooOrder> = {
   label: "WooCommerce order",
+  marketplace: "woocommerce",
   metadataKey: "woocommerce_order_id",
+  accountMetadataKey: "woocommerce_account_id",
   gate: (order, wooOrderId) => {
     const status = order.status.toLowerCase()
     if (SKIPPED_STATUSES.has(status)) {

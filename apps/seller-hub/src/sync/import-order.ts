@@ -218,8 +218,16 @@ export class LeaseLostError extends Error {
 export type OrderImportAdapter<TOrder> = {
   /** Used in log/error text, e.g. "Amazon order". */
   label: string
+  /** `integration_account.marketplace` value this adapter imports for. */
+  marketplace: string
   /** Medusa order metadata key holding the marketplace order id. */
   metadataKey: string
+  /**
+   * Medusa order metadata key holding the importing integration account id.
+   * Written on every draft so the idempotency lookup is account-scoped
+   * (external order ids are only unique per account, e.g. WooCommerce).
+   */
+  accountMetadataKey: string
   /**
    * Runs before any Medusa write once the order is loaded. Returns a reason
    * to settle the job as an intentional no-op (`skipped`), returns null to
@@ -238,7 +246,9 @@ export type OrderImportAdapter<TOrder> = {
 
 export const amazonImportAdapter: OrderImportAdapter<NormalizedAmazonOrder> = {
   label: "Amazon order",
+  marketplace: "amazon",
   metadataKey: "amazon_order_id",
+  accountMetadataKey: "amazon_account_id",
   gate: (order, amazonOrderId) => {
     // A Canceled order is never imported -- that's terminal, so this is
     // recorded `succeeded` (an intentional no-op, not a failure) rather than
@@ -348,6 +358,24 @@ export const importClaimedOrder = async <TOrder>(
   }
 }
 
+/**
+ * True when `accountId` is the oldest integration_account row of the
+ * marketplace -- the original single account, whose pre-scoping Medusa
+ * orders carry no account metadata.
+ */
+export const isOldestMarketplaceAccount = async (
+  pool: Pool,
+  marketplace: string,
+  accountId: string
+): Promise<boolean> => {
+  const { rows } = await pool.query<{ id: string }>(
+    `SELECT id FROM seller_hub.integration_account
+     WHERE marketplace = $1 ORDER BY created_at ASC, id ASC LIMIT 1`,
+    [marketplace]
+  )
+  return rows[0]?.id === accountId
+}
+
 const executeClaimedImport = async <TOrder>(
   amazonOrderId: string,
   claim: Extract<OrderSyncClaim, { kind: "claimed" }>,
@@ -400,7 +428,13 @@ const executeClaimedImport = async <TOrder>(
   // would create a second real order for the same Amazon order.
   const existingOrder = await medusaClient.findOrderByMetadata(
     adapter.metadataKey,
-    amazonOrderId
+    amazonOrderId,
+    {
+      key: adapter.accountMetadataKey,
+      value: integrationAccountId,
+      matchUnscoped: () =>
+        isOldestMarketplaceAccount(pool, adapter.marketplace, integrationAccountId),
+    }
   )
   if (existingOrder) {
     await recordSucceeded(existingOrder.id)
@@ -477,10 +511,15 @@ const executeClaimedImport = async <TOrder>(
     // if a stale reclaim took the row over while we were blocked, stop
     // here rather than racing the new holder.
     await renewLease()
+    const fields = adapter.draftFields(order, amazonOrderId)
     const draft = await medusaClient.createDraftOrder({
       sales_channel_id: salesChannelId,
       items,
-      ...adapter.draftFields(order, amazonOrderId),
+      ...fields,
+      metadata: {
+        ...fields.metadata,
+        [adapter.accountMetadataKey]: integrationAccountId,
+      },
     })
     const { rowCount } = await pool.query(
       `UPDATE seller_hub.sync_job SET medusa_entity_id = $1, updated_at = now()
