@@ -27,7 +27,7 @@ import {
   type InventorySyncJobData,
   type PriceSyncJobData,
 } from "./sync/resolve-channel-listing.js"
-import { createConnectorManager } from "./connectors/manager.js"
+import { createConnectorManager, legacyManagerView } from "./connectors/manager.js"
 import { createInternalHandler } from "./internal/connections.js"
 import { createWebhookServer } from "./webhook/server.js"
 
@@ -225,13 +225,14 @@ const main = async (): Promise<void> => {
   // Optional Shopify / WooCommerce connectors. Connections saved from the admin
   // take precedence; SHOPIFY_* / WOOCOMMERCE_* env remain a fallback. applyAll
   // never throws and one connector failing never stops the other.
-  const manager = createConnectorManager({
+  const connectors = createConnectorManager({
     pool,
     medusaClient,
     encryptionKey: env.encryptionKey,
     redisConnection,
     reconcileIntervalMs: RECONCILE_INTERVAL_MS,
   })
+  const manager = legacyManagerView(connectors, pool) // TEMP adapter (Task 5 removes)
   await manager.applyAll()
 
   // The internal API (used by the backend admin) is only mounted when a shared

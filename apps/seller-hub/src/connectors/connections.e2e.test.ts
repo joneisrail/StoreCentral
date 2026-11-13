@@ -9,7 +9,7 @@ import type { MedusaAdminClient } from "../medusa/admin-client.js"
 import { startShopify, type StartShopifyDeps } from "../shopify/bootstrap.js"
 import { startWooCommerce } from "../woocommerce/bootstrap.js"
 import { createWebhookServer } from "../webhook/server.js"
-import { createConnectorManager } from "./manager.js"
+import { createConnectorManager, legacyManagerView } from "./manager.js"
 import { testShopifyConnection, testWooCommerceConnection } from "./test-connection.js"
 
 // In-process end to end for the live connection flow: the real webhook server,
@@ -43,7 +43,8 @@ const credentialsPool = () => {
       return { rows: [] }
     }
     if (/^\s*UPDATE/i.test(sql)) {
-      const row = rows.find((r) => r.marketplace === params[params.length - 1])
+      const key = params[params.length - 1]
+      const row = rows.find((r) => r.marketplace === key || r.id === key)
       if (!row) return { rows: [] }
       if (/shop_domain\s*=\s*NULL/i.test(sql)) {
         for (const c of [
@@ -70,6 +71,11 @@ const credentialsPool = () => {
       if (/linked_listings/.test(sql)) {
         return {
           rows: rows.map((r) => ({
+            id: r.id,
+            display_name: null,
+            managed: r.managed ?? false,
+            amazon_seller_id: null,
+            amazon_marketplace_id: null,
             marketplace: r.marketplace,
             status: r.status ?? "disconnected",
             last_error: r.last_error ?? null,
@@ -82,6 +88,10 @@ const credentialsPool = () => {
             api_key_present: r.api_key != null,
           })),
         }
+      }
+      // resolveLegacyConfig reads every row of the marketplace (with `managed`).
+      if (/SELECTs+managed/i.test(sql)) {
+        return { rows: rows.filter((r) => r.marketplace === params[0]).map((r) => ({ ...r, managed: r.managed ?? false })) }
       }
       return { rows: rows.filter((r) => r.marketplace === params[0]).slice(0, 1) }
     }
@@ -158,13 +168,20 @@ let server: http.Server | undefined
 let base = ""
 let wooShouldFail = false
 
+/** Mimics resolve*Account creating the unmanaged row when a legacy runtime starts. */
+const ensureLegacyRow = (rows: Row[], marketplace: string) => {
+  if (!rows.some((r) => r.marketplace === marketplace && !r.managed)) {
+    rows.push({ id: `legacy-${marketplace}`, marketplace, status: "connected" })
+  }
+}
+
 type Harness = { env?: NodeJS.ProcessEnv; internalSecret?: string | null; pool?: Pool }
 
 const boot = async (opts: Harness = {}) => {
   const creds = credentialsPool()
   const pool = opts.pool ?? creds.pool
   const env = opts.env ?? {}
-  const manager = createConnectorManager({
+  const connectors = createConnectorManager({
     pool,
     medusaClient,
     encryptionKey: ENC_KEY,
@@ -172,16 +189,17 @@ const boot = async (opts: Harness = {}) => {
     reconcileIntervalMs: 60_000,
     env,
     startShopify: (d: StartShopifyDeps) =>
-      startShopify({
+      (ensureLegacyRow(creds.rows, "shopify"), startShopify({
         ...d,
         pool: bootPool,
         createQueue: fakeCreateQueue,
         createWorker: fakeCreateWorker,
         fetchImpl: shopifyFetch,
         sleep: async () => {},
-      }),
+      })),
     startWooCommerce: async (d) => {
       if (wooShouldFail) throw new Error("woo boom")
+      ensureLegacyRow(creds.rows, "woocommerce")
       return startWooCommerce({
         ...d,
         pool: bootPool,
@@ -192,6 +210,7 @@ const boot = async (opts: Harness = {}) => {
       })
     },
   })
+  const manager = legacyManagerView(connectors, pool) // TEMP adapter (Task 4 removes)
   await manager.applyAll()
 
   const internalHandler =

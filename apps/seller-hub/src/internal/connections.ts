@@ -16,7 +16,7 @@ import {
   type ShopifyInput,
   type WooInput,
 } from "../connectors/credentials.js"
-import type { ConnectorManager } from "../connectors/manager.js"
+import type { LegacyConnectorManager as ConnectorManager } from "../connectors/manager.js" // TEMP (Task 4 removes)
 import { testShopifyConnection, testWooCommerceConnection } from "../connectors/test-connection.js"
 import type { ShopifyConfig } from "../shopify/config.js"
 import { loadShopifyConfig } from "../shopify/config.js"

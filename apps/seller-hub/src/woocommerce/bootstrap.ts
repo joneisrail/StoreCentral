@@ -44,6 +44,14 @@ export type StartWooCommerceDeps = {
   sleep?: (ms: number) => Promise<void>
   /** When set, orders are attributed to this sales channel without a name lookup. */
   salesChannelId?: string | null
+  /**
+   * A managed connection row to run against (no `resolve*Account`). Its id
+   * suffixes the queue names so several accounts never share a queue. Without
+   * it the legacy single-account behaviour and queue names are unchanged.
+   */
+  accountId?: string
+  /** Log label for the account; defaults to `accountId`. */
+  displayId?: string
 }
 
 export type WooCommerceRuntime = {
@@ -83,8 +91,11 @@ export const startWooCommerce = async (
   const createQueue = deps.createQueue ?? createSyncQueue
   const createWorker = deps.createWorker ?? createSyncWorker
 
-  const account = await resolveWooCommerceAccount(pool, config, encryptionKey)
-  console.log(`[seller-hub] using WooCommerce integration_account ${account.id}`)
+  const account = deps.accountId
+    ? { id: deps.accountId }
+    : await resolveWooCommerceAccount(pool, config, encryptionKey)
+  console.log(`[seller-hub] using WooCommerce integration_account ${deps.displayId ?? account.id}`)
+  const suffix = deps.accountId ? `-${deps.accountId}` : ""
 
   const wooClient = new WooCommerceClient({
     siteUrl: config.siteUrl,
@@ -121,9 +132,9 @@ export const startWooCommerce = async (
     }
   )
 
-  const orderQueue = createQueue("woocommerce-order-sync", redisConnection)
-  const inventoryQueue = createQueue("woocommerce-inventory-sync", redisConnection)
-  const priceQueue = createQueue("woocommerce-price-sync", redisConnection)
+  const orderQueue = createQueue(`woocommerce-order-sync${suffix}`, redisConnection)
+  const inventoryQueue = createQueue(`woocommerce-inventory-sync${suffix}`, redisConnection)
+  const priceQueue = createQueue(`woocommerce-price-sync${suffix}`, redisConnection)
 
   const queues = [orderQueue, inventoryQueue, priceQueue]
   const workers: Array<{ close: () => Promise<void> }> = []
@@ -132,7 +143,7 @@ export const startWooCommerce = async (
 
   // No job-name routing here: every job on this queue is an order import.
   workers.push(createWorker<WooOrderSyncJobData>(
-    "woocommerce-order-sync",
+    `woocommerce-order-sync${suffix}`,
     redisConnection,
     async (job: JobLike<WooOrderSyncJobData>) => {
       const result = await processWooOrderSyncJob(job.data, {
@@ -157,7 +168,7 @@ export const startWooCommerce = async (
   ))
 
   workers.push(createWorker<InventorySyncJobData | Record<string, never>>(
-    "woocommerce-inventory-sync",
+    `woocommerce-inventory-sync${suffix}`,
     redisConnection,
     async (job: JobLike<InventorySyncJobData | Record<string, never>>) => {
       if (job.name === RECONCILE_WOOCOMMERCE_JOB) {
@@ -191,7 +202,7 @@ export const startWooCommerce = async (
   ))
 
   workers.push(createWorker<PriceSyncJobData>(
-    "woocommerce-price-sync",
+    `woocommerce-price-sync${suffix}`,
     redisConnection,
     async (job: JobLike<PriceSyncJobData>) => {
       const channelListingId = await resolvePriceChannelListingId(job.data, {

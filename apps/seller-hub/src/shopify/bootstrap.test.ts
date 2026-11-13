@@ -113,3 +113,33 @@ test("a failing boot link logs only a message string", async () => {
   expect(typeof call[1]).toBe("string")
   expect(JSON.stringify(err.mock.calls)).not.toContain("at ")
 })
+
+test("queue names include the account id", async () => {
+  const { deps, queues, workers } = setup({ accountId: "acc-9" })
+  await startShopify(deps)
+  expect(queues.map((q) => q.name).sort()).toEqual([
+    "shopify-inventory-sync-acc-9",
+    "shopify-order-sync-acc-9",
+    "shopify-price-sync-acc-9",
+  ])
+  expect(Object.keys(workers).sort()).toEqual(queues.map((q) => q.name).sort())
+})
+
+test("accountId skips resolving the account", async () => {
+  const account = await import("./account.js")
+  const spy = (account as any).resolveShopifyAccount as ReturnType<typeof vi.fn>
+  spy.mockClear()
+  const { deps } = setup({ accountId: "acc-9" })
+  await startShopify(deps)
+  expect(spy).not.toHaveBeenCalled()
+})
+
+test("legacy start without accountId keeps the old queue names", async () => {
+  const { deps, queues } = setup()
+  await startShopify(deps)
+  expect(queues.map((q) => q.name).sort()).toEqual([
+    "shopify-inventory-sync",
+    "shopify-order-sync",
+    "shopify-price-sync",
+  ])
+})

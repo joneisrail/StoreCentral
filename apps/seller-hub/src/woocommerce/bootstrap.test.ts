@@ -101,3 +101,33 @@ test("without salesChannelId the WordPress name lookup still happens", async () 
   expect(await resolveFrom(deps, workers)).toBe("sc_named")
   expect(medusa.findSalesChannelIdByName).toHaveBeenCalledWith("WordPress")
 })
+
+test("queue names include the account id", async () => {
+  const { deps, queues, workers } = setup({ accountId: "acc-9" })
+  await startWooCommerce(deps)
+  expect(queues.map((q) => q.name).sort()).toEqual([
+    "woocommerce-inventory-sync-acc-9",
+    "woocommerce-order-sync-acc-9",
+    "woocommerce-price-sync-acc-9",
+  ])
+  expect(Object.keys(workers).sort()).toEqual(queues.map((q) => q.name).sort())
+})
+
+test("accountId skips resolving the account", async () => {
+  const account = await import("./account.js")
+  const spy = (account as any).resolveWooCommerceAccount as ReturnType<typeof vi.fn>
+  spy.mockClear()
+  const { deps } = setup({ accountId: "acc-9" })
+  await startWooCommerce(deps)
+  expect(spy).not.toHaveBeenCalled()
+})
+
+test("legacy start without accountId keeps the old queue names", async () => {
+  const { deps, queues } = setup()
+  await startWooCommerce(deps)
+  expect(queues.map((q) => q.name).sort()).toEqual([
+    "woocommerce-inventory-sync",
+    "woocommerce-order-sync",
+    "woocommerce-price-sync",
+  ])
+})

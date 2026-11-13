@@ -18,6 +18,9 @@ export type SyncQueueName =
   | "woocommerce-inventory-sync"
   | "woocommerce-price-sync"
   | "woocommerce-order-sync"
+  // Per-account queues of managed connections: `<marketplace>-<kind>-sync[-<account id>]`.
+  | `shopify-${"order" | "inventory" | "price"}-sync${string}`
+  | `woocommerce-${"order" | "inventory" | "price"}-sync${string}`
 
 const DEFAULT_ATTEMPTS = 5
 // `jitter` is required by the plan's Global Constraints section
