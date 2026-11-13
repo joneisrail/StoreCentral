@@ -75,24 +75,18 @@ export const CreateSalesChannelForm = () => {
         break
       case "error":
         toast.warning(
-          t("salesChannels.marketplace.toast.error", {
-            message: result.message ?? "",
-          })
+          result.message
+            ? t("salesChannels.marketplace.toast.error", {
+                message: result.message,
+              })
+            : t("salesChannels.marketplace.toast.errorNoMessage")
         )
         break
       case "unavailable":
         toast.warning(t("salesChannels.marketplace.toast.unavailable"))
         break
       default:
-        if (result.input_problem === "invalid") {
-          toast.warning(
-            result.message
-              ? t("salesChannels.marketplace.toast.invalid", {
-                  message: result.message,
-                })
-              : t("salesChannels.marketplace.toast.invalidNoMessage")
-          )
-        } else if (result.input_problem === "missing") {
+        if (result.input_problem === "missing") {
           toast.info(t("salesChannels.marketplace.toast.missing"))
         } else {
           toast.info(t("salesChannels.marketplace.toast.disconnected"))

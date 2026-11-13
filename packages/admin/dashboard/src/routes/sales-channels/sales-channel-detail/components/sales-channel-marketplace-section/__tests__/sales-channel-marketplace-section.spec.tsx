@@ -265,6 +265,23 @@ describe("SalesChannelMarketplaceSection", () => {
     }
   })
 
+  it("a stopped Shopify connection can be tested (to re-enable it) but not linked", () => {
+    setConnection(connection({ status: "error", sync_live: false }))
+    renderSection()
+    const button = (key: string) =>
+      screen.getByText(`salesChannels.marketplace.${key}`).closest("button")!
+    expect(button("test").disabled).toBe(false)
+    expect(button("linkProducts").disabled).toBe(true)
+  })
+
+  it("a running Shopify connection can be tested and linked", () => {
+    renderSection()
+    const button = (key: string) =>
+      screen.getByText(`salesChannels.marketplace.${key}`).closest("button")!
+    expect(button("test").disabled).toBe(false)
+    expect(button("linkProducts").disabled).toBe(false)
+  })
+
   it("legacy connection is read-only", () => {
     setConnection(connection({ read_only: true, managed: false }))
     renderSection()

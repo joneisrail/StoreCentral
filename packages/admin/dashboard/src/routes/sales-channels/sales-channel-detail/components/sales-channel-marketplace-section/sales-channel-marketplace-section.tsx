@@ -68,6 +68,9 @@ const ConnectionDetails = ({
   const def = MARKETPLACES[connection.marketplace]
   const actionsEnabled = !connection.read_only
   const syncLive = connection.sync_live
+  // Amazon has no live sync to test. For the others a stopped connection must
+  // stay testable: a passing Test is what turns it back on.
+  const testable = connection.marketplace !== "amazon"
 
   const handleTest = async () => {
     try {
@@ -212,7 +215,7 @@ const ConnectionDetails = ({
           <Button
             size="small"
             variant="secondary"
-            disabled={busy || !syncLive}
+            disabled={busy || !testable}
             isLoading={test.isPending}
             onClick={handleTest}
           >

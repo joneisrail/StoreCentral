@@ -111,12 +111,9 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
       })
       return
     }
-    const message =
-      typeof body?.message === "string"
-        ? body.message
-        : typeof body?.error === "string"
-          ? body.error
-          : undefined
+    // Only a human message is forwarded; a bare error code (body.error) is not
+    // shown to the user, the dashboard falls back to a generic string.
+    const message = typeof body?.message === "string" ? body.message : undefined
     res.status(200).json({
       sales_channel: channel,
       connection: body?.connection ?? null,

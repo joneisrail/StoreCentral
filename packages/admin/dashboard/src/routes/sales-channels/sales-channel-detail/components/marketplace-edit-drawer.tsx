@@ -69,6 +69,19 @@ export const MarketplaceEditDrawer = ({
             message: result.test.message ?? "",
           })
         )
+      } else if (result?.ok === false) {
+        // Credentials were saved and tested, but the connection did not start.
+        const detail =
+          typeof result.message === "string"
+            ? result.message
+            : typeof result.error === "string"
+              ? result.error
+              : ""
+        toast.warning(
+          t("salesChannels.marketplace.toast.saveApplyFailed", {
+            message: detail,
+          })
+        )
       } else {
         toast.success(t("salesChannels.marketplace.toast.saved"))
       }

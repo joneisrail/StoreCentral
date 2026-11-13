@@ -221,14 +221,10 @@ describe("CreateSalesChannelForm marketplace", () => {
       "salesChannels.marketplace.toast.missing",
     ],
     [
-      "disconnected (invalid)",
-      {
-        connection_status: "disconnected",
-        input_problem: "invalid",
-        message: "Shop domain is not valid",
-      },
+      "error without a message",
+      { connection_status: "error" },
       "warning",
-      "salesChannels.marketplace.toast.invalid|Shop domain is not valid",
+      "salesChannels.marketplace.toast.errorNoMessage",
     ],
   ]
 

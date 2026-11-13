@@ -87,9 +87,7 @@ export type CreateMarketplaceSalesChannelResponse = {
   fields?: string[]
 }
 
-export type SaveMarketplaceConnectionInput = CredentialFields & {
-  display_name?: string
-}
+export type SaveMarketplaceConnectionInput = CredentialFields
 
 export type MarketplaceConnectionResponse = {
   connection?: MarketplaceConnection | null

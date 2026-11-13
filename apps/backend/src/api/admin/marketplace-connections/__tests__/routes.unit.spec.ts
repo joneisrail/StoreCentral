@@ -192,6 +192,17 @@ describe("create", () => {
     expect(res.payload).toMatchObject({ connection_status: "disconnected", input_problem: "missing", fields: ["access_token"] })
   })
 
+  it("create does not forward a bare error code as the message", async () => {
+    mocked.mockResolvedValueOnce({
+      status: 200,
+      body: { ok: false, error: "failed to start", connection: { id: "c1", status: "error" }, test: { ok: true } },
+    })
+    const res = makeRes()
+    await create(createReq(body), res)
+    expect(res.payload.connection_status).toBe("error")
+    expect(res.payload.message).toBeUndefined()
+  })
+
   it("create keeps the channel and returns unavailable when seller-hub is down", async () => {
     mocked.mockRejectedValue(new SellerHubError(502, "Cannot reach seller-hub"))
     const res = makeRes()

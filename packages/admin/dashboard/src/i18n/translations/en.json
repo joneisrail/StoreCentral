@@ -3231,6 +3231,7 @@
       "toast": {
         "saved": "Credentials saved",
         "saveTestFailed": "Credentials saved, but the connection test failed: {{message}}",
+        "saveApplyFailed": "Credentials saved, but the connection could not be started: {{message}}",
         "testPassed": "Connection test passed",
         "testFailed": "Connection test failed: {{message}}",
         "linked": "Linked {{linked}}, already linked {{alreadyLinked}}, unmatched {{unmatched}}, duplicates {{duplicates}}",
@@ -3243,11 +3244,10 @@
         "attachDisconnected": "Saved. Add credentials to finish connecting",
         "connected": "Sales channel created and connected",
         "error": "Channel saved, connection failed: {{message}}",
+        "errorNoMessage": "Channel saved, but the connection failed",
         "unavailable": "Channel saved, connection not stored (seller-hub unreachable)",
         "disconnected": "Channel saved. Add credentials later",
-        "missing": "Channel saved. Add the missing credentials later",
-        "invalid": "Channel saved, but some credentials are invalid: {{message}}",
-        "invalidNoMessage": "Channel saved, but some credentials are invalid"
+        "missing": "Channel saved. Add the missing credentials later"
       }
     },
     "products": {

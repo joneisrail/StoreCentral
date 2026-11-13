@@ -12385,6 +12385,9 @@
                 "saveTestFailed": {
                   "type": "string"
                 },
+                "saveApplyFailed": {
+                  "type": "string"
+                },
                 "testPassed": {
                   "type": "string"
                 },
@@ -12421,6 +12424,9 @@
                 "error": {
                   "type": "string"
                 },
+                "errorNoMessage": {
+                  "type": "string"
+                },
                 "unavailable": {
                   "type": "string"
                 },
@@ -12429,17 +12435,12 @@
                 },
                 "missing": {
                   "type": "string"
-                },
-                "invalid": {
-                  "type": "string"
-                },
-                "invalidNoMessage": {
-                  "type": "string"
                 }
               },
               "required": [
                 "saved",
                 "saveTestFailed",
+                "saveApplyFailed",
                 "testPassed",
                 "testFailed",
                 "linked",
@@ -12452,11 +12453,10 @@
                 "attachDisconnected",
                 "connected",
                 "error",
+                "errorNoMessage",
                 "unavailable",
                 "disconnected",
-                "missing",
-                "invalid",
-                "invalidNoMessage"
+                "missing"
               ],
               "additionalProperties": false
             }
