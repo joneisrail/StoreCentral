@@ -77,10 +77,20 @@ ALTER TABLE seller_hub.integration_account ADD COLUMN IF NOT EXISTS managed BOOL
 ALTER TABLE seller_hub.integration_account ADD COLUMN IF NOT EXISTS display_name TEXT;
 ALTER TABLE seller_hub.integration_account ADD COLUMN IF NOT EXISTS amazon_seller_id TEXT;
 ALTER TABLE seller_hub.integration_account ADD COLUMN IF NOT EXISTS amazon_marketplace_id TEXT;
-CREATE UNIQUE INDEX IF NOT EXISTS integration_account_sales_channel_uq
-  ON seller_hub.integration_account (medusa_sales_channel_id)
-  WHERE medusa_sales_channel_id IS NOT NULL;
 -- Rows saved from the admin UI before this column existed carry a webhook secret.
 UPDATE seller_hub.integration_account SET managed = true
   WHERE webhook_secret_encrypted IS NOT NULL AND managed = false;
+-- The old flow let two rows share one sales channel. Keep the oldest link and
+-- clear the rest so the unique index below can always be created.
+UPDATE seller_hub.integration_account SET medusa_sales_channel_id = NULL
+  WHERE id IN (
+    SELECT id FROM (
+      SELECT id, row_number() OVER (PARTITION BY medusa_sales_channel_id ORDER BY created_at, id) AS rn
+      FROM seller_hub.integration_account
+      WHERE medusa_sales_channel_id IS NOT NULL
+    ) ranked WHERE rn > 1
+  );
+CREATE UNIQUE INDEX IF NOT EXISTS integration_account_sales_channel_uq
+  ON seller_hub.integration_account (medusa_sales_channel_id)
+  WHERE medusa_sales_channel_id IS NOT NULL;
 `

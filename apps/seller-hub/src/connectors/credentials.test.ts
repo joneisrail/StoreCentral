@@ -480,6 +480,40 @@ test("backfill marks rows with a webhook secret as managed", () => {
     .map((s) => s.replace(/^(\s*--.*\n)+/g, "").trim())
     .filter(Boolean)
   for (const st of statements) {
-    expect(st).toMatch(/IF NOT EXISTS|^UPDATE seller_hub\.integration_account SET managed = true/)
+    expect(st).toMatch(
+      /IF NOT EXISTS|^UPDATE seller_hub\.integration_account SET (managed = true|medusa_sales_channel_id = NULL)/
+    )
   }
+})
+
+test("schema UPDATE statements are all self-limiting so a second run changes nothing", () => {
+  const statements = SCHEMA_SQL.split(";")
+    .map((s) => s.replace(/^(\s*--.*\n)+/g, "").trim())
+    .filter(Boolean)
+  const updates = statements.filter((s) => /^UPDATE/.test(s))
+  expect(updates).toHaveLength(2)
+  for (const u of updates) expect(u).toMatch(/WHERE/)
+  expect(updates[0]).toMatch(/AND managed = false/)
+  expect(updates[1]).toMatch(/rn > 1/)
+})
+
+test("the dedupe runs after the backfill and before the unique index", () => {
+  const column = SCHEMA_SQL.indexOf("ADD COLUMN IF NOT EXISTS managed")
+  const backfill = SCHEMA_SQL.indexOf("SET managed = true")
+  const dedupe = SCHEMA_SQL.indexOf("SET medusa_sales_channel_id = NULL")
+  const index = SCHEMA_SQL.indexOf("CREATE UNIQUE INDEX IF NOT EXISTS integration_account_sales_channel_uq")
+  expect(column).toBeGreaterThan(-1)
+  expect(backfill).toBeGreaterThan(column)
+  expect(dedupe).toBeGreaterThan(backfill)
+  expect(index).toBeGreaterThan(dedupe)
+  expect(SCHEMA_SQL).toMatch(
+    /PARTITION BY medusa_sales_channel_id ORDER BY created_at, id\) AS rn[\s\S]*?WHERE medusa_sales_channel_id IS NOT NULL[\s\S]*?WHERE rn > 1/
+  )
+})
+
+test("loadStoredConfig returns null for an amazon row without a seller id", async () => {
+  const { pool } = idPool([
+    { id: "z1", marketplace: "amazon", lwa_refresh_token_encrypted: encrypt("tok", KEY), amazon_seller_id: null },
+  ])
+  expect(await loadStoredConfig(pool, KEY, "z1")).toBeNull()
 })

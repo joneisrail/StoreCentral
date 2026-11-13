@@ -362,9 +362,9 @@ export const loadStoredConfig = async (
   const row = rows[0]
   if (!row) return null
   if (row.marketplace === "amazon") {
-    if (!row.lwa_refresh_token_encrypted) return null
+    if (!row.lwa_refresh_token_encrypted || !row.amazon_seller_id) return null
     return {
-      sellerId: row.amazon_seller_id ?? "",
+      sellerId: row.amazon_seller_id,
       marketplaceId: row.amazon_marketplace_id ?? DEFAULT_AMAZON_MARKETPLACE_ID,
       refreshToken: decrypt(row.lwa_refresh_token_encrypted, encryptionKey),
     }
