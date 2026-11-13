@@ -3198,6 +3198,22 @@
     "tooltip": {
       "cannotDeleteDefault": "Cannot delete default sales channel"
     },
+    "marketplace": {
+      "title": "Marketplace",
+      "hint": "Optionally connect this sales channel to a marketplace.",
+      "none": "No marketplace",
+      "credentialsHint": "Credentials are stored securely and are never shown again. You can leave them empty and add them later.",
+      "syncNotLive": "Saved — sync not live yet",
+      "toast": {
+        "connected": "Sales channel created and connected",
+        "error": "Channel saved, connection failed: {{message}}",
+        "unavailable": "Channel saved, connection not stored (seller-hub unreachable)",
+        "disconnected": "Channel saved. Add credentials later",
+        "missing": "Channel saved. Add the missing credentials later",
+        "invalid": "Channel saved, but some credentials are invalid: {{message}}",
+        "invalidNoMessage": "Channel saved, but some credentials are invalid"
+      }
+    },
     "products": {
       "list": {
         "noRecordsMessage": "There are no products in the sales channel."

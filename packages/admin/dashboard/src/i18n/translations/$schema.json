@@ -12286,6 +12286,71 @@
           "required": ["cannotDeleteDefault"],
           "additionalProperties": false
         },
+        "marketplace": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string"
+            },
+            "hint": {
+              "type": "string"
+            },
+            "none": {
+              "type": "string"
+            },
+            "credentialsHint": {
+              "type": "string"
+            },
+            "syncNotLive": {
+              "type": "string"
+            },
+            "toast": {
+              "type": "object",
+              "properties": {
+                "connected": {
+                  "type": "string"
+                },
+                "error": {
+                  "type": "string"
+                },
+                "unavailable": {
+                  "type": "string"
+                },
+                "disconnected": {
+                  "type": "string"
+                },
+                "missing": {
+                  "type": "string"
+                },
+                "invalid": {
+                  "type": "string"
+                },
+                "invalidNoMessage": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "connected",
+                "error",
+                "unavailable",
+                "disconnected",
+                "missing",
+                "invalid",
+                "invalidNoMessage"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "title",
+            "hint",
+            "none",
+            "credentialsHint",
+            "syncNotLive",
+            "toast"
+          ],
+          "additionalProperties": false
+        },
         "products": {
           "type": "object",
           "properties": {
@@ -12334,6 +12399,7 @@
         "deleteSalesChannelWarning",
         "toast",
         "tooltip",
+        "marketplace",
         "products"
       ],
       "additionalProperties": false
