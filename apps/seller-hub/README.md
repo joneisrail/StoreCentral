@@ -115,3 +115,56 @@ before relying on it.
 **Known limitation:** there is a brief oversell window between a sale on
 Shopify and its import into Medusa (webhook or drift check), during which
 Medusa's stock has not yet been decremented.
+
+## WooCommerce (WordPress)
+
+The same service can also sync a WooCommerce store (optional). It starts only
+when all four variables below are set; otherwise boot logs one line and skips it.
+
+| Variable | Purpose |
+| --- | --- |
+| `WOOCOMMERCE_SITE_URL` | e.g. `https://your-store.example.com` (**https only**; anything else disables the connector) |
+| `WOOCOMMERCE_CONSUMER_KEY` | REST API consumer key (`ck_...`) |
+| `WOOCOMMERCE_CONSUMER_SECRET` | REST API consumer secret (`cs_...`) |
+| `WOOCOMMERCE_WEBHOOK_SECRET` | Secret you set on the WooCommerce webhooks (verifies `X-WC-Webhook-Signature`) |
+
+**Create a REST API key:** WooCommerce -> Settings -> Advanced -> REST API ->
+Add key, with **Read/Write** permission.
+
+**StoreCentral is the stock and price master.** Quantities and regular prices
+are pushed from Medusa to WooCommerce, and edits made in WooCommerce are
+overwritten on the next sync or drift check. Sale prices are never touched.
+Listings are linked by exact SKU at boot; unmatched and duplicate SKUs are not
+linked and are recorded as failed `product` sync jobs.
+
+**First sync overwrites WooCommerce.** Right after listings are linked, the next
+drift check (hourly) pushes StoreCentral's stock and regular price for every
+newly linked listing to WooCommerce, overwriting whatever it had, and turns on
+stock management for each linked product.
+
+**Setup**
+
+1. Create the "WordPress" sales channel in Medusa (links it to the stock
+   location(s) and every product; safe to re-run). From `apps/backend`:
+   `npx medusa exec ./src/scripts/setup-woocommerce-channel.ts`
+2. Create the REST API key and set the variables above, then restart seller-hub.
+3. WooCommerce can only deliver webhooks to a public HTTPS URL, so expose the
+   webhook port (`WEBHOOK_PORT`, default 7005) and create two webhooks under
+   WooCommerce -> Settings -> Advanced -> Webhooks, topics `Order created` and
+   `Order updated`, delivery URL `https://<public-host>/webhooks/woocommerce`,
+   and the same secret as `WOOCOMMERCE_WEBHOOK_SECRET`. Without a public URL (for
+   example on a dev machine), the hourly drift check's order catch-up imports
+   orders modified since its last clean scan instead.
+
+**Known limitations**
+
+- Orders that are pending, on-hold or failed are re-checked every 30 minutes
+  until they are paid.
+- A cancelled order that is later re-opened in WooCommerce is NOT imported.
+- Refunds and returns are not synced.
+- Variable product parents are not linked; only simple products and variations.
+- The WooCommerce REST field names used have not been verified against a real
+  store; do that before relying on it.
+- There is a brief oversell window between a sale on WooCommerce and its import
+  into Medusa (webhook or drift check), during which Medusa's stock has not yet
+  been decremented.

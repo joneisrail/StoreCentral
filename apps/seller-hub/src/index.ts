@@ -28,6 +28,8 @@ import {
 } from "./sync/resolve-channel-listing.js"
 import { startShopifyIfConfigured } from "./shopify/bootstrap.js"
 import { loadShopifyConfig } from "./shopify/config.js"
+import { startWooCommerceIfConfigured } from "./woocommerce/bootstrap.js"
+import { loadWooCommerceConfig } from "./woocommerce/config.js"
 import { createWebhookServer } from "./webhook/server.js"
 
 // SP-API's North America regional endpoint. There's no per-region config
@@ -230,10 +232,23 @@ const main = async (): Promise<void> => {
     reconcileIntervalMs: RECONCILE_INTERVAL_MS,
   })
 
+  // Optional WooCommerce connector: a no-op (one log line) without WOOCOMMERCE_* env.
+  const woocommerce = await startWooCommerceIfConfigured(
+    loadWooCommerceConfig(),
+    {
+      pool,
+      medusaClient,
+      encryptionKey: env.encryptionKey,
+      redisConnection,
+      reconcileIntervalMs: RECONCILE_INTERVAL_MS,
+    }
+  )
+
   const webhookServer = createWebhookServer({
     inventoryQueue: inventorySyncQueue,
     priceQueue: priceSyncQueue,
     ...(shopify ? { shopify: shopify.webhook } : {}),
+    ...(woocommerce ? { woocommerce: woocommerce.webhook } : {}),
   })
   await new Promise<void>((resolve) => {
     webhookServer.listen(WEBHOOK_PORT, () => resolve())
