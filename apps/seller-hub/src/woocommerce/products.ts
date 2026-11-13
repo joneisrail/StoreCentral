@@ -64,6 +64,9 @@ export const listWooListings = async (
         `/products/${p.id}/variations`
       )
       for (const v of variations) {
+        // A variation without its own SKU can inherit the parent's; that is
+        // not a distinct sellable SKU and must not be linked.
+        if ((v.sku ?? "").trim() === (p.sku ?? "").trim()) continue
         const listing = toListing(v, p.id)
         if (listing) out.push(listing)
       }

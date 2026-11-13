@@ -218,18 +218,18 @@ test("an already-imported order is still enqueued under the same job id so it co
   expect(ids).toEqual(["woocommerce-order-123", "woocommerce-order-123"])
 })
 
-test("orders are fetched since last_synced_at, or 24h back when null", async () => {
+test("orders are fetched since (last_synced_at minus 15min) or (scan start minus 24h minus 15min when null)", async () => {
   const since = new Date("2026-11-01T00:00:00.000Z")
   const a = setup({ listings: [], lastSyncedAt: since })
   await a.run()
-  expect(a.fetchOrdersSince).toHaveBeenCalledWith(since.toISOString())
+  expect(a.fetchOrdersSince).toHaveBeenCalledWith(new Date(since.getTime() - 15 * 60_000).toISOString())
 
   const b = setup({ listings: [], lastSyncedAt: null })
   const before = Date.now()
   await b.run()
   const arg = Date.parse(b.fetchOrdersSince.mock.calls[0]![0])
-  expect(arg).toBeGreaterThanOrEqual(before - 24 * 3600_000 - 1000)
-  expect(arg).toBeLessThanOrEqual(Date.now() - 24 * 3600_000 + 1000)
+  expect(arg).toBeGreaterThanOrEqual(before - 24 * 3600_000 - 15 * 60_000 - 1000)
+  expect(arg).toBeLessThanOrEqual(Date.now() - 24 * 3600_000 - 15 * 60_000 + 1000)
 })
 
 test("a failing listing is isolated and last_synced_at still advances when orders were fetched", async () => {
@@ -337,4 +337,14 @@ test("a rejecting priceQueue.add for a NULL baseline is isolated, counted, and t
   } finally {
     err.mockRestore()
   }
+})
+
+test("the watermark advances to the scan start, not the overlapped query start", async () => {
+  const since = new Date("2026-11-01T00:00:00.000Z")
+  const s = setup({ listings: [], lastSyncedAt: since })
+  const before = Date.now()
+  await s.run()
+  const written = (s.updates[0] as unknown[]).find((v) => v instanceof Date) as Date
+  expect(written.getTime()).toBeGreaterThanOrEqual(before - 1000)
+  expect(written.getTime()).toBeLessThanOrEqual(Date.now() + 1000)
 })

@@ -24,6 +24,10 @@ type ChannelListingRow = {
   last_synced_price: string | null
 }
 
+// Widens the order query so a store-timezone or clock skew cannot hide orders
+// at the watermark edge. Re-enqueueing is harmless (job ids collapse, import
+// is idempotent); the watermark itself still advances to the scan start.
+const CATCH_UP_OVERLAP_MS = 15 * 60 * 1000
 const FIRST_SCAN_LOOKBACK_MS = 24 * 60 * 60 * 1000
 
 /**
@@ -144,7 +148,9 @@ export const reconcileWooCommerce = async (
 
   let ordersFetched = true
   try {
-    const orders = await fetchOrdersSince(since.toISOString())
+    const orders = await fetchOrdersSince(
+      new Date(since.getTime() - CATCH_UP_OVERLAP_MS).toISOString()
+    )
     for (const order of orders) {
       const id = order.wooOrderId
       if (!/^\d+$/.test(id)) {

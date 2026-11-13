@@ -113,6 +113,8 @@ export const fetchWooOrdersModifiedSince = async (
       {
         query: {
           modified_after: sinceIso,
+          // Compare against GMT modified dates, not the store-local ones.
+          dates_are_gmt: "true",
           status: "any",
           per_page: 100,
           page,

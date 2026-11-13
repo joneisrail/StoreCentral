@@ -110,7 +110,7 @@ test("fetchWooOrder GETs and normalizes", async () => {
   expect(request.mock.calls[0].slice(0, 2)).toEqual(["GET", "/orders/99"])
 })
 
-test("fetchWooOrdersModifiedSince paginates with modified_after and status=any", async () => {
+test("fetchWooOrdersModifiedSince paginates with modified_after, dates_are_gmt=true and status=any", async () => {
   const { client, request } = fakeClient((_p, opts) =>
     opts.query.page === 1
       ? { data: [{ id: 1 }, { id: 2 }], totalPages: 2 }
@@ -120,6 +120,7 @@ test("fetchWooOrdersModifiedSince paginates with modified_after and status=any",
   expect(out).toEqual([{ wooOrderId: "1" }, { wooOrderId: "2" }, { wooOrderId: "3" }])
   expect(request.mock.calls[0][2].query).toEqual({
     modified_after: "2026-01-01T00:00:00Z",
+    dates_are_gmt: "true",
     status: "any",
     per_page: 100,
     page: 1,
