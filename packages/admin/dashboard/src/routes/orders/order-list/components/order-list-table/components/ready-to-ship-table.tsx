@@ -25,6 +25,7 @@ import {
   useBulkFulfillOrders,
   useOrders,
 } from "../../../../../../hooks/api/orders"
+import { useHeldOrderIds, useHoldTag } from "../../../../../../hooks/api/order-holds"
 import { useStore } from "../../../../../../hooks/api/store"
 import { useDataTable } from "../../../../../../hooks/use-data-table"
 import { getStylizedAmount } from "../../../../../../lib/money-amount-helpers"
@@ -34,6 +35,7 @@ import {
   OrderParcel,
 } from "../../../../../../lib/order-parcel"
 import { READY_TO_SHIP_FIELDS } from "../../../const"
+import { getViewQuery } from "../../../order-views"
 import { BulkFulfillResultSummary } from "./bulk-fulfill-result-summary"
 import { FulfillConfirmPopover } from "./fulfill-confirm-popover"
 import { ItemCell } from "./item-cell"
@@ -806,17 +808,35 @@ export const ReadyToShipTable = () => {
   const offsetKey = `${QUERY_PREFIX}_offset`
   const offset = Number(searchParams.get(offsetKey) ?? 0)
 
+  // The query comes from the same `getViewQuery` the tab's count uses, so
+  // the rows equal the count (held orders excluded). The table does not
+  // fetch until the hold tag and held ids resolve, and errors if either
+  // lookup failed (or the held set was truncated) rather than list held
+  // orders.
+  const {
+    tagId,
+    isLoading: tagLoading,
+    isError: tagError,
+  } = useHoldTag()
+  const {
+    ids: heldIds,
+    isLoading: heldLoading,
+    isError: heldError,
+  } = useHeldOrderIds()
+  const lookupLoading = tagLoading || heldLoading
+  const lookupError = tagError || heldError
+
   const { orders, count, isLoading, isError, error } = useOrders(
     {
       fields: READY_TO_SHIP_FIELDS,
-      fulfillment_status: ["not_fulfilled", "partially_fulfilled"],
-      payment_status: ["captured", "partially_captured"],
+      ...getViewQuery("ready-to-ship", { heldIds, holdTagId: tagId }),
       limit: PAGE_SIZE,
       offset,
       order: "-created_at",
-    },
+    } as HttpTypes.AdminOrderFilters,
     {
       placeholderData: keepPreviousData,
+      enabled: !lookupLoading && !lookupError,
     }
   )
 
@@ -855,6 +875,10 @@ export const ReadyToShipTable = () => {
     },
   })
 
+  if (lookupError) {
+    throw new Error("Could not determine which orders are on hold")
+  }
+
   if (isError) {
     throw error
   }
@@ -867,7 +891,7 @@ export const ReadyToShipTable = () => {
         pagination
         navigateTo={(row) => `/orders/${row.original.id}`}
         count={count}
-        isLoading={isLoading}
+        isLoading={isLoading || lookupLoading}
         pageSize={PAGE_SIZE}
         prefix={QUERY_PREFIX}
         noRecords={{

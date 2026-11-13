@@ -17,6 +17,9 @@ import {
   BulkTagOrdersAction,
   BulkTagOrdersModal,
 } from "./components/bulk-tag-orders-modal"
+import { AwaitingPaymentTable } from "./components/awaiting-payment-table"
+import { CancelledTable } from "./components/cancelled-table"
+import { OnHoldTable } from "./components/on-hold-table"
 import { ReadyToShipTable } from "./components/ready-to-ship-table"
 import { ShippedTable } from "./components/shipped-table"
 import { getOrderListView, OrderListTabs } from "./order-list-tabs"
@@ -155,6 +158,9 @@ export const OrderListTable = () => {
       {view === "all" && <AllOrdersTable />}
       {view === "ready-to-ship" && <ReadyToShipTable />}
       {view === "shipped" && <ShippedTable />}
+      {view === "awaiting-payment" && <AwaitingPaymentTable />}
+      {view === "on-hold" && <OnHoldTable />}
+      {view === "cancelled" && <CancelledTable />}
     </Container>
   )
 }

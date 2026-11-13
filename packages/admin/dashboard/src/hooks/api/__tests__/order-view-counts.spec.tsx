@@ -30,6 +30,7 @@ vi.mock("../../../lib/query-client", async () => {
 })
 
 import { queryClient } from "../../../lib/query-client"
+import { useHeldOrderIds } from "../order-holds"
 import { useOrderViewCounts } from "../order-view-counts"
 
 const wrapper = ({ children }: { children: ReactNode }) => (
@@ -83,5 +84,87 @@ describe("useOrderViewCounts", () => {
         payment_status: ["captured", "partially_captured"],
       })
     )
+  })
+})
+
+describe("exclusion lookup failures", () => {
+  it("nulls the dependent counts when the hold tag lookup fails", async () => {
+    mockTagList.mockRejectedValue(new Error("tag boom"))
+    mockList.mockResolvedValue({ orders: [], count: 4 })
+
+    const { result } = renderHook(() => useOrderViewCounts(), { wrapper })
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+    await waitFor(() =>
+      expect(result.current.counts["ready-to-ship"]).toBeNull()
+    )
+
+    expect(result.current.counts).toEqual({
+      all: 4,
+      "ready-to-ship": null,
+      shipped: 4,
+      "awaiting-payment": null,
+      "on-hold": null,
+      cancelled: 4,
+    })
+    // No dependent view was ever requested without its exclusion.
+    expect(
+      mockList.mock.calls.some(([q]: any[]) => q.payment_status !== undefined)
+    ).toBe(false)
+  })
+
+  it("nulls ready-to-ship and awaiting-payment (not on-hold) when held ids fail", async () => {
+    mockTagList.mockResolvedValue({
+      order_tags: [{ id: "tag_1", value: "On hold" }],
+    })
+    mockList.mockImplementation(async (q: any) => {
+      if (q.tag_id === "tag_1" && q.limit === 500) {
+        throw new Error("held boom")
+      }
+      return { orders: [], count: 2 }
+    })
+
+    const { result } = renderHook(() => useOrderViewCounts(), { wrapper })
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+    await waitFor(() => expect(result.current.counts["on-hold"]).toBe(2))
+
+    expect(result.current.counts["ready-to-ship"]).toBeNull()
+    expect(result.current.counts["awaiting-payment"]).toBeNull()
+  })
+})
+
+describe("useHeldOrderIds", () => {
+  it("reports isError when the tag lookup fails", async () => {
+    mockTagList.mockRejectedValue(new Error("tag boom"))
+
+    const { result } = renderHook(() => useHeldOrderIds(), { wrapper })
+
+    await waitFor(() => expect(result.current.isError).toBe(true))
+    expect(result.current.ids).toEqual([])
+  })
+
+  it("reports isError when more orders are held than the 500 fetched ids", async () => {
+    mockTagList.mockResolvedValue({
+      order_tags: [{ id: "tag_1", value: "On hold" }],
+    })
+    mockList.mockResolvedValue({ orders: [{ id: "o1" }], count: 501 })
+
+    const { result } = renderHook(() => useHeldOrderIds(), { wrapper })
+
+    await waitFor(() => expect(result.current.isError).toBe(true))
+  })
+
+  it("is not an error when every held id was fetched", async () => {
+    mockTagList.mockResolvedValue({
+      order_tags: [{ id: "tag_1", value: "On hold" }],
+    })
+    mockList.mockResolvedValue({ orders: [{ id: "o1" }], count: 1 })
+
+    const { result } = renderHook(() => useHeldOrderIds(), { wrapper })
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+    expect(result.current.isError).toBe(false)
+    expect(result.current.ids).toEqual(["o1"])
   })
 })

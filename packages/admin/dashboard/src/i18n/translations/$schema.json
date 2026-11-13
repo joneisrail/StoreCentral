@@ -4829,13 +4829,62 @@
                 },
                 "shipped": {
                   "type": "string"
+                },
+                "awaitingPayment": {
+                  "type": "string"
+                },
+                "onHold": {
+                  "type": "string"
+                },
+                "cancelled": {
+                  "type": "string"
                 }
               },
-              "required": ["all", "readyToShip", "shipped"],
+              "required": [
+                "all",
+                "readyToShip",
+                "shipped",
+                "awaitingPayment",
+                "onHold",
+                "cancelled"
+              ],
               "additionalProperties": false
             }
           },
           "required": ["noRecordsMessage", "tabs"],
+          "additionalProperties": false
+        },
+        "awaitingPayment": {
+          "type": "object",
+          "properties": {
+            "noRecordsMessage": {
+              "type": "string"
+            }
+          },
+          "required": ["noRecordsMessage"],
+          "additionalProperties": false
+        },
+        "holdTable": {
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string"
+            },
+            "noRecordsMessage": {
+              "type": "string"
+            }
+          },
+          "required": ["reason", "noRecordsMessage"],
+          "additionalProperties": false
+        },
+        "cancelled": {
+          "type": "object",
+          "properties": {
+            "noRecordsMessage": {
+              "type": "string"
+            }
+          },
+          "required": ["noRecordsMessage"],
           "additionalProperties": false
         },
         "readyToShip": {
@@ -6834,6 +6883,9 @@
         "onDateFromSalesChannel",
         "tags",
         "list",
+        "awaitingPayment",
+        "holdTable",
+        "cancelled",
         "readyToShip",
         "shipped",
         "export",

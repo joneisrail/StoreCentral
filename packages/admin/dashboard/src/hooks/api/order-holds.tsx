@@ -18,21 +18,38 @@ export const orderHeldIdsQueryKeys = queryKeysFactory("order-held-ids")
 // invalidate it without a circular import.
 export const ORDER_VIEW_COUNTS_QUERY_KEY = "order-view-counts" as const
 
-export const useHoldTag = (): { tagId: string | null; isLoading: boolean } => {
-  const { order_tags, isLoading } = useOrderTags({
+export const useHoldTag = (): {
+  tagId: string | null
+  isLoading: boolean
+  isError: boolean
+} => {
+  const { order_tags, isLoading, isError } = useOrderTags({
     value: HOLD_TAG_VALUE,
     limit: 100,
   } as any)
 
   const tag = order_tags?.find((t) => t.value === HOLD_TAG_VALUE)
 
-  return { tagId: tag?.id ?? null, isLoading }
+  return { tagId: tag?.id ?? null, isLoading, isError }
 }
 
-export const useHeldOrderIds = (): { ids: string[]; isLoading: boolean } => {
-  const { tagId, isLoading: tagLoading } = useHoldTag()
+/**
+ * Ids of the held (tagged, non-canceled) orders, used to exclude them from
+ * the Ready to Ship / Awaiting Payment views.
+ *
+ * Only the first `HELD_IDS_LIMIT` (500) ids are fetched. If the tag matches
+ * more orders than that the exclusion would be incomplete, so `isError` is
+ * reported (and callers must not list or count those views) rather than
+ * silently showing held orders.
+ */
+export const useHeldOrderIds = (): {
+  ids: string[]
+  isLoading: boolean
+  isError: boolean
+} => {
+  const { tagId, isLoading: tagLoading, isError: tagError } = useHoldTag()
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: orderHeldIdsQueryKeys.list({ tagId }),
     queryFn: () =>
       sdk.admin.order.list({
@@ -44,9 +61,13 @@ export const useHeldOrderIds = (): { ids: string[]; isLoading: boolean } => {
     enabled: !!tagId,
   })
 
+  const ids = tagId ? (data?.orders ?? []).map((o) => o.id) : []
+  const truncated = !!tagId && !!data && (data.count ?? 0) > ids.length
+
   return {
-    ids: tagId ? (data?.orders ?? []).map((o) => o.id) : [],
+    ids,
     isLoading: tagLoading || (!!tagId && isLoading),
+    isError: tagError || (!!tagId && isError) || truncated,
   }
 }
 

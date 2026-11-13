@@ -34,6 +34,8 @@ const {
   mockUseStore,
   mockUseStockLocations,
   mockUseOrderCarrierRates,
+  mockUseHoldTag,
+  mockUseHeldOrderIds,
 } = vi.hoisted(() => ({
   mockUseOrders: vi.fn(),
   mockBulkFulfillOrders: vi.fn(),
@@ -43,6 +45,16 @@ const {
   mockUseStore: vi.fn(),
   mockUseStockLocations: vi.fn(),
   mockUseOrderCarrierRates: vi.fn(),
+  mockUseHoldTag: vi.fn(),
+  mockUseHeldOrderIds: vi.fn(),
+}))
+
+// `ReadyToShipTable` takes its query from `getViewQuery`, which needs the
+// hold tag and held order ids; both hooks reach `lib/client`, so they are
+// mocked with per-test-overridable defaults (set below, reset in afterEach).
+vi.mock("../../../../../../hooks/api/order-holds", () => ({
+  useHoldTag: () => mockUseHoldTag(),
+  useHeldOrderIds: () => mockUseHeldOrderIds(),
 }))
 
 // Only `toast.error`/`usePrompt` are swapped out for spies - everything
@@ -203,7 +215,33 @@ afterEach(() => {
   // below (reading from `ratesByOrder`) must survive every test.
   mockUseOrderCarrierRates.mockClear()
   ratesByOrder = {}
+  setHoldLookups()
 })
+
+const setHoldLookups = (
+  overrides: {
+    tag?: Partial<{
+      tagId: string | null
+      isLoading: boolean
+      isError: boolean
+    }>
+    held?: Partial<{ ids: string[]; isLoading: boolean; isError: boolean }>
+  } = {}
+) => {
+  mockUseHoldTag.mockReturnValue({
+    tagId: null,
+    isLoading: false,
+    isError: false,
+    ...overrides.tag,
+  })
+  mockUseHeldOrderIds.mockReturnValue({
+    ids: [],
+    isLoading: false,
+    isError: false,
+    ...overrides.held,
+  })
+}
+setHoldLookups()
 
 mockUseOrders.mockReturnValue({
   orders: [],
@@ -1539,5 +1577,68 @@ describe("ReadyToShipTable rate invalidation on Ship From/Package change", () =>
       "checkbox"
     ))[1] as HTMLButtonElement
     expect(checkboxAfter.disabled).toBe(false)
+  })
+})
+
+const EMPTY_ORDERS = {
+  orders: [],
+  count: 0,
+  isLoading: false,
+  isError: false,
+  error: undefined,
+}
+
+describe("ReadyToShipTable view query / held-order exclusion", () => {
+  it("Ready to Ship query excludes held ids and matches getViewQuery", () => {
+    mockUseOrders.mockReturnValue(EMPTY_ORDERS)
+    setHoldLookups({
+      tag: { tagId: "tag_hold" },
+      held: { ids: ["order_held_1", "order_held_2"] },
+    })
+
+    renderReadyToShipTable()
+
+    const [params, options] = mockUseOrders.mock.calls.at(-1)!
+    expect(params).toMatchObject({
+      fulfillment_status: ["not_fulfilled", "partially_fulfilled"],
+      payment_status: ["captured", "partially_captured"],
+      status: { $nin: ["canceled"] },
+      id: { $nin: ["order_held_1", "order_held_2"] },
+      limit: 20,
+      offset: 0,
+      order: "-created_at",
+    })
+    expect(options.enabled).toBe(true)
+  })
+
+  it("does not fetch while the hold tag or held ids are still loading", () => {
+    mockUseOrders.mockReturnValue(EMPTY_ORDERS)
+    setHoldLookups({ held: { isLoading: true } })
+
+    renderReadyToShipTable()
+
+    const [, options] = mockUseOrders.mock.calls.at(-1)!
+    expect(options.enabled).toBe(false)
+  })
+
+  it("throws to the error boundary (and does not fetch) when the held-order lookup failed", () => {
+    setHoldLookups({ held: { isError: true } })
+    mockUseOrders.mockReturnValue(EMPTY_ORDERS)
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+
+    expect(() => renderReadyToShipTable()).toThrow()
+    expect(mockUseOrders.mock.calls.at(-1)![1].enabled).toBe(false)
+
+    spy.mockRestore()
+  })
+
+  it("throws when the hold tag lookup failed", () => {
+    setHoldLookups({ tag: { isError: true } })
+    mockUseOrders.mockReturnValue(EMPTY_ORDERS)
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+
+    expect(() => renderReadyToShipTable()).toThrow()
+
+    spy.mockRestore()
   })
 })

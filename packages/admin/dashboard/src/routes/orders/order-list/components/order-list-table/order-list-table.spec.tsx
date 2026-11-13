@@ -40,6 +40,20 @@ vi.mock("../../../../../hooks/api/orders", () => ({
 // From column's store-wide default), independent of row count - so this
 // still needs mocking even with every table above on its "no records"
 // path.
+// The tab bar's counts and every table's held-order lookups reach
+// `lib/client` too; none of them matter for this wiring test.
+vi.mock("../../../../../hooks/api/order-view-counts", () => ({
+  useOrderViewCounts: () => ({
+    counts: {},
+    isLoading: false,
+    refetch: vi.fn(),
+  }),
+}))
+vi.mock("../../../../../hooks/api/order-holds", () => ({
+  useHoldTag: () => ({ tagId: null, isLoading: false, isError: false }),
+  useHeldOrderIds: () => ({ ids: [], isLoading: false, isError: false }),
+}))
+
 vi.mock("../../../../../hooks/api/store", () => ({
   useStore: () => ({ store: undefined }),
 }))
@@ -95,6 +109,9 @@ const renderOrderListTableAt = (initialPath: string) => {
 const ALL_MESSAGE = "orders.list.noRecordsMessage"
 const READY_TO_SHIP_MESSAGE = "orders.readyToShip.noRecordsMessage"
 const SHIPPED_MESSAGE = "orders.shipped.noRecordsMessage"
+const AWAITING_MESSAGE = "orders.awaitingPayment.noRecordsMessage"
+const ON_HOLD_MESSAGE = "orders.holdTable.noRecordsMessage"
+const CANCELLED_MESSAGE = "orders.cancelled.noRecordsMessage"
 
 describe("OrderListTable view/tab wiring", () => {
   it("renders the All table by default, with no view param in the URL", () => {
@@ -135,7 +152,7 @@ describe("OrderListTable view/tab wiring", () => {
     expect(screen.getByText(ALL_MESSAGE)).toBeTruthy()
 
     await user.click(
-      screen.getByRole("tab", { name: "orders.list.tabs.readyToShip" })
+      screen.getByRole("tab", { name: /orders\.list\.tabs\.readyToShip/ })
     )
 
     // The router's own location is the source of truth here, not just
@@ -154,7 +171,7 @@ describe("OrderListTable view/tab wiring", () => {
 
     expect(screen.getByText(READY_TO_SHIP_MESSAGE)).toBeTruthy()
 
-    await user.click(screen.getByRole("tab", { name: "orders.list.tabs.all" }))
+    await user.click(screen.getByRole("tab", { name: /orders\.list\.tabs\.all/ }))
 
     expect(router.state.location.search).toBe("")
     expect(screen.getByText(ALL_MESSAGE)).toBeTruthy()
@@ -166,11 +183,25 @@ describe("OrderListTable view/tab wiring", () => {
     const router = renderOrderListTableAt("/orders")
 
     await user.click(
-      screen.getByRole("tab", { name: "orders.list.tabs.shipped" })
+      screen.getByRole("tab", { name: /orders\.list\.tabs\.shipped/ })
     )
 
     expect(router.state.location.search).toBe("?view=shipped")
     expect(screen.getByText(SHIPPED_MESSAGE)).toBeTruthy()
     expect(screen.queryByText(ALL_MESSAGE)).toBeNull()
   })
+
+  it.each([
+    ["awaiting-payment", AWAITING_MESSAGE],
+    ["on-hold", ON_HOLD_MESSAGE],
+    ["cancelled", CANCELLED_MESSAGE],
+  ])(
+    "navigating directly to ?view=%s renders its own table",
+    (view, message) => {
+      renderOrderListTableAt(`/orders?view=${view}`)
+
+      expect(screen.getByText(message)).toBeTruthy()
+      expect(screen.queryByText(ALL_MESSAGE)).toBeNull()
+    }
+  )
 })

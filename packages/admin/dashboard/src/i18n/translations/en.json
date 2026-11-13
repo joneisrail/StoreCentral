@@ -1235,8 +1235,21 @@
       "tabs": {
         "all": "All",
         "readyToShip": "Ready to Ship",
-        "shipped": "Shipped"
+        "shipped": "Shipped",
+        "awaitingPayment": "Awaiting Payment",
+        "onHold": "On Hold",
+        "cancelled": "Cancelled"
       }
+    },
+    "awaitingPayment": {
+      "noRecordsMessage": "Orders awaiting payment will show up here."
+    },
+    "holdTable": {
+      "reason": "Reason",
+      "noRecordsMessage": "Orders on hold will show up here."
+    },
+    "cancelled": {
+      "noRecordsMessage": "Canceled orders will show up here."
     },
     "readyToShip": {
       "shipFrom": "Ship From",

@@ -34,6 +34,13 @@ vi.mock("../../../../../../hooks/api/orders", () => ({
 // `lib/client`'s build-time defines at module-evaluation time, regardless of
 // whether `ReadyToShipTable` itself is ever rendered here, so it needs
 // mocking for the same reason `useOrders` above does.
+// `ready-to-ship-table.tsx` also reads the hold tag / held ids; same
+// `lib/client` build-time-define reason as the mocks around this one.
+vi.mock("../../../../../../hooks/api/order-holds", () => ({
+  useHoldTag: () => ({ tagId: null, isLoading: false, isError: false }),
+  useHeldOrderIds: () => ({ ids: [], isLoading: false, isError: false }),
+}))
+
 vi.mock("../../../../../../hooks/api/store", () => ({
   useStore: () => ({ store: undefined }),
 }))
