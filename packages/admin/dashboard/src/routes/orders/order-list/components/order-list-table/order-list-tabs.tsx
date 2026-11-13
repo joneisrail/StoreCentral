@@ -2,9 +2,11 @@ import { Tabs } from "@medusajs/ui"
 import { useTranslation } from "react-i18next"
 import { Link, useSearchParams } from "react-router-dom"
 
+import type { OrderListView } from "../../order-views"
+
 export const VIEW_QUERY_PARAM = "view"
 
-export type OrderListView = "all" | "ready-to-ship" | "shipped"
+export type { OrderListView }
 
 /**
  * Reads the order list's active tab from the `view` query param. Falls

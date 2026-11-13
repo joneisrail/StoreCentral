@@ -25,6 +25,7 @@ import { useOrders } from "../../../../../../hooks/api/orders"
 import { useDataTable } from "../../../../../../hooks/use-data-table"
 import { formatProvider } from "../../../../../../lib/format-provider"
 import { SHIPPED_FIELDS } from "../../../const"
+import { SHIPPED_QUERY } from "../../../order-views"
 
 const PAGE_SIZE = 20
 const QUERY_PREFIX = "shp"
@@ -166,12 +167,7 @@ export const ShippedTable = () => {
   const { orders, count, isLoading, isError, error } = useOrders(
     {
       fields: SHIPPED_FIELDS,
-      fulfillment_status: [
-        "shipped",
-        "partially_shipped",
-        "partially_delivered",
-        "delivered",
-      ],
+      ...SHIPPED_QUERY,
       limit: PAGE_SIZE,
       offset,
       order: "-created_at",
