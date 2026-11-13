@@ -247,6 +247,34 @@ test("a failing listing is isolated and last_synced_at still advances when order
   }
 })
 
+test("a queue error on a never-pushed listing is isolated: the scan continues and the watermark advances", async () => {
+  const err = vi.spyOn(console, "error").mockImplementation(() => {})
+  try {
+    const s = setup({
+      listings: [listing({ id: "BAD" }), listing({ id: "GOOD" })],
+      orders: [{ shopifyOrderId: "gid://shopify/Order/9" }],
+    })
+    ;(s.inventoryQueue.add as ReturnType<typeof vi.fn>).mockImplementation(
+      async (_name: string, data: { channelListingId: string }) => {
+        if (data.channelListingId === "BAD") throw new Error("redis down")
+      }
+    )
+    ;(s.priceQueue.add as ReturnType<typeof vi.fn>).mockImplementation(
+      async (_name: string, data: { channelListingId: string }) => {
+        if (data.channelListingId === "BAD") throw new Error("redis down")
+      }
+    )
+    const r = await s.run()
+    expect(r.failedChecks).toBe(2)
+    expect(r).toMatchObject({ inventoryRequeued: 1, priceRequeued: 1, ordersRequeued: 1 })
+    expect(s.inventoryQueue.add).toHaveBeenCalledWith("reconcile", { channelListingId: "GOOD" })
+    expect(s.priceQueue.add).toHaveBeenCalledWith("reconcile", { channelListingId: "GOOD" })
+    expect(s.updates).toHaveLength(1)
+  } finally {
+    err.mockRestore()
+  }
+})
+
 test("an order fetch failure does not throw and last_synced_at does not advance", async () => {
   const err = vi.spyOn(console, "error").mockImplementation(() => {})
   try {
