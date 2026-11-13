@@ -1,8 +1,6 @@
-import type { MedusaRequest, MedusaResponse } from "@medusajs/framework/http"
+import type { MedusaResponse } from "@medusajs/framework/http"
 import { SellerHubError } from "./seller-hub-client"
 import type { SellerHubResult } from "./seller-hub-client"
-
-const WRITABLE = ["shopify", "woocommerce"]
 
 // Answers with seller-hub's status and body, or with the mapped error.
 export async function respond(
@@ -22,20 +20,12 @@ export async function respond(
   }
 }
 
-// Runs `call` for a shopify/woocommerce marketplace; amazon (read-only) and
-// anything else is a 400.
-export async function withMarketplace(
-  req: MedusaRequest,
-  res: MedusaResponse,
-  call: (marketplace: string) => Promise<SellerHubResult>
-): Promise<void> {
-  const marketplace = String((req.params as Record<string, string>).marketplace)
-  if (!WRITABLE.includes(marketplace)) {
-    res.status(400).json({
-      error: "not_supported",
-      message: "This marketplace cannot be managed here",
-    })
-    return
-  }
-  await respond(res, () => call(marketplace))
+// Drops blank strings so seller-hub keeps stored secrets.
+export function nonBlank(body: Record<string, unknown>): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(body).filter(([, v]) => typeof v === "string" && v !== "")
+  ) as Record<string, string>
 }
+
+export const connectionPath = (id: unknown, action?: string): string =>
+  `/internal/connections/${encodeURIComponent(String(id))}${action ? `/${action}` : ""}`
