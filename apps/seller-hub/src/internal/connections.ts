@@ -232,19 +232,23 @@ export const createInternalHandler = (deps: InternalHandlerDeps) => {
     id: string,
     marketplace: Marketplace,
     config: Config,
-    guardConnected: boolean
+    guardConnected: boolean,
+    progress: { saved: boolean } = { saved: false }
   ) => {
     if (marketplace === "amazon") {
       await saveConnectionById(deps.pool, deps.encryptionKey, id, config, "disconnected", null)
+      progress.saved = true
       return send(res, 200, { ok: true, connection: await viewOf(id), test: null })
     }
     const test = await runTest(marketplace, config)
     if (!test.ok) {
       if (guardConnected) return send(res, 422, { error: "test_failed", message: test.message })
       await saveConnectionById(deps.pool, deps.encryptionKey, id, config, "error", test.message)
+      progress.saved = true
       return send(res, 200, { ok: false, connection: await viewOf(id), test })
     }
     await saveConnectionById(deps.pool, deps.encryptionKey, id, config, "connected", null)
+    progress.saved = true
     const applied = await deps.manager.apply(id)
     const connection = await viewOf(id)
     if (applied.error) return send(res, 200, { ok: false, error: applied.error, connection, test })
@@ -277,6 +281,7 @@ export const createInternalHandler = (deps: InternalHandlerDeps) => {
       throw err
     }
 
+    const progress = { saved: false }
     try {
       let config: Config
       try {
@@ -306,9 +311,12 @@ export const createInternalHandler = (deps: InternalHandlerDeps) => {
         }
         throw err
       }
-      await saveAndApply(res, id, kind, config, false)
+      await saveAndApply(res, id, kind, config, false, progress)
     } catch (err) {
-      // Roll back so a retry does not hit "already linked". Class name only.
+      // Only a failure before the credentials were saved is rolled back (so a retry
+      // does not hit "already linked"); afterwards a runtime may be live and listings
+      // may reference the row. Class name only is logged.
+      if (progress.saved) throw err
       try {
         await deleteConnectionRow(deps.pool, id)
       } catch (e) {
@@ -334,7 +342,10 @@ export const createInternalHandler = (deps: InternalHandlerDeps) => {
       // Undecryptable: a request that supplies every required field replaces it outright.
       try {
         mergeConfig(marketplace, null, b)
-      } catch {
+      } catch (err) {
+        if (err instanceof ConnectionInputError && err.kind === "invalid") {
+          return send(res, 400, { error: "invalid_input", message: err.message, fields: err.fields })
+        }
         throw new UnreadableError()
       }
       stored = null

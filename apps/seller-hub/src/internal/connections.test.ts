@@ -683,16 +683,45 @@ test("delete of an amazon connection never touches the manager", async () => {
   expect(row.medusa_sales_channel_id).toBe("sc_amz")
 })
 
-test("an unexpected error after the row is created removes the row so a retry can succeed", async () => {
+test("a failure before credentials are saved removes the created row so a retry can succeed", async () => {
   await start()
-  manager.apply.mockRejectedValueOnce(new TypeError(`boom ${NEW_TOKEN}`))
+  testShopify.mockRejectedValueOnce(new TypeError(`boom ${NEW_TOKEN}`))
   const r = await call("POST", "/internal/connections", shopifyCreate())
   expect(r.status).toBe(500)
   expect(rows.find((x) => x.medusa_sales_channel_id === "sc_new")).toBeUndefined()
-  expectNoSecrets(logs.join("\n"))
+  expectNoSecrets(logs.join(" "))
   const retry = await call("POST", "/internal/connections", shopifyCreate())
   expect(retry.status).toBe(200)
   expect(retry.json.ok).toBe(true)
+})
+
+test("a failure after credentials are saved never deletes the row", async () => {
+  await start()
+  manager.get.mockImplementation(() => {
+    throw new TypeError(`boom ${NEW_TOKEN}`)
+  })
+  const r = await call("POST", "/internal/connections", shopifyCreate())
+  expect(r.status).toBe(500)
+  const row = rows.find((x) => x.medusa_sales_channel_id === "sc_new")
+  expect(row).toBeDefined()
+  expect(decrypt(row!.access_token_encrypted as string, KEY)).toBe(NEW_TOKEN)
+  expect(calls.some((c) => /^\s*DELETE/i.test(c.sql))).toBe(false)
+  expectNoSecrets(logs.join(" "))
+})
+
+test("edit with undecryptable ciphertext and a full but invalid body is 400 invalid_input", async () => {
+  await start([wooRow()].map((r) => ({ ...r, access_token_encrypted: "garbage" })))
+  const r = await call("PUT", `/internal/connections/${WOO_ID}`, {
+    site_url: "http://woo.example.com",
+    consumer_key: "ck_new",
+    consumer_secret: WOO_SECRET,
+    webhook_secret: WOO_WH,
+  })
+  expect(r.status).toBe(400)
+  expect(r.json.error).toBe("invalid_input")
+  expect(r.json.fields).toEqual(["siteUrl"])
+  expect(typeof r.json.message).toBe("string")
+  expectNoSecrets(r.text)
 })
 
 test("edit with undecryptable stored ciphertext replaces it when every field is supplied", async () => {
