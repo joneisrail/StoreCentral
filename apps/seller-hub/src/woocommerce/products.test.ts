@@ -85,3 +85,34 @@ test("setWooPrice sends only regular_price", async () => {
   ])
   expect(request.mock.calls[1][1]).toBe("/products/3/variations/31")
 })
+
+test("lists only simple products and variations; skips variable, grouped and external parents; does not dedupe", async () => {
+  const { client } = fakeClient((_m, path, opts) => {
+    if (path === "/products") {
+      return {
+        totalPages: 1,
+        data: [
+          { id: 1, sku: "PARENT", type: "variable", regular_price: "" },
+          { id: 2, sku: "G", type: "grouped", regular_price: "" },
+          { id: 3, sku: "E", type: "external", regular_price: "1.00" },
+          { id: 4, sku: "S", type: "simple", regular_price: "2.00" },
+        ],
+      }
+    }
+    if (path === "/products/1/variations") {
+      return {
+        totalPages: 1,
+        data: [
+          { id: 10, sku: "PARENT", regular_price: "5.00" },
+          { id: 11, sku: "V2", regular_price: "6.00" },
+        ],
+      }
+    }
+    throw new Error(`unexpected ${path} ${opts?.query?.page}`)
+  })
+  expect(await listWooListings(client)).toEqual([
+    { id: 10, parentId: 1, sku: "PARENT", price: "5.00" },
+    { id: 11, parentId: 1, sku: "V2", price: "6.00" },
+    { id: 4, parentId: null, sku: "S", price: "2.00" },
+  ])
+})

@@ -52,8 +52,12 @@ export const listWooListings = async (
   const out: WooListing[] = []
   const products = await fetchAll<RawProduct>(client, "/products")
   for (const p of products) {
-    const own = toListing(p, null)
-    if (own) out.push(own)
+    // Only simple products and variations are sellable units; variable,
+    // grouped and external parents are not linkable.
+    if (p.type === "simple") {
+      const own = toListing(p, null)
+      if (own) out.push(own)
+    }
     if (p.type === "variable") {
       const variations = await fetchAll<RawProduct>(
         client,
