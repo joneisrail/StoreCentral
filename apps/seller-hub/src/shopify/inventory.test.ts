@@ -69,3 +69,33 @@ test("userErrors become PermanentSyncError", async () => {
     })
   ).rejects.toBeInstanceOf(PermanentSyncError)
 })
+
+test("mutation uses @idempotent and sends the caller's key verbatim", async () => {
+  const f = vi
+    .fn()
+    .mockResolvedValue(ok({ inventorySetQuantities: { userErrors: [] } }))
+  await setShopifyAvailable(clientFor(f), {
+    inventoryItemId: "i",
+    locationId: "l",
+    quantity: 1,
+    idempotencyKey: "key-1",
+  })
+  const body = JSON.parse(f.mock.calls[0][1].body)
+  expect(body.query).toContain("@idempotent(key: $idempotencyKey)")
+  expect(body.variables.idempotencyKey).toBe("key-1")
+})
+
+test("omitted idempotency key is generated fresh per call", async () => {
+  const f = vi
+    .fn()
+    .mockResolvedValue(ok({ inventorySetQuantities: { userErrors: [] } }))
+  const c = clientFor(f)
+  const args = { inventoryItemId: "i", locationId: "l", quantity: 1 }
+  await setShopifyAvailable(c, args)
+  await setShopifyAvailable(c, args)
+  const k1 = JSON.parse(f.mock.calls[0][1].body).variables.idempotencyKey
+  const k2 = JSON.parse(f.mock.calls[1][1].body).variables.idempotencyKey
+  expect(k1).toBeTruthy()
+  expect(k2).toBeTruthy()
+  expect(k1).not.toBe(k2)
+})

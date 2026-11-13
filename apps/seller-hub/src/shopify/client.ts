@@ -1,7 +1,11 @@
 import { PermanentSyncError } from "../queue/queues.js"
 
-/** Pinned Shopify Admin API version (a stable quarterly release). */
-export const SHOPIFY_API_VERSION = "2025-10"
+/**
+ * Pinned Shopify Admin API version (stable quarterly release, supported ~12
+ * months). ASSUMPTION: inventory.ts relies on 2026-04+ behavior (the
+ * `@idempotent` directive on inventorySetQuantities). Revisit both together.
+ */
+export const SHOPIFY_API_VERSION = "2026-10"
 
 export type ShopifyClientConfig = {
   shopDomain: string
