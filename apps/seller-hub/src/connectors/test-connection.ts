@@ -11,14 +11,30 @@ const DEFAULT_TIMEOUT_MS = 10_000
 
 class TimeoutError extends Error {}
 
-/** Races the work against a timer; the timer is always cleared. */
-const withTimeout = async <T>(work: Promise<T>, timeoutMs: number): Promise<T> => {
+/**
+ * Runs `work` with a fetch that carries an AbortSignal. On timeout the signal
+ * is aborted (cancelling the hung request) and the timer is always cleared.
+ */
+const withTimeout = async <T>(
+  fetchImpl: typeof fetch | undefined,
+  timeoutMs: number,
+  work: (wrapped: typeof fetch) => Promise<T>
+): Promise<T> => {
+  const controller = new AbortController()
+  const base = fetchImpl ?? fetch
+  const wrapped = ((url: Parameters<typeof fetch>[0], init?: RequestInit) =>
+    base(url, { ...init, signal: controller.signal })) as typeof fetch
   let timer: ReturnType<typeof setTimeout> | undefined
   const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new TimeoutError("timed out")), timeoutMs)
+    timer = setTimeout(() => {
+      controller.abort()
+      reject(new TimeoutError("timed out"))
+    }, timeoutMs)
   })
+  const run = work(wrapped)
+  run.catch(() => {}) // avoid an unhandled rejection if the timeout wins
   try {
-    return await Promise.race([work, timeout])
+    return await Promise.race([run, timeout])
   } finally {
     clearTimeout(timer)
   }
@@ -38,32 +54,44 @@ const describeFailure = (err: unknown): string => {
     if (code === 404) return "not found (check the store address)"
     return `request failed (${code})`
   }
-  if (/GraphQL error/i.test(text)) return "credentials rejected or request invalid"
+  if (/still throttled/i.test(text)) return "store is rate limiting requests, try again shortly"
+  if (/GraphQL error/i.test(text)) return "request invalid (check access scopes and location ID)"
   return "could not reach the store"
 }
 
 const noopSleep = async (): Promise<void> => {}
 
-const toLocationGid = (id: string): string =>
-  id.startsWith("gid://") ? id : `gid://shopify/Location/${id}`
+const toLocationGid = (raw: string | undefined): string | null => {
+  const id = (raw ?? "").trim()
+  if (/^\d+$/.test(id)) return `gid://shopify/Location/${id}`
+  if (/^gid:\/\/shopify\/Location\/\d+$/.test(id)) return id
+  return null
+}
 
 export const testShopifyConnection = async (
   config: ShopifyConfig,
   opts: TestOpts = {}
 ): Promise<TestResult> => {
   try {
-    const client = new ShopifyClient({
-      shopDomain: config.shopDomain,
-      accessToken: config.accessToken,
-      fetchImpl: opts.fetchImpl,
-      sleep: noopSleep,
-    })
+    const locationGid = toLocationGid(config.locationId)
+    if (!locationGid) return { ok: false, message: "location ID is invalid" }
     const data = await withTimeout(
-      client.graphql<{ shop?: { name?: string } | null; location?: { id?: string } | null }>(
-        `query ConnectionTest($id: ID!) { shop { name } location(id: $id) { id } }`,
-        { id: toLocationGid(config.locationId) }
-      ),
-      opts.timeoutMs ?? DEFAULT_TIMEOUT_MS
+      opts.fetchImpl,
+      opts.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+      (fetchImpl) => {
+        const client = new ShopifyClient({
+          shopDomain: config.shopDomain,
+          accessToken: config.accessToken,
+          fetchImpl,
+          sleep: noopSleep,
+        })
+        return client.graphql<{
+          shop?: { name?: string } | null
+          location?: { id?: string } | null
+        }>(`query ConnectionTest($id: ID!) { shop { name } location(id: $id) { id } }`, {
+          id: locationGid,
+        })
+      }
     )
     if (!data?.location) return { ok: false, message: "location not found" }
     return { ok: true, detail: `Connected to ${data.shop?.name ?? config.shopDomain}` }
@@ -76,21 +104,21 @@ export const testWooCommerceConnection = async (
   config: WooCommerceConfig,
   opts: TestOpts = {}
 ): Promise<TestResult> => {
-  if (!config.siteUrl.trim().toLowerCase().startsWith("https://")) {
-    return { ok: false, message: "site URL must start with https://" }
-  }
   try {
-    const client = new WooCommerceClient({
-      siteUrl: config.siteUrl,
-      consumerKey: config.consumerKey,
-      consumerSecret: config.consumerSecret,
-      fetchImpl: opts.fetchImpl,
-      sleep: noopSleep,
+    const siteUrl = (config.siteUrl ?? "").trim()
+    if (!siteUrl.toLowerCase().startsWith("https://")) {
+      return { ok: false, message: "site URL must start with https://" }
+    }
+    await withTimeout(opts.fetchImpl, opts.timeoutMs ?? DEFAULT_TIMEOUT_MS, (fetchImpl) => {
+      const client = new WooCommerceClient({
+        siteUrl,
+        consumerKey: config.consumerKey,
+        consumerSecret: config.consumerSecret,
+        fetchImpl,
+        sleep: noopSleep,
+      })
+      return client.request("GET", "/products", { query: { per_page: 1 } })
     })
-    await withTimeout(
-      client.request("GET", "/products", { query: { per_page: 1 } }),
-      opts.timeoutMs ?? DEFAULT_TIMEOUT_MS
-    )
     return { ok: true, detail: "Connected to WooCommerce store" }
   } catch (err) {
     return { ok: false, message: describeFailure(err) }
