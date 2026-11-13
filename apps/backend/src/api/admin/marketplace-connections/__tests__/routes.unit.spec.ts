@@ -29,11 +29,14 @@ const makeRes = () => {
 }
 const makeReq = (id: string, validatedBody?: unknown) =>
   ({ params: { id }, validatedBody, scope: {} }) as any
-const createReq = (body: Record<string, unknown>) => ({ validatedBody: body, scope: {} }) as any
+const mockGraph = jest.fn()
+const createReq = (body: Record<string, unknown>) =>
+  ({ validatedBody: body, scope: { resolve: () => ({ graph: mockGraph }) } }) as any
 
 beforeEach(() => {
   mocked.mockReset()
   mockRun.mockReset()
+  mockGraph.mockReset()
   mockRun.mockResolvedValue({ result: { id: "sc_1", name: "Shop" } })
 })
 
@@ -47,6 +50,85 @@ describe("schemas", () => {
     expect(CreateConnectionSchema.safeParse({ marketplace: "ebay", name: "x" }).success).toBe(false)
     expect(CreateConnectionSchema.safeParse({ marketplace: "shopify", name: "" }).success).toBe(false)
     expect(CreateConnectionSchema.safeParse({ marketplace: "amazon", name: "A" }).success).toBe(true)
+  })
+})
+
+describe("attach to an existing sales channel", () => {
+  const body = { marketplace: "shopify", sales_channel_id: "sc_9", shop_domain: "a.myshopify.com", access_token: "topsecret" }
+
+  it("attach to existing channel succeeds without the workflow", async () => {
+    mockGraph.mockResolvedValue({ data: [{ id: "sc_9", name: "Existing" }] })
+    const connection = { id: "c1", status: "connected", sales_channel_id: "sc_9" }
+    mocked.mockResolvedValue({ status: 200, body: { ok: true, connection, test: { ok: true } } })
+    const res = makeRes()
+    await create(createReq(body), res)
+    expect(mockRun).not.toHaveBeenCalled()
+    expect(mocked).toHaveBeenCalledWith(
+      "POST",
+      "/internal/connections",
+      { marketplace: "shopify", sales_channel_id: "sc_9", shop_domain: "a.myshopify.com", access_token: "topsecret" },
+      { timeoutMs: 120_000 }
+    )
+    expect(res.payload).toEqual({
+      sales_channel: { id: "sc_9", name: "Existing" },
+      connection,
+      test: { ok: true },
+      connection_status: "connected",
+    })
+    expect(JSON.stringify(res.payload)).not.toContain("topsecret")
+  })
+
+  it("unknown channel is 404 and seller-hub is not called", async () => {
+    mockGraph.mockResolvedValue({ data: [] })
+    const res = makeRes()
+    await create(createReq(body), res)
+    expect(res.statusCode).toBe(404)
+    expect(res.payload.error).toBe("sales_channel_not_found")
+    expect(mocked).not.toHaveBeenCalled()
+  })
+
+  it("an already-connected channel gets a clear 400", async () => {
+    mockGraph.mockResolvedValue({ data: [{ id: "sc_9", name: "Existing" }] })
+    mocked.mockResolvedValue({ status: 400, body: { error: "invalid_input", fields: ["sales_channel_id"] } })
+    const res = makeRes()
+    await create(createReq(body), res)
+    expect(res.statusCode).toBe(400)
+    expect(res.payload.message).toBe("This sales channel already has a marketplace connection.")
+    expect(JSON.stringify(res.payload)).not.toContain("topsecret")
+  })
+
+  it("seller-hub down keeps the existing channel and reports unavailable", async () => {
+    mockGraph.mockResolvedValue({ data: [{ id: "sc_9", name: "Existing" }] })
+    mocked.mockRejectedValue(new SellerHubError(502, "Cannot reach seller-hub"))
+    const res = makeRes()
+    await create(createReq(body), res)
+    expect(res.payload).toMatchObject({ sales_channel: { id: "sc_9", name: "Existing" }, connection: null, connection_status: "unavailable" })
+    expect(res.payload.message).toContain("choose Connect to try again")
+  })
+
+  it("does not log bodies", async () => {
+    const spies = (["log", "info", "warn", "error", "debug"] as const).map((m) =>
+      jest.spyOn(console, m).mockImplementation(() => {})
+    )
+    mockGraph.mockResolvedValue({ data: [{ id: "sc_9", name: "Existing" }] })
+    mocked.mockRejectedValue(new Error("topsecret"))
+    await create(createReq(body), makeRes())
+    for (const s of spies) {
+      expect(JSON.stringify(s.mock.calls)).not.toContain("topsecret")
+      s.mockRestore()
+    }
+  })
+
+  it("schema: both or neither of name and sales_channel_id is rejected", () => {
+    expect(CreateConnectionSchema.safeParse({ marketplace: "shopify" }).success).toBe(false)
+    expect(CreateConnectionSchema.safeParse({ marketplace: "shopify", name: "A", sales_channel_id: "sc" }).success).toBe(false)
+    expect(CreateConnectionSchema.safeParse({ marketplace: "shopify", sales_channel_id: "sc" }).success).toBe(true)
+  })
+
+  it("schema: description and is_disabled need name", () => {
+    expect(CreateConnectionSchema.safeParse({ marketplace: "shopify", sales_channel_id: "sc", description: "d" }).success).toBe(false)
+    expect(CreateConnectionSchema.safeParse({ marketplace: "shopify", sales_channel_id: "sc", is_disabled: true }).success).toBe(false)
+    expect(CreateConnectionSchema.safeParse({ marketplace: "shopify", name: "A", description: "d", is_disabled: true }).success).toBe(true)
   })
 })
 

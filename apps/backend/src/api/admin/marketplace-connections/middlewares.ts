@@ -21,13 +21,24 @@ const credentialFields = {
 
 export const MARKETPLACES = ["shopify", "woocommerce", "amazon"] as const
 
-export const CreateConnectionSchema = z.strictObject({
-  marketplace: z.enum(MARKETPLACES),
-  name: z.string().trim().min(1).max(255),
-  description: z.string().trim().max(2000).optional(),
-  is_disabled: z.boolean().optional(),
-  ...credentialFields,
-})
+// Either `name` (create the channel, then connect) or `sales_channel_id`
+// (attach to an existing channel); description and is_disabled only go with name.
+export const CreateConnectionSchema = z
+  .strictObject({
+    marketplace: z.enum(MARKETPLACES),
+    name: z.string().trim().min(1).max(255).optional(),
+    sales_channel_id: z.string().trim().min(1).max(255).optional(),
+    description: z.string().trim().max(2000).optional(),
+    is_disabled: z.boolean().optional(),
+    ...credentialFields,
+  })
+  .refine((b) => (b.name === undefined) !== (b.sales_channel_id === undefined), {
+    message: "Provide either name or sales_channel_id",
+  })
+  .refine(
+    (b) => b.name !== undefined || (b.description === undefined && b.is_disabled === undefined),
+    { message: "description and is_disabled are only valid with name" }
+  )
 export type CreateConnectionSchema = z.infer<typeof CreateConnectionSchema>
 
 export const SaveConnectionSchema = z.strictObject(credentialFields)

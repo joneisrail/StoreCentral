@@ -44,7 +44,9 @@ export async function linkStockAndProducts(
   return { stock_locations: linkedLocations, products: productIds.length }
 }
 
-// No compensation: the channel is always kept and the links are re-creatable.
+// No compensation of its own: a failure here fails the workflow, which rolls
+// back the created channel. (Seller-hub failures happen after the workflow
+// and never lose the channel.)
 export const linkSalesChannelStockAndProductsStep = createStep(
   "link-sales-channel-stock-and-products",
   async (input: LinkSalesChannelStockAndProductsInput, { container }) =>
