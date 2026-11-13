@@ -290,3 +290,51 @@ test("never calls push functions or WooCommerce writes, nor Medusa writes", asyn
   expect(setWooStock).not.toHaveBeenCalled()
   expect(setWooPrice).not.toHaveBeenCalled()
 })
+
+test("a rejecting inventoryQueue.add for a NULL baseline is isolated, counted, and the scan completes", async () => {
+  const err = vi.spyOn(console, "error").mockImplementation(() => {})
+  try {
+    const s = setup({
+      listings: [
+        listing({ id: "BAD", last_synced_price: "10" }),
+        listing({ id: "GOOD", last_synced_price: "10" }),
+      ],
+      orders: [{ wooOrderId: "9" }],
+    })
+    ;(s.inventoryQueue.add as ReturnType<typeof vi.fn>).mockImplementation(async (_n: string, d: { channelListingId: string }) => {
+      if (d.channelListingId === "BAD") throw new Error("redis down")
+    })
+    const r = await s.run()
+    expect(r.failedChecks).toBe(1)
+    expect(r.inventoryRequeued).toBe(1)
+    expect(s.inventoryQueue.add).toHaveBeenCalledWith("reconcile", { channelListingId: "GOOD" })
+    expect(r.ordersRequeued).toBe(1)
+    expect(s.updates).toHaveLength(1)
+  } finally {
+    err.mockRestore()
+  }
+})
+
+test("a rejecting priceQueue.add for a NULL baseline is isolated, counted, and the scan completes", async () => {
+  const err = vi.spyOn(console, "error").mockImplementation(() => {})
+  try {
+    const s = setup({
+      listings: [
+        listing({ id: "BAD", last_synced_quantity: 0 }),
+        listing({ id: "GOOD", last_synced_quantity: 0 }),
+      ],
+      orders: [{ wooOrderId: "9" }],
+    })
+    ;(s.priceQueue.add as ReturnType<typeof vi.fn>).mockImplementation(async (_n: string, d: { channelListingId: string }) => {
+      if (d.channelListingId === "BAD") throw new Error("redis down")
+    })
+    const r = await s.run()
+    expect(r.failedChecks).toBe(1)
+    expect(r.priceRequeued).toBe(1)
+    expect(s.priceQueue.add).toHaveBeenCalledWith("reconcile", { channelListingId: "GOOD" })
+    expect(r.ordersRequeued).toBe(1)
+    expect(s.updates).toHaveLength(1)
+  } finally {
+    err.mockRestore()
+  }
+})

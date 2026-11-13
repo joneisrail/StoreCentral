@@ -97,8 +97,10 @@ export const reconcileWooCommerce = async (
   for (const row of rows) {
     // NULL baseline = never pushed: StoreCentral is the master, so push it.
     if (row.last_synced_quantity === null) {
-      await inventoryQueue.add("reconcile", { channelListingId: row.id })
-      inventoryRequeued++
+      await runCheck(row, "inventory", async () => {
+        await inventoryQueue.add("reconcile", { channelListingId: row.id })
+        inventoryRequeued++
+      })
     } else {
       await runCheck(row, "inventory", async () => {
         const inventory = await medusaClient.getVariantInventory(
@@ -116,8 +118,10 @@ export const reconcileWooCommerce = async (
     }
 
     if (row.last_synced_price === null) {
-      await priceQueue.add("reconcile", { channelListingId: row.id })
-      priceRequeued++
+      await runCheck(row, "price", async () => {
+        await priceQueue.add("reconcile", { channelListingId: row.id })
+        priceRequeued++
+      })
     } else {
       await runCheck(row, "price", async () => {
         const pricing = await medusaClient.getVariantPricing(
