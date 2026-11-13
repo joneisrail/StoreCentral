@@ -42,6 +42,8 @@ export type StartWooCommerceDeps = {
   createWorker?: typeof createSyncWorker
   fetchImpl?: typeof fetch
   sleep?: (ms: number) => Promise<void>
+  /** When set, orders are attributed to this sales channel without a name lookup. */
+  salesChannelId?: string | null
 }
 
 export type WooCommerceRuntime = {
@@ -49,6 +51,10 @@ export type WooCommerceRuntime = {
   webhook: WooCommerceWebhookDeps
   /** Settles when the boot-time SKU link finishes (null if it failed). */
   linked: Promise<LinkResult | null>
+  /** Re-runs the SKU link and returns its result (rejects on failure). */
+  relink: () => Promise<LinkResult>
+  /** Closes all workers and queues and removes the repeatable reconcile job. Idempotent. */
+  stop: () => Promise<void>
 }
 
 type JobLike<T> = { name: string; data: T }
@@ -89,12 +95,15 @@ export const startWooCommerce = async (
   })
   const integrationAccountId = account.id
 
-  const linked = linkWooCommerceListings({
+  const runLink = () =>
+    linkWooCommerceListings({
     pool,
     medusaClient,
     wooClient,
     integrationAccountId,
-  }).then(
+  })
+
+  const linked = runLink().then(
     (result) => {
       console.log(
         `[seller-hub] WooCommerce SKU link: ${result.linked} linked, ` +
@@ -116,10 +125,13 @@ export const startWooCommerce = async (
   const inventoryQueue = createQueue("woocommerce-inventory-sync", redisConnection)
   const priceQueue = createQueue("woocommerce-price-sync", redisConnection)
 
+  const queues = [orderQueue, inventoryQueue, priceQueue]
+  const workers: Array<{ close: () => Promise<void> }> = []
+
   let cachedSalesChannelId: string | null = null
 
   // No job-name routing here: every job on this queue is an order import.
-  createWorker<WooOrderSyncJobData>(
+  workers.push(createWorker<WooOrderSyncJobData>(
     "woocommerce-order-sync",
     redisConnection,
     async (job: JobLike<WooOrderSyncJobData>) => {
@@ -128,6 +140,7 @@ export const startWooCommerce = async (
         medusaClient,
         integrationAccountId,
         resolveSalesChannelId: async () => {
+          if (deps.salesChannelId) return deps.salesChannelId
           if (!cachedSalesChannelId) {
             cachedSalesChannelId =
               await medusaClient.findSalesChannelIdByName("WordPress")
@@ -141,9 +154,9 @@ export const startWooCommerce = async (
           (result.medusaOrderId ? ` (${result.medusaOrderId})` : "")
       )
     }
-  )
+  ))
 
-  createWorker<InventorySyncJobData | Record<string, never>>(
+  workers.push(createWorker<InventorySyncJobData | Record<string, never>>(
     "woocommerce-inventory-sync",
     redisConnection,
     async (job: JobLike<InventorySyncJobData | Record<string, never>>) => {
@@ -175,9 +188,9 @@ export const startWooCommerce = async (
         channelListingId,
       })
     }
-  )
+  ))
 
-  createWorker<PriceSyncJobData>(
+  workers.push(createWorker<PriceSyncJobData>(
     "woocommerce-price-sync",
     redisConnection,
     async (job: JobLike<PriceSyncJobData>) => {
@@ -194,7 +207,7 @@ export const startWooCommerce = async (
         channelListingId,
       })
     }
-  )
+  ))
   console.log("[seller-hub] WooCommerce queues and workers started")
 
   // Added directly (not via scheduleReconciliation, which also adds the Amazon
@@ -208,6 +221,29 @@ export const startWooCommerce = async (
     `[seller-hub] scheduled WooCommerce reconciliation every ${reconcileIntervalMs}ms`
   )
 
+  let stopped = false
+  const stop = async (): Promise<void> => {
+    if (stopped) return
+    stopped = true
+    const attempt = async (what: string, fn: () => Promise<unknown>) => {
+      try {
+        await fn()
+      } catch (err) {
+        console.error(
+          `[seller-hub] WooCommerce stop: ${what} failed:`,
+          err instanceof Error ? err.message : String(err)
+        )
+      }
+    }
+    await attempt("remove reconcile schedule", () =>
+      inventoryQueue.removeRepeatable(RECONCILE_WOOCOMMERCE_JOB, {
+        every: reconcileIntervalMs,
+      })
+    )
+    for (const w of workers) await attempt("close worker", () => w.close())
+    for (const q of queues) await attempt("close queue", () => q.close())
+  }
+
   return {
     webhook: {
       webhookSecret: config.webhookSecret,
@@ -216,6 +252,8 @@ export const startWooCommerce = async (
       priceQueue,
     },
     linked,
+    relink: () => runLink(),
+    stop,
   }
 }
 

@@ -39,6 +39,8 @@ export type StartShopifyDeps = {
   createWorker?: typeof createSyncWorker
   fetchImpl?: typeof fetch
   sleep?: (ms: number) => Promise<void>
+  /** When set, orders are attributed to this sales channel without a name lookup. */
+  salesChannelId?: string | null
 }
 
 export type ShopifyRuntime = {
@@ -46,6 +48,10 @@ export type ShopifyRuntime = {
   webhook: ShopifyWebhookDeps
   /** Settles when the boot-time SKU link finishes (null if it failed). */
   linked: Promise<LinkResult | null>
+  /** Re-runs the SKU link and returns its result (rejects on failure). */
+  relink: () => Promise<LinkResult>
+  /** Closes all workers and queues and removes the repeatable reconcile job. Idempotent. */
+  stop: () => Promise<void>
 }
 
 type JobLike<T> = { name: string; data: T }
@@ -85,12 +91,15 @@ export const startShopify = async (
   })
   const integrationAccountId = account.id
 
-  const linked = linkShopifyVariants({
+  const runLink = () =>
+    linkShopifyVariants({
     pool,
     medusaClient,
     shopifyClient,
     integrationAccountId,
-  }).then(
+  })
+
+  const linked = runLink().then(
     (result) => {
       console.log(
         `[seller-hub] Shopify SKU link: ${result.linked} linked, ` +
@@ -109,10 +118,13 @@ export const startShopify = async (
   const inventoryQueue = createQueue("shopify-inventory-sync", redisConnection)
   const priceQueue = createQueue("shopify-price-sync", redisConnection)
 
+  const queues = [orderQueue, inventoryQueue, priceQueue]
+  const workers: Array<{ close: () => Promise<void> }> = []
+
   let cachedSalesChannelId: string | null = null
 
   // No job-name routing here: every job on this queue is an order import.
-  createWorker<ShopifyOrderSyncJobData>(
+  workers.push(createWorker<ShopifyOrderSyncJobData>(
     "shopify-order-sync",
     redisConnection,
     async (job: JobLike<ShopifyOrderSyncJobData>) => {
@@ -121,6 +133,7 @@ export const startShopify = async (
         medusaClient,
         integrationAccountId,
         resolveSalesChannelId: async () => {
+          if (deps.salesChannelId) return deps.salesChannelId
           if (!cachedSalesChannelId) {
             cachedSalesChannelId =
               await medusaClient.findSalesChannelIdByName("Shopify")
@@ -135,9 +148,9 @@ export const startShopify = async (
           (result.medusaOrderId ? ` (${result.medusaOrderId})` : "")
       )
     }
-  )
+  ))
 
-  createWorker<InventorySyncJobData | Record<string, never>>(
+  workers.push(createWorker<InventorySyncJobData | Record<string, never>>(
     "shopify-inventory-sync",
     redisConnection,
     async (job: JobLike<InventorySyncJobData | Record<string, never>>) => {
@@ -170,9 +183,9 @@ export const startShopify = async (
         channelListingId,
       })
     }
-  )
+  ))
 
-  createWorker<PriceSyncJobData>(
+  workers.push(createWorker<PriceSyncJobData>(
     "shopify-price-sync",
     redisConnection,
     async (job: JobLike<PriceSyncJobData>) => {
@@ -189,7 +202,7 @@ export const startShopify = async (
         channelListingId,
       })
     }
-  )
+  ))
   console.log("[seller-hub] Shopify queues and workers started")
 
   // Added directly (not via scheduleReconciliation's `shopify` option, which
@@ -204,6 +217,29 @@ export const startShopify = async (
     `[seller-hub] scheduled Shopify reconciliation every ${reconcileIntervalMs}ms`
   )
 
+  let stopped = false
+  const stop = async (): Promise<void> => {
+    if (stopped) return
+    stopped = true
+    const attempt = async (what: string, fn: () => Promise<unknown>) => {
+      try {
+        await fn()
+      } catch (err) {
+        console.error(
+          `[seller-hub] Shopify stop: ${what} failed:`,
+          err instanceof Error ? err.message : String(err)
+        )
+      }
+    }
+    await attempt("remove reconcile schedule", () =>
+      inventoryQueue.removeRepeatable(RECONCILE_SHOPIFY_JOB, {
+        every: reconcileIntervalMs,
+      })
+    )
+    for (const w of workers) await attempt("close worker", () => w.close())
+    for (const q of queues) await attempt("close queue", () => q.close())
+  }
+
   return {
     webhook: {
       webhookSecret: config.webhookSecret,
@@ -212,6 +248,8 @@ export const startShopify = async (
       priceQueue,
     },
     linked,
+    relink: () => runLink(),
+    stop,
   }
 }
 
