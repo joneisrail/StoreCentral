@@ -374,3 +374,196 @@ test("a rejecting Shopify queue does not stop the Amazon enqueue or change the 2
   expect(amazon.inventoryQueue.add).toHaveBeenCalledTimes(1)
   server.close()
 })
+
+// ---- WooCommerce webhook route + Medusa fan-out ----
+
+const makeWoo = () => ({
+  webhookSecret: SECRET,
+  orderQueue: { add: vi.fn() } as unknown as Queue,
+  inventoryQueue: { add: vi.fn() } as unknown as Queue,
+  priceQueue: { add: vi.fn() } as unknown as Queue,
+})
+
+const startWooServer = (
+  woocommerce?: ReturnType<typeof makeWoo>,
+  shopify?: ReturnType<typeof makeShopify>
+) => {
+  const amazon = {
+    inventoryQueue: { add: vi.fn() } as unknown as Queue,
+    priceQueue: { add: vi.fn() } as unknown as Queue,
+  }
+  const server = createWebhookServer({ ...amazon, shopify, woocommerce })
+  server.listen(0)
+  const port = (server.address() as AddressInfo).port
+  return { server, amazon, url: `http://localhost:${port}` }
+}
+
+const postWoo = (
+  url: string,
+  topic: string,
+  body: string,
+  sig: string | undefined = signBody(body),
+  contentType = "application/json"
+) =>
+  fetch(`${url}/webhooks/woocommerce`, {
+    method: "POST",
+    headers: {
+      "Content-Type": contentType,
+      "X-WC-Webhook-Topic": topic,
+      ...(sig === undefined ? {} : { "X-WC-Webhook-Signature": sig }),
+    },
+    body,
+  })
+
+test("POST /webhooks/woocommerce with a bad signature returns 401 and queues nothing", async () => {
+  const woo = makeWoo()
+  const { server, url } = startWooServer(woo)
+  const body = JSON.stringify({ id: 5 })
+  expect((await postWoo(url, "order.created", body, "bogus")).status).toBe(401)
+  expect((await fetch(`${url}/webhooks/woocommerce`, { method: "POST", body })).status).toBe(401)
+  expect(woo.orderQueue.add).not.toHaveBeenCalled()
+  server.close()
+})
+
+test("POST /webhooks/woocommerce with a bad signature and malformed JSON is 401, not 400", async () => {
+  const woo = makeWoo()
+  const { server, url } = startWooServer(woo)
+  const res = await postWoo(url, "order.created", "{not json", "bogus")
+  expect(res.status).toBe(401)
+  expect(woo.orderQueue.add).not.toHaveBeenCalled()
+  server.close()
+})
+
+test("POST /webhooks/woocommerce order.created queues one job keyed by the order id", async () => {
+  const woo = makeWoo()
+  const { server, url } = startWooServer(woo)
+  const res = await postWoo(url, "order.created", JSON.stringify({ id: 727 }))
+  expect(res.status).toBe(200)
+  expect(woo.orderQueue.add).toHaveBeenCalledTimes(1)
+  expect(woo.orderQueue.add).toHaveBeenCalledWith(
+    "order.created",
+    { wooOrderId: "727" },
+    { jobId: "woocommerce-order-727", removeOnComplete: true, removeOnFail: true }
+  )
+  server.close()
+})
+
+test("POST /webhooks/woocommerce handles order.updated and order.restored", async () => {
+  const woo = makeWoo()
+  const { server, url } = startWooServer(woo)
+  await postWoo(url, "order.updated", JSON.stringify({ id: 1 }))
+  await postWoo(url, "order.restored", JSON.stringify({ id: 2 }))
+  expect(woo.orderQueue.add).toHaveBeenCalledTimes(2)
+  server.close()
+})
+
+test("POST /webhooks/woocommerce the same delivery twice uses the same job id", async () => {
+  const woo = makeWoo()
+  const { server, url } = startWooServer(woo)
+  const body = JSON.stringify({ id: 5 })
+  await postWoo(url, "order.created", body)
+  await postWoo(url, "order.created", body)
+  const calls = (woo.orderQueue.add as any).mock.calls
+  expect(calls).toHaveLength(2)
+  expect(calls[0][2].jobId).toBe(calls[1][2].jobId)
+  const id: string = calls[0][2].jobId
+  expect(id).toMatch(/^woocommerce-order-\d+$/)
+  expect(String(parseInt(id, 10))).not.toBe(id)
+  const validate = (opts: object) =>
+    (Job.prototype as any).validateOptions.call(
+      { opts, name: "order.created" },
+      {}
+    )
+  expect(() => validate(calls[0][2])).not.toThrow()
+  expect(() => validate({ jobId: "727" })).toThrow(/integers/)
+  server.close()
+})
+
+test("POST /webhooks/woocommerce signed form-encoded ping returns 200 and queues nothing", async () => {
+  const woo = makeWoo()
+  const { server, url } = startWooServer(woo)
+  const res = await postWoo(
+    url,
+    "",
+    "webhook_id=3",
+    signBody("webhook_id=3"),
+    "application/x-www-form-urlencoded"
+  )
+  expect(res.status).toBe(200)
+  expect(woo.orderQueue.add).not.toHaveBeenCalled()
+  server.close()
+})
+
+test("POST /webhooks/woocommerce unknown topic returns 200 and queues nothing", async () => {
+  const woo = makeWoo()
+  const { server, url } = startWooServer(woo)
+  const res = await postWoo(url, "product.updated", JSON.stringify({ id: 5 }))
+  expect(res.status).toBe(200)
+  expect(woo.orderQueue.add).not.toHaveBeenCalled()
+  server.close()
+})
+
+test("POST /webhooks/woocommerce signed order body without a usable id is 400", async () => {
+  const woo = makeWoo()
+  const { server, url } = startWooServer(woo)
+  expect((await postWoo(url, "order.created", JSON.stringify({ id: "abc" }))).status).toBe(400)
+  expect((await postWoo(url, "order.created", JSON.stringify({}))).status).toBe(400)
+  expect((await postWoo(url, "order.created", "null")).status).toBe(400)
+  expect(woo.orderQueue.add).not.toHaveBeenCalled()
+  server.close()
+})
+
+test("POST /webhooks/woocommerce returns 500 when the order enqueue fails", async () => {
+  const woo = makeWoo()
+  ;(woo.orderQueue.add as any).mockRejectedValue(new Error("redis down"))
+  const { server, url } = startWooServer(woo)
+  const res = await postWoo(url, "order.created", JSON.stringify({ id: 9 }))
+  expect(res.status).toBe(500)
+  server.close()
+})
+
+test("POST /webhooks/woocommerce is 404 when woocommerce deps are absent", async () => {
+  const { server, url } = startWooServer()
+  const res = await postWoo(url, "order.created", "{}")
+  expect(res.status).toBe(404)
+  server.close()
+})
+
+test("Medusa events fan out to Amazon, Shopify and WooCommerce queues", async () => {
+  const shopify = makeShopify()
+  const woo = makeWoo()
+  const { server, amazon, url } = startWooServer(woo, shopify)
+  const send = (event: string, id: string) =>
+    fetch(`${url}/webhooks/medusa`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ event, data: { id } }),
+    })
+  expect((await send("inventory-level.updated", "ilev_1")).status).toBe(200)
+  expect((await send("product-variant.updated", "v1")).status).toBe(200)
+  const inv = ["inventory-level.updated", { inventoryLevelId: "ilev_1" }] as const
+  const price = ["product-variant.updated", { variantId: "v1" }] as const
+  expect(amazon.inventoryQueue.add).toHaveBeenCalledWith(...inv)
+  expect(shopify.inventoryQueue.add).toHaveBeenCalledWith(...inv)
+  expect(woo.inventoryQueue.add).toHaveBeenCalledWith(...inv)
+  expect(amazon.priceQueue.add).toHaveBeenCalledWith(...price)
+  expect(shopify.priceQueue.add).toHaveBeenCalledWith(...price)
+  expect(woo.priceQueue.add).toHaveBeenCalledWith(...price)
+  server.close()
+})
+
+test("a rejecting WooCommerce queue does not stop the others or change the 200", async () => {
+  const shopify = makeShopify()
+  const woo = makeWoo()
+  ;(woo.inventoryQueue.add as any).mockRejectedValue(new Error("redis down"))
+  const { server, amazon, url } = startWooServer(woo, shopify)
+  const res = await fetch(`${url}/webhooks/medusa`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ event: "inventory-level.updated", data: { id: "ilev_1" } }),
+  })
+  expect(res.status).toBe(200)
+  expect(amazon.inventoryQueue.add).toHaveBeenCalledTimes(1)
+  expect(shopify.inventoryQueue.add).toHaveBeenCalledTimes(1)
+  server.close()
+})

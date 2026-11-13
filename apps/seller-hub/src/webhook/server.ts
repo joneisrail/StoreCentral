@@ -1,8 +1,16 @@
 import http from "node:http"
 import type { Queue } from "bullmq"
 import { verifyShopifyHmac } from "../shopify/webhook.js"
+import { verifyWooSignature } from "../woocommerce/webhook.js"
 
 export type ShopifyWebhookDeps = {
+  webhookSecret: string
+  orderQueue: Queue
+  inventoryQueue: Queue
+  priceQueue: Queue
+}
+
+export type WooCommerceWebhookDeps = {
   webhookSecret: string
   orderQueue: Queue
   inventoryQueue: Queue
@@ -14,7 +22,15 @@ export type CreateWebhookServerDeps = {
   priceQueue: Queue
   /** When present, enables `POST /webhooks/shopify` and the Medusa fan-out. */
   shopify?: ShopifyWebhookDeps
+  /** When present, enables `POST /webhooks/woocommerce` and the WooCommerce Medusa fan-out. */
+  woocommerce?: WooCommerceWebhookDeps
 }
+
+const WOO_ORDER_TOPICS = new Set([
+  "order.created",
+  "order.updated",
+  "order.restored",
+])
 
 const SHOPIFY_ORDER_TOPICS = new Set([
   "orders/create",
@@ -44,7 +60,7 @@ type MedusaWebhookBody = {
 export const createWebhookServer = (
   deps: CreateWebhookServerDeps
 ): http.Server => {
-  const { inventoryQueue, priceQueue, shopify } = deps
+  const { inventoryQueue, priceQueue, shopify, woocommerce } = deps
 
   return http.createServer((req, res) => {
     if (shopify && req.method === "POST" && req.url === "/webhooks/shopify") {
@@ -64,6 +80,27 @@ export const createWebhookServer = (
       return
     }
 
+    if (
+      woocommerce &&
+      req.method === "POST" &&
+      req.url === "/webhooks/woocommerce"
+    ) {
+      // Raw Buffer chunks: the HMAC must cover the exact bytes WooCommerce sent.
+      const chunks: Buffer[] = []
+      req.on("data", (chunk: Buffer) => {
+        chunks.push(chunk)
+      })
+      req.on("end", () => {
+        void handleWooCommerceRequest(
+          Buffer.concat(chunks),
+          req.headers,
+          res,
+          woocommerce
+        )
+      })
+      return
+    }
+
     if (req.method !== "POST" || req.url !== "/webhooks/medusa") {
       res.writeHead(404).end()
       return
@@ -75,7 +112,12 @@ export const createWebhookServer = (
     })
 
     req.on("end", () => {
-      void handleRequestBody(rawBody, res, { inventoryQueue, priceQueue, shopify })
+      void handleRequestBody(rawBody, res, {
+        inventoryQueue,
+        priceQueue,
+        shopify,
+        woocommerce,
+      })
     })
   })
 }
@@ -143,6 +185,109 @@ const handleRequestBody = async (
         err
       )
     }
+  }
+
+  // Same for WooCommerce: independent, logged-only on failure.
+  if (queues.woocommerce) {
+    try {
+      await routeWooCommerceEvent(webhookBody, queues.woocommerce)
+    } catch (err) {
+      console.error(
+        `[webhook] failed to enqueue WooCommerce job for event "${webhookBody.event}":`,
+        err
+      )
+    }
+  }
+
+  res.writeHead(200, { "Content-Type": "application/json" }).end(
+    JSON.stringify({ received: true })
+  )
+}
+
+const routeWooCommerceEvent = async (
+  body: MedusaWebhookBody,
+  woo: WooCommerceWebhookDeps
+): Promise<void> => {
+  const { event, data } = body
+  if (event.startsWith(INVENTORY_EVENT_PREFIX)) {
+    await woo.inventoryQueue.add(event, { inventoryLevelId: data.id })
+  } else if (event.startsWith(PRICE_EVENT_PREFIX)) {
+    await woo.priceQueue.add(event, { variantId: data.id })
+  }
+}
+
+/**
+ * Handles `POST /webhooks/woocommerce`. The HMAC is verified over the raw
+ * bytes BEFORE any JSON parsing or queueing. WooCommerce's creation "ping" is
+ * a signed form-encoded body (`webhook_id=...`); it is acknowledged with 200
+ * and nothing is queued, as are non-order topics (WooCommerce disables a
+ * webhook after repeated non-2xx replies). Only a genuine enqueue failure
+ * returns 500 so WooCommerce retries. Job id is `woocommerce-order-<id>`
+ * (BullMQ rejects integer-only ids).
+ */
+const handleWooCommerceRequest = async (
+  rawBody: Buffer,
+  headers: http.IncomingHttpHeaders,
+  res: http.ServerResponse,
+  woo: WooCommerceWebhookDeps
+): Promise<void> => {
+  const signature = headers["x-wc-webhook-signature"]
+  if (
+    !verifyWooSignature(
+      rawBody,
+      Array.isArray(signature) ? signature[0] : signature,
+      woo.webhookSecret
+    )
+  ) {
+    res.writeHead(401).end()
+    return
+  }
+
+  let payload: unknown
+  try {
+    payload = JSON.parse(rawBody.toString("utf8"))
+  } catch {
+    // Signed but not JSON: the form-encoded creation ping. Acknowledge.
+    res.writeHead(200).end()
+    return
+  }
+
+  const topicHeader = headers["x-wc-webhook-topic"]
+  const topic = Array.isArray(topicHeader) ? topicHeader[0] : topicHeader
+  if (!topic || !WOO_ORDER_TOPICS.has(topic)) {
+    console.log(
+      `[webhook] ignoring WooCommerce topic "${(topic ?? "").slice(0, 64)}"`
+    )
+    res.writeHead(200).end()
+    return
+  }
+
+  const id =
+    typeof payload === "object" && payload !== null
+      ? (payload as { id?: unknown }).id
+      : undefined
+  if (typeof id !== "number" || !Number.isSafeInteger(id) || id <= 0) {
+    respondBadRequest(res, "Missing required field: id")
+    return
+  }
+
+  try {
+    await woo.orderQueue.add(
+      topic,
+      { wooOrderId: String(id) },
+      {
+        // BullMQ rejects purely numeric custom ids, so prefix it.
+        jobId: `woocommerce-order-${id}`,
+        // Dedup only while in flight; the import is idempotent via sync_job.
+        removeOnComplete: true,
+        removeOnFail: true,
+      }
+    )
+  } catch (err) {
+    // Non-2xx makes WooCommerce retry the delivery, which is what we want here.
+    console.error(`[webhook] failed to enqueue WooCommerce order ${id}:`, err)
+    res.writeHead(500).end()
+    return
   }
 
   res.writeHead(200, { "Content-Type": "application/json" }).end(
