@@ -15,3 +15,14 @@ test("schema adds the Shopify columns idempotently", () => {
     )
   }
 })
+
+test("schema adds the WooCommerce columns idempotently", () => {
+  for (const [table, col] of [
+    ["integration_account", "api_key"],
+    ["channel_listing", "external_parent_id"],
+  ]) {
+    const stmt = `ALTER TABLE seller_hub.${table} ADD COLUMN IF NOT EXISTS ${col} TEXT;`
+    expect(SCHEMA_SQL).toContain(stmt)
+    expect(SCHEMA_SQL.split(stmt)).toHaveLength(2)
+  }
+})

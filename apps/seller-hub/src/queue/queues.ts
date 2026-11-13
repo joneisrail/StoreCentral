@@ -15,6 +15,9 @@ export type SyncQueueName =
   | "shopify-inventory-sync"
   | "shopify-price-sync"
   | "shopify-order-sync"
+  | "woocommerce-inventory-sync"
+  | "woocommerce-price-sync"
+  | "woocommerce-order-sync"
 
 const DEFAULT_ATTEMPTS = 5
 // `jitter` is required by the plan's Global Constraints section

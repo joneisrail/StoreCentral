@@ -60,4 +60,8 @@ ALTER TABLE seller_hub.integration_account ADD COLUMN IF NOT EXISTS access_token
 ALTER TABLE seller_hub.integration_account ADD COLUMN IF NOT EXISTS shopify_location_id TEXT;
 ALTER TABLE seller_hub.channel_listing ADD COLUMN IF NOT EXISTS external_variant_id TEXT;
 ALTER TABLE seller_hub.channel_listing ADD COLUMN IF NOT EXISTS external_inventory_item_id TEXT;
+
+-- WooCommerce connector: consumer key and the parent product id for variations.
+ALTER TABLE seller_hub.integration_account ADD COLUMN IF NOT EXISTS api_key TEXT;
+ALTER TABLE seller_hub.channel_listing ADD COLUMN IF NOT EXISTS external_parent_id TEXT;
 `
