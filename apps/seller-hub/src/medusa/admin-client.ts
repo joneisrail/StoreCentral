@@ -41,6 +41,7 @@ type InventoryItemWithLevelsAndVariants = {
 // above this single-tenant service's expected catalog size.
 const INVENTORY_ITEM_PAGE_SIZE = 200
 const MAX_INVENTORY_ITEM_PAGES = 10
+const VARIANT_PAGE_SIZE = 200
 
 /**
  * Thin HTTP wrapper around Medusa's Admin API, scoped to exactly what
@@ -368,6 +369,34 @@ export class MedusaAdminClient {
       }
     }
     return null
+  }
+
+  /**
+   * Lists every Medusa variant that has a non-blank SKU, paging through
+   * `/admin/product-variants`. Used to link Shopify variants to Medusa
+   * variants by SKU. SKUs are returned trimmed but otherwise untouched.
+   */
+  async listVariantsBySku(): Promise<
+    { variantId: string; productId: string; sku: string }[]
+  > {
+    const out: { variantId: string; productId: string; sku: string }[] = []
+    let offset = 0
+    while (true) {
+      const response = await this.authedFetch(
+        `/admin/product-variants?limit=${VARIANT_PAGE_SIZE}&offset=${offset}&fields=id,product_id,sku`
+      )
+      const body = (await response.json()) as {
+        variants: { id: string; product_id: string; sku?: string | null }[]
+        count?: number
+      }
+      for (const v of body.variants) {
+        const sku = v.sku?.trim()
+        if (sku) out.push({ variantId: v.id, productId: v.product_id, sku })
+      }
+      offset += body.variants.length
+      if (body.variants.length === 0 || offset >= (body.count ?? 0)) break
+    }
+    return out
   }
 
   /**
