@@ -168,3 +168,32 @@ stock management for each linked product.
 - There is a brief oversell window between a sale on WooCommerce and its import
   into Medusa (webhook or drift check), during which Medusa's stock has not yet
   been decremented.
+
+## Managing connections from the admin
+
+Shopify and WooCommerce can be connected, changed and disconnected from the
+**Marketplace connections** page in the Medusa admin (built in a later task),
+without editing env files or restarting this service. Saving a connection tests
+the credentials first, then applies them live: the webhook server and workers
+switch over immediately.
+
+- **Internal secret.** The admin talks to this service through an internal API
+  that is authenticated with a shared secret. Set the same
+  `SELLER_HUB_INTERNAL_SECRET` in both seller-hub and the backend, and set
+  `SELLER_HUB_INTERNAL_URL` in the backend to this service's address. When the
+  secret is unset here, the internal API is disabled and `/internal/*` returns
+  404.
+- **Public URL.** Set `SELLER_HUB_PUBLIC_URL` (for example
+  `https://hub.example.com`) so the admin can show the webhook URLs to register
+  in Shopify and WooCommerce. It is only used for display.
+- **Env variables are a fallback.** `SHOPIFY_*` and `WOOCOMMERCE_*` still work
+  exactly as before. A connection saved from the admin takes precedence over
+  them.
+- **Disconnecting.** Disconnect stops the connector and clears the stored
+  credentials. If the env variables are still set, the connector reconnects from
+  them on the next restart; remove them to stay disconnected.
+- **Network exposure.** The internal API must be reachable only from the
+  backend (private network or firewall rule). Do not expose `/internal/*`
+  publicly; only `/webhooks/*` needs to be reachable from the internet.
+- **Amazon is read-only for now.** The page shows Amazon's status but it cannot
+  be connected or changed there yet.

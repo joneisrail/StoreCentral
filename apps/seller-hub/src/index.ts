@@ -26,10 +26,8 @@ import {
   type InventorySyncJobData,
   type PriceSyncJobData,
 } from "./sync/resolve-channel-listing.js"
-import { startShopifyIfConfigured } from "./shopify/bootstrap.js"
-import { loadShopifyConfig } from "./shopify/config.js"
-import { startWooCommerceIfConfigured } from "./woocommerce/bootstrap.js"
-import { loadWooCommerceConfig } from "./woocommerce/config.js"
+import { createConnectorManager } from "./connectors/manager.js"
+import { createInternalHandler } from "./internal/connections.js"
 import { createWebhookServer } from "./webhook/server.js"
 
 // SP-API's North America regional endpoint. There's no per-region config
@@ -223,32 +221,42 @@ const main = async (): Promise<void> => {
 
   console.log("[seller-hub] queues and workers started")
 
-  // Optional Shopify connector: a no-op (one log line) without SHOPIFY_* env.
-  const shopify = await startShopifyIfConfigured(loadShopifyConfig(), {
+  // Optional Shopify / WooCommerce connectors. Connections saved from the admin
+  // take precedence; SHOPIFY_* / WOOCOMMERCE_* env remain a fallback. applyAll
+  // never throws and one connector failing never stops the other.
+  const manager = createConnectorManager({
     pool,
     medusaClient,
     encryptionKey: env.encryptionKey,
     redisConnection,
     reconcileIntervalMs: RECONCILE_INTERVAL_MS,
   })
+  await manager.applyAll()
 
-  // Optional WooCommerce connector: a no-op (one log line) without WOOCOMMERCE_* env.
-  const woocommerce = await startWooCommerceIfConfigured(
-    loadWooCommerceConfig(),
-    {
-      pool,
-      medusaClient,
-      encryptionKey: env.encryptionKey,
-      redisConnection,
-      reconcileIntervalMs: RECONCILE_INTERVAL_MS,
-    }
-  )
+  // The internal API (used by the backend admin) is only mounted when a shared
+  // secret is configured; otherwise /internal/* is a 404.
+  const internalSecret = process.env.SELLER_HUB_INTERNAL_SECRET
+  const internalHandler = internalSecret
+    ? createInternalHandler({
+        pool,
+        manager,
+        encryptionKey: env.encryptionKey,
+        secret: internalSecret,
+        publicUrl: process.env.SELLER_HUB_PUBLIC_URL,
+      })
+    : undefined
+  if (!internalHandler) {
+    console.log(
+      "[seller-hub] internal API disabled (SELLER_HUB_INTERNAL_SECRET not set)"
+    )
+  }
 
   const webhookServer = createWebhookServer({
     inventoryQueue: inventorySyncQueue,
     priceQueue: priceSyncQueue,
-    ...(shopify ? { shopify: shopify.webhook } : {}),
-    ...(woocommerce ? { woocommerce: woocommerce.webhook } : {}),
+    shopify: () => manager.getShopify()?.webhook ?? null,
+    woocommerce: () => manager.getWooCommerce()?.webhook ?? null,
+    ...(internalHandler ? { internalHandler } : {}),
   })
   await new Promise<void>((resolve) => {
     webhookServer.listen(WEBHOOK_PORT, () => resolve())
