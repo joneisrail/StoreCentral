@@ -177,9 +177,11 @@ export const createInternalHandler = (deps: InternalHandlerDeps) => {
     send(res, 200, { connections: rows.map(view) })
   }
 
-  const stringKeys = (body: Record<string, unknown>): Input | null => {
+  /** `display_name` is create-only: an edit never reads it. */
+  const stringKeys = (body: Record<string, unknown>, forEdit = false): Input | null => {
     const out: Input = {}
     for (const k of BODY_KEYS) {
+      if (forEdit && k === "display_name") continue
       const v = body[k]
       if (v === undefined) continue
       if (typeof v !== "string") return null
@@ -247,9 +249,12 @@ export const createInternalHandler = (deps: InternalHandlerDeps) => {
       progress.saved = true
       return send(res, 200, { ok: false, connection: await viewOf(id), test })
     }
-    await saveConnectionById(deps.pool, deps.encryptionKey, id, config, "connected", null)
-    progress.saved = true
-    const applied = await deps.manager.apply(id)
+    // Save and start as one unit so a concurrent delete cannot slip between them.
+    const applied = await deps.manager.withLock(id, async (ops) => {
+      await saveConnectionById(deps.pool, deps.encryptionKey, id, config, "connected", null)
+      progress.saved = true
+      return ops.apply()
+    })
     const connection = await viewOf(id)
     if (applied.error) return send(res, 200, { ok: false, error: applied.error, connection, test })
     send(res, 200, { ok: true, connection, test })
@@ -331,7 +336,7 @@ export const createInternalHandler = (deps: InternalHandlerDeps) => {
     if (!row) return send(res, 404, { error: "not_found" })
     if (!row.managed) return send(res, 400, { error: "read_only" })
     const raw = (await readJsonBody(req, res)) as Record<string, unknown>
-    const b = stringKeys(raw)
+    const b = stringKeys(raw, true)
     if (!b) return send(res, 400, { error: "invalid_input", fields: [] })
     const marketplace = row.marketplace as Marketplace
 
@@ -359,7 +364,9 @@ export const createInternalHandler = (deps: InternalHandlerDeps) => {
       }
       throw err
     }
-    await saveAndApply(res, id, marketplace, config, row.status === "connected")
+    // A failed Test sets status `error` without stopping the runtime, so a live
+    // runtime also counts as a working connection worth protecting.
+    await saveAndApply(res, id, marketplace, config, row.status === "connected" || deps.manager.get(id) !== null)
   }
 
   const testStored = async (id: string, res: http.ServerResponse) => {
@@ -409,8 +416,11 @@ export const createInternalHandler = (deps: InternalHandlerDeps) => {
     const row = await findRow(id)
     if (!row) return send(res, 404, { error: "not_found" })
     if (!row.managed) return send(res, 400, { error: "read_only" })
-    if (row.marketplace !== "amazon") await deps.manager.stop(id)
-    await clearConnectionById(deps.pool, id)
+    // Stop and clear as one unit so a concurrent edit cannot save or apply in between.
+    await deps.manager.withLock(id, async (ops) => {
+      if (row.marketplace !== "amazon") await ops.stop()
+      await clearConnectionById(deps.pool, id)
+    })
     send(res, 200, { ok: true })
   }
 

@@ -355,6 +355,32 @@ describe("connector manager", () => {
     expect(state.statuses.at(-1)).toEqual({ id: "created", status: "connected", lastError: null })
   })
 
+  it("withLock holds the per-id lock: a concurrent apply waits, and ops inside do not deadlock", async () => {
+    const { mgr, startShopify } = setup()
+    state.rows = [row("m", "shopify")]
+    state.stored.m = cfg("tm")
+    const events: string[] = []
+    let release!: () => void
+    const gate = new Promise<void>((r) => (release = r))
+    const locked = mgr.withLock("m", async (ops) => {
+      events.push("enter")
+      await gate
+      const r = await ops.apply() // would deadlock if it re-entered the lock
+      events.push(`inner-apply:${r.started}`)
+      await ops.stop()
+      events.push("inner-stop")
+    })
+    const outside = mgr.apply("m").then(() => events.push("outside-apply"))
+    await new Promise((r) => setTimeout(r, 20))
+    // the outside apply has not started while the lock is held
+    expect(startShopify).not.toHaveBeenCalled()
+    expect(events).toEqual(["enter"])
+    release()
+    await Promise.all([locked, outside])
+    expect(events).toEqual(["enter", "inner-apply:true", "inner-stop", "outside-apply"])
+    expect(startShopify).toHaveBeenCalledTimes(2)
+  })
+
   it("list puts the legacy connector last", async () => {
     const { mgr } = setup()
     state.rows = [row("l", "shopify", { managed: false }), row("m", "shopify")]

@@ -66,16 +66,37 @@ const fakeManager = () => {
     duplicates: ["c"],
   }))
   const live = new Set<string>([SHOPIFY_ID])
-  return {
+  const m = {
     live,
     relink,
     get: vi.fn((id: string) => (live.has(id) ? ({ id, runtime: { relink } } as never) : null)),
     list: vi.fn(() => []),
     apply: vi.fn(async (_id: string) => ({ started: true }) as { started: boolean; error?: string }),
     stop: vi.fn(async (_id: string) => {}),
+    lockLog: [] as string[],
+    // Mirrors the real manager: the callback gets unlocked apply/stop, which
+    // is what keeps them from re-entering the per-id lock.
+    withLock: vi.fn(async function (this: unknown, id: string, fn: (ops: any) => Promise<unknown>) {
+      m.lockLog.push(`enter:${id}`)
+      try {
+        return await fn({
+          apply: async () => {
+            m.lockLog.push("apply")
+            return m.apply(id)
+          },
+          stop: async () => {
+            m.lockLog.push("stop")
+            return m.stop(id)
+          },
+        })
+      } finally {
+        m.lockLog.push(`exit:${id}`)
+      }
+    }),
     applyAll: vi.fn(),
     stopAll: vi.fn(),
   }
+  return m
 }
 
 let server: http.Server | undefined
@@ -423,6 +444,34 @@ test("edit of a connected connection with failing test returns 422 and changes n
   expect(manager.apply).not.toHaveBeenCalled()
 })
 
+test("a failed Test leaves the runtime live, so a failing edit is still guarded (422, nothing changed)", async () => {
+  await start([shopifyRow({ status: "error" }), wooRow()])
+  // SHOPIFY_ID still has a live runtime (a failed Test only sets status error).
+  expect(manager.live.has(SHOPIFY_ID)).toBe(true)
+  testShopify.mockResolvedValueOnce({ ok: false, message: "credentials rejected" })
+  const before = JSON.stringify(rows)
+  const r = await call("PUT", `/internal/connections/${SHOPIFY_ID}`, { access_token: NEW_TOKEN })
+  expect(r.status).toBe(422)
+  expect(JSON.stringify(rows)).toBe(before)
+  expect(writes()).toHaveLength(0)
+  expect(manager.apply).not.toHaveBeenCalled()
+})
+
+test("edit saves and applies together under the connection lock", async () => {
+  await start()
+  const r = await call("PUT", `/internal/connections/${SHOPIFY_ID}`, { access_token: NEW_TOKEN })
+  expect(r.status).toBe(200)
+  expect(manager.lockLog).toEqual([`enter:${SHOPIFY_ID}`, "apply", `exit:${SHOPIFY_ID}`])
+  expect(rows.find((x) => x.id === SHOPIFY_ID)!.access_token_encrypted).not.toBeNull()
+})
+
+test("edit ignores display_name, even a non-string one", async () => {
+  await start()
+  const r = await call("PUT", `/internal/connections/${SHOPIFY_ID}`, { display_name: 5 })
+  expect(r.status).toBe(200)
+  expect(rows.find((x) => x.id === SHOPIFY_ID)!.display_name).toBe("Main Shopify")
+})
+
 test("edit of a connected connection with a passing test stores, applies and leaks no secret", async () => {
   await start()
   const r = await call("PUT", `/internal/connections/${SHOPIFY_ID}`, {
@@ -444,6 +493,7 @@ test("edit of a connected connection with a passing test stores, applies and lea
 
 test("edit of a non-connected connection saves regardless of a failing test", async () => {
   await start([shopifyRow({ status: "error", last_error: "old" }), wooRow()])
+  manager.live.delete(SHOPIFY_ID) // no live runtime: nothing working to protect
   testShopify.mockResolvedValueOnce({ ok: false, message: "credentials rejected" })
   const r = await call("PUT", `/internal/connections/${SHOPIFY_ID}`, { access_token: NEW_TOKEN })
   expect(r.status).toBe(200)
@@ -618,6 +668,8 @@ test("delete stops, clears credentials, keeps the sales channel link", async () 
   expect(r.status).toBe(200)
   expect(r.json).toEqual({ ok: true })
   expect(manager.stop).toHaveBeenCalledWith(SHOPIFY_ID)
+  // stop and clear are one unit under the connection lock
+  expect(manager.lockLog).toEqual([`enter:${SHOPIFY_ID}`, "stop", `exit:${SHOPIFY_ID}`])
   const row = rows.find((x) => x.id === SHOPIFY_ID)!
   expect(row.status).toBe("disconnected")
   expect(row.access_token_encrypted).toBeNull()

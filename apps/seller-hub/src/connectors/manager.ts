@@ -35,12 +35,24 @@ export type LiveConnector =
   | { id: string; marketplace: "shopify"; legacy: boolean; runtime: ShopifyRuntime }
   | { id: string; marketplace: "woocommerce"; legacy: boolean; runtime: WooCommerceRuntime }
 
+/** Unlocked apply/stop for use inside `withLock` (the public ones serialize and would deadlock). */
+export type LockedOps = {
+  apply(): Promise<{ started: boolean; error?: string }>
+  stop(): Promise<void>
+}
+
 export type ConnectorManager = {
   get(id: string): LiveConnector | null
   /** Creation order; the legacy env connector last. */
   list(marketplace?: LegacyMarketplace): LiveConnector[]
   apply(id: string): Promise<{ started: boolean; error?: string }>
   stop(id: string): Promise<void>
+  /**
+   * Runs `fn` while holding the per-id lock that `apply`/`stop` use, so a
+   * multi-step change (save + apply, stop + clear) is atomic against them.
+   * Inside `fn` use the supplied ops; calling `apply`/`stop` would deadlock.
+   */
+  withLock<T>(id: string, fn: (ops: LockedOps) => Promise<T>): Promise<T>
   /** Every managed row with credentials, plus the legacy env connector per marketplace with no connected managed row. */
   applyAll(): Promise<void>
   stopAll(): Promise<void>
@@ -193,15 +205,19 @@ export const createConnectorManager = (deps: ConnectorManagerDeps): ConnectorMan
     return { started: true }
   }
 
-  const apply: ConnectorManager["apply"] = (id) =>
-    serialize(id, async () => {
-      try {
-        return await doApply(id)
-      } catch (err) {
-        console.error(`[seller-hub] apply failed (${errName(err)})`)
-        return { started: false, error: START_FAILED }
-      }
-    })
+  const applyUnlocked = async (id: string): Promise<Result> => {
+    try {
+      return await doApply(id)
+    } catch (err) {
+      console.error(`[seller-hub] apply failed (${errName(err)})`)
+      return { started: false, error: START_FAILED }
+    }
+  }
+
+  const apply: ConnectorManager["apply"] = (id) => serialize(id, () => applyUnlocked(id))
+
+  const withLock: ConnectorManager["withLock"] = (id, fn) =>
+    serialize(id, () => fn({ apply: () => applyUnlocked(id), stop: () => stopRuntime(id) }))
 
   const stop: ConnectorManager["stop"] = (id) => serialize(id, () => stopRuntime(id))
 
@@ -278,6 +294,7 @@ export const createConnectorManager = (deps: ConnectorManagerDeps): ConnectorMan
     },
     apply,
     stop,
+    withLock,
     applyAll,
     stopAll: async () => {
       await Promise.all([...live.keys()].map((id) => stop(id).catch(() => undefined)))

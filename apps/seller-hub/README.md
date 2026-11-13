@@ -213,9 +213,16 @@ affecting the other connections.
   `/webhooks/shopify` and `/webhooks/woocommerce` URLs keep working: they go to
   the legacy (env) connection if it is running, otherwise to the oldest managed
   connection of that marketplace. A managed connection overrides the env
-  connection for its marketplace: once one exists for Shopify (or WooCommerce),
-  the env connection for it is not started, and on the next restart any old
-  legacy runtime is stopped. Remove the env variables to avoid the confusion.
+  connection for its marketplace only while it can actually run (it has saved
+  credentials and status `connected`): then the env connection is not started,
+  and on the next restart any old legacy runtime is stopped. A managed
+  connection that is failed, incomplete or disconnected does not override it, so
+  the env connection keeps running. Remove the env variables to avoid the
+  confusion.
+- **Connections saved before the Sales channels release.** Connections saved
+  through the earlier Marketplace connections page without a sales channel keep
+  running, but cannot be managed from the new Sales channels UI until they are
+  attached to a channel with **Connect** on that channel's page.
 - **Disconnecting.** Disconnect stops that connection only and clears its stored
   credentials. A legacy env connection cannot be disconnected from the admin;
   unset its env variables instead.
