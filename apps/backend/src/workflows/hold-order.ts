@@ -14,6 +14,7 @@ export const holdOrderWorkflow = createWorkflow(
   "hold-order",
   function (input: HoldOrderWorkflowInput) {
     const state = validateOrderHoldStep({ order_id: input.order_id, mode: "hold" })
+    // Two concurrent first holds could each create the tag; accepted (admin-only, rare).
     const existing = findHoldTagStep()
 
     const created = when("hold-tag-missing", { existing }, ({ existing }) => !existing).then(() =>
@@ -22,7 +23,7 @@ export const holdOrderWorkflow = createWorkflow(
       })
     )
     const tagId = transform({ existing, created }, ({ existing, created }) =>
-      existing ? existing.id : (created as any)[0].id
+      existing ? existing.id : (created ?? [])[0]?.id
     )
 
     bulkTagOrdersWorkflow.runAsStep({

@@ -42,7 +42,7 @@ const makeContainer = (order: any | undefined, tags: any[] = []) => {
 const openOrder = (extra: any = {}) => ({
   id: "order_1",
   status: "pending",
-  fulfillment_status: "not_fulfilled",
+  fulfillments: [],
   metadata: {},
   tags: [],
   ...extra,
@@ -103,18 +103,41 @@ describe("holdOrderWorkflow", () => {
     expect(mockBulk).not.toHaveBeenCalled()
   })
 
-  it.each(["fulfilled", "shipped", "delivered", "partially_returned", "returned"])(
-    "hold rejects a fully fulfilled order (%s)",
-    async (fulfillment_status) => {
-      await expect(runHold(makeContainer(openOrder({ fulfillment_status })))).rejects.toMatchObject({
-        type: MedusaError.Types.NOT_ALLOWED,
-      })
-      expect(mockBulk).not.toHaveBeenCalled()
-    }
-  )
+  const f = (extra: any = {}) => ({ id: "ful_" + Math.random(), ...extra })
+  const T = "2026-01-01T00:00:00Z"
 
-  it("hold accepts a partially fulfilled order", async () => {
-    await runHold(makeContainer(openOrder({ fulfillment_status: "partially_fulfilled" })))
+  it.each([
+    ["one shipped fulfillment", [f({ shipped_at: T })]],
+    ["one delivered fulfillment", [f({ shipped_at: T, delivered_at: T })]],
+    ["one packed fulfillment (fulfilled)", [f({ packed_at: T })]],
+    ["one shipped and one unshipped (partially_shipped)", [f({ shipped_at: T }), f()]],
+    ["shipped plus a canceled one", [f({ shipped_at: T }), f({ canceled_at: T })]],
+  ])("hold rejects a shipped order: %s", async (_name, fulfillments) => {
+    await expect(runHold(makeContainer(openOrder({ fulfillments })))).rejects.toMatchObject({
+      type: MedusaError.Types.NOT_ALLOWED,
+    })
+    expect(mockBulk).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["no fulfillments", []],
+    ["a canceled fulfillment only", [f({ canceled_at: T })]],
+    ["one packed of two (partially_fulfilled)", [f({ packed_at: T }), f()]],
+  ])("hold accepts an open order: %s", async (_name, fulfillments) => {
+    await runHold(makeContainer(openOrder({ fulfillments })))
+    expect(mockBulk).toHaveBeenCalled()
+  })
+
+  it("hold fails closed when the fulfillments relation is not readable", async () => {
+    await expect(runHold(makeContainer(openOrder({ fulfillments: undefined })))).rejects.toMatchObject({
+      type: MedusaError.Types.NOT_ALLOWED,
+    })
+    expect(mockBulk).not.toHaveBeenCalled()
+  })
+
+  it("release does not need the fulfillments relation", async () => {
+    const order = openOrder({ fulfillments: undefined, tags: [{ id: "otag_old", value: "On hold" }] })
+    await releaseOrderWorkflow(makeContainer(order)).run({ input: { order_id: "order_1" } })
     expect(mockBulk).toHaveBeenCalled()
   })
 
