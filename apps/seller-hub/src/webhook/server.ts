@@ -166,8 +166,7 @@ const routeShopifyEvent = async (
  * Handles `POST /webhooks/shopify`. The HMAC is verified over the raw bytes
  * BEFORE any JSON parsing or queueing. Order jobs carry the order's GraphQL
  * id (`gid://shopify/Order/<n>`), the form `fetchShopifyOrder` expects; the
- * BullMQ job id is the bare numeric id (BullMQ custom ids may not contain
- * ":"), so duplicate deliveries of the same order collapse into one job.
+ * BullMQ job id is `shopify-order-<n>` (BullMQ rejects integer-only ids), so duplicate deliveries of the same order collapse into one job.
  */
 const handleShopifyRequest = async (
   rawBody: Buffer,
@@ -190,7 +189,7 @@ const handleShopifyRequest = async (
   const topicHeader = headers["x-shopify-topic"]
   const topic = Array.isArray(topicHeader) ? topicHeader[0] : topicHeader
   if (!topic || !SHOPIFY_ORDER_TOPICS.has(topic)) {
-    console.log(`[webhook] ignoring Shopify topic "${topic ?? ""}"`)
+    console.log(`[webhook] ignoring Shopify topic "${(topic ?? "").slice(0, 64)}"`)
     res.writeHead(200).end()
     return
   }
@@ -229,7 +228,15 @@ const handleShopifyRequest = async (
     await shopify.orderQueue.add(
       topic,
       { shopifyOrderId: `${gidPrefix}${numericId}` },
-      { jobId: numericId }
+      {
+        // BullMQ rejects purely numeric custom ids, so prefix it.
+        jobId: `shopify-order-${numericId}`,
+        // Dedup only while in flight: a finished/failed job must not block a
+        // later topic (paid/cancelled) for the same order. The import is
+        // idempotent via sync_job.
+        removeOnComplete: true,
+        removeOnFail: true,
+      }
     )
   } catch (err) {
     // Non-2xx makes Shopify retry the delivery, which is what we want here.

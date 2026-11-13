@@ -1,5 +1,7 @@
+import crypto from "node:crypto"
 import type { AddressInfo } from "node:net"
 import type { Queue } from "bullmq"
+import { Job } from "bullmq"
 import { expect, test, vi } from "vitest"
 import { createWebhookServer } from "./server.js"
 
@@ -201,7 +203,6 @@ test("POST /webhooks/medusa missing event or data.id returns 400", async () => {
 })
 
 // ---- Shopify webhook route + Medusa fan-out ----
-import crypto from "node:crypto"
 
 const SECRET = "whsec_test"
 const signBody = (body: string) =>
@@ -268,7 +269,11 @@ test("POST /webhooks/shopify orders/create queues one job keyed by the order id"
   expect(shopify.orderQueue.add).toHaveBeenCalledWith(
     "orders/create",
     { shopifyOrderId: "gid://shopify/Order/450789469" },
-    expect.objectContaining({ jobId: "450789469" })
+    expect.objectContaining({
+      jobId: "shopify-order-450789469",
+      removeOnComplete: true,
+      removeOnFail: true,
+    })
   )
   server.close()
 })
@@ -281,7 +286,11 @@ test("POST /webhooks/shopify builds the GID from a numeric id when no GID is pre
   expect(shopify.orderQueue.add).toHaveBeenCalledWith(
     "orders/paid",
     { shopifyOrderId: "gid://shopify/Order/77" },
-    expect.objectContaining({ jobId: "77" })
+    expect.objectContaining({
+      jobId: "shopify-order-77",
+      removeOnComplete: true,
+      removeOnFail: true,
+    })
   )
   server.close()
 })
@@ -295,6 +304,17 @@ test("POST /webhooks/shopify the same delivery twice uses the same job id", asyn
   const calls = (shopify.orderQueue.add as any).mock.calls
   expect(calls).toHaveLength(2)
   expect(calls[0][2].jobId).toBe(calls[1][2].jobId)
+  const id: string = calls[0][2].jobId
+  expect(id).toMatch(/^shopify-order-\d+$/)
+  expect(String(parseInt(id, 10))).not.toBe(id)
+  // Exercise BullMQ's real id validation (no Redis needed).
+  const validate = (opts: object) =>
+    (Job.prototype as any).validateOptions.call(
+      { opts, name: "orders/create" },
+      {}
+    )
+  expect(() => validate(calls[0][2])).not.toThrow()
+  expect(() => validate({ jobId: "450789469" })).toThrow(/integers/)
   server.close()
 })
 
