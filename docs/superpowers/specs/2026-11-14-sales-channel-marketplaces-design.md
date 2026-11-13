@@ -77,11 +77,21 @@ Additive, idempotent changes:
 ### Behaviour
 
 - **Create flow** (backend `POST /admin/marketplace-connections`, behind admin
-  auth): validate; run the seller-hub live test with the submitted credentials;
-  only if it passes, create the sales channel (and link stock location and all
-  products, as the setup scripts do), then save the connection to seller-hub.
-  If the save fails, the new sales channel is deleted again. A failed test
-  creates nothing. For "No marketplace" the normal Medusa create runs unchanged.
+  auth): validate the shape of the input; create the sales channel (and link
+  stock location and all products, as the setup scripts do); then send the
+  marketplace choice and credentials to seller-hub. **The channel is saved
+  whether or not the connection works.** Seller-hub runs the live test and
+  stores the credentials either way:
+  - test passes: status `connected`, the connection starts syncing;
+  - test fails: credentials are kept, status `error`, `last_error` holds the
+    short message, nothing starts; the form shows "Channel saved, connection
+    failed: <message>" and the owner fixes it later from the detail page;
+  - fields left empty or incomplete: the channel is saved with status
+    `disconnected`; nothing is tested or started.
+  Only a crash saving the connection itself (seller-hub unreachable) leaves the
+  channel without a connection; the channel is still kept and the form says so,
+  so the owner can connect it later from the detail page. "No marketplace" runs
+  the normal Medusa create unchanged.
 - **Detail page:** a "Marketplace connection" section on the sales channel:
   type, status badge, last sync, linked listings, latest error, non-secret
   fields, webhook URL to paste into the marketplace; actions Edit credentials,
@@ -117,10 +127,15 @@ Additive, idempotent changes:
 
 - Seller-hub unreachable / secret wrong: the form and section show the cause and
   keep the rest of the admin usable.
-- Test failure on create/save: nothing created or changed; message on the form.
+- Test failure on create: the channel and credentials are saved, status `error`,
+  message shown; sync stays off until a later Test or Edit passes.
+- Test failure when editing a connection that is currently `connected`: the
+  working credentials stay untouched and keep running; the message is shown.
+  Editing a connection that is not `connected` saves regardless.
 - Start failure after a successful test: status `error`, `last_error` set; other
   connections unaffected.
-- Sales channel created but connection save fails: channel rolled back.
+- Seller-hub unreachable while creating: the channel is kept, no connection is
+  stored, and the detail page offers "Connect" later.
 
 ## Testing
 
@@ -130,9 +145,10 @@ Additive, idempotent changes:
   legacy URL still routes; migration of existing rows; secrets never in
   responses or logs; Amazon saves with no runtime and no outbound call.
 - **Integration with fake Shopify/WooCommerce servers:** two Shopify connections
-  sync independently; bad credentials create nothing.
-- **backend:** create flow (success, failed test creates nothing, save failure
-  rolls back the channel), delete-blocked, never logs bodies, workflow links
+  sync independently; bad credentials save the channel with status `error` and start nothing.
+- **backend:** create flow (success; failed test still saves channel and
+  credentials with status `error`; empty fields save as `disconnected`;
+  seller-hub down keeps the channel), delete-blocked, never logs bodies, workflow links
   stock location and products.
 - **dashboard:** marketplace picker shows the right fields per type; secrets
   never prefilled; create and detail actions call the right routes; Amazon shows
@@ -157,7 +173,8 @@ Additive, idempotent changes:
 
 - Credentials never appear in any response, log or error, and never in the Medusa
   database.
-- A failed test or failed save never leaves a half-created sales channel.
+- A failed test never blocks saving the channel, and never starts a connector or
+  overwrites a working connection's credentials.
 - Two connections of the same type never share queues, jobs, listings or
   webhooks; one failing never stops the others, Amazon, or Medusa events.
 - Existing single-account setups and their webhook URLs keep working.
