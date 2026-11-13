@@ -7,7 +7,7 @@ type AccountRow = { id: string; shop_domain: string }
 const toResult = (row: AccountRow) => ({ id: row.id, siteUrl: row.shop_domain })
 
 /**
- * Finds or creates the single WooCommerce integration_account row and
+ * Finds or creates the single unmanaged (env-start) WooCommerce integration_account row and
  * refreshes its site URL, consumer key and (encrypted) consumer secret.
  * Idempotent.
  */
@@ -19,7 +19,7 @@ export const resolveWooCommerceAccount = async (
   const secretEncrypted = encrypt(config.consumerSecret, encryptionKey)
   const existing = await pool.query<{ id: string }>(
     `SELECT id FROM seller_hub.integration_account
-     WHERE marketplace = 'woocommerce' ORDER BY created_at LIMIT 1`
+     WHERE marketplace = 'woocommerce' AND managed = false ORDER BY created_at LIMIT 1`
   )
   const existingId = existing.rows[0]?.id
   if (existingId) {

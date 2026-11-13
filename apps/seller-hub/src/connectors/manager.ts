@@ -8,7 +8,7 @@ import {
   resolveShopifyConfig,
   resolveWooConfig,
   setConnectionStatus,
-  type Marketplace,
+  type LegacyMarketplace as Marketplace,
 } from "./credentials.js"
 
 export type ConnectorManagerDeps = {

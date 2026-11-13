@@ -11,7 +11,7 @@ const toResult = (row: AccountRow) => ({
 })
 
 /**
- * Finds or creates the single Shopify integration_account row and refreshes
+ * Finds or creates the single unmanaged (env-start) Shopify integration_account row and refreshes
  * its shop domain, location and (encrypted) access token. Idempotent.
  */
 export const resolveShopifyAccount = async (
@@ -22,7 +22,7 @@ export const resolveShopifyAccount = async (
   const tokenEncrypted = encrypt(config.accessToken, encryptionKey)
   const existing = await pool.query<{ id: string }>(
     `SELECT id FROM seller_hub.integration_account
-     WHERE marketplace = 'shopify' ORDER BY created_at LIMIT 1`
+     WHERE marketplace = 'shopify' AND managed = false ORDER BY created_at LIMIT 1`
   )
   const existingId = existing.rows[0]?.id
   if (existingId) {

@@ -70,4 +70,17 @@ ALTER TABLE seller_hub.channel_listing ADD COLUMN IF NOT EXISTS external_parent_
 ALTER TABLE seller_hub.integration_account ADD COLUMN IF NOT EXISTS medusa_sales_channel_id TEXT;
 ALTER TABLE seller_hub.integration_account ADD COLUMN IF NOT EXISTS webhook_secret_encrypted TEXT;
 ALTER TABLE seller_hub.integration_account ADD COLUMN IF NOT EXISTS last_error TEXT;
+
+-- Many managed connections per marketplace: a managed row is created from the
+-- admin UI (one per Medusa sales channel), legacy env-start rows stay unmanaged.
+ALTER TABLE seller_hub.integration_account ADD COLUMN IF NOT EXISTS managed BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE seller_hub.integration_account ADD COLUMN IF NOT EXISTS display_name TEXT;
+ALTER TABLE seller_hub.integration_account ADD COLUMN IF NOT EXISTS amazon_seller_id TEXT;
+ALTER TABLE seller_hub.integration_account ADD COLUMN IF NOT EXISTS amazon_marketplace_id TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS integration_account_sales_channel_uq
+  ON seller_hub.integration_account (medusa_sales_channel_id)
+  WHERE medusa_sales_channel_id IS NOT NULL;
+-- Rows saved from the admin UI before this column existed carry a webhook secret.
+UPDATE seller_hub.integration_account SET managed = true
+  WHERE webhook_secret_encrypted IS NOT NULL AND managed = false;
 `

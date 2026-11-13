@@ -12,7 +12,7 @@ import {
   setConnectionStatus,
   type ConfigSource,
   type ConnectionRow,
-  type Marketplace,
+  type LegacyMarketplace as Marketplace,
   type ShopifyInput,
   type WooInput,
 } from "../connectors/credentials.js"
