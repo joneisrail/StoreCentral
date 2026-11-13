@@ -26,6 +26,8 @@ import {
   type InventorySyncJobData,
   type PriceSyncJobData,
 } from "./sync/resolve-channel-listing.js"
+import { startShopifyIfConfigured } from "./shopify/bootstrap.js"
+import { loadShopifyConfig } from "./shopify/config.js"
 import { createWebhookServer } from "./webhook/server.js"
 
 // SP-API's North America regional endpoint. There's no per-region config
@@ -219,9 +221,19 @@ const main = async (): Promise<void> => {
 
   console.log("[seller-hub] queues and workers started")
 
+  // Optional Shopify connector: a no-op (one log line) without SHOPIFY_* env.
+  const shopify = await startShopifyIfConfigured(loadShopifyConfig(), {
+    pool,
+    medusaClient,
+    encryptionKey: env.encryptionKey,
+    redisConnection,
+    reconcileIntervalMs: RECONCILE_INTERVAL_MS,
+  })
+
   const webhookServer = createWebhookServer({
     inventoryQueue: inventorySyncQueue,
     priceQueue: priceSyncQueue,
+    ...(shopify ? { shopify: shopify.webhook } : {}),
   })
   await new Promise<void>((resolve) => {
     webhookServer.listen(WEBHOOK_PORT, () => resolve())

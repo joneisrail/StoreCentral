@@ -68,3 +68,46 @@ succeeding for real:
 Both need to be resolved before Task 13's manual smoke checklist (an
 end-to-end pass against Amazon's real sandbox/test seller account for order
 import, inventory push, price push, and product listing) can run for real.
+
+## Shopify
+
+The same service can also sync a Shopify store (optional). It starts only when
+all four variables below are set; otherwise boot logs one line and skips it.
+
+| Variable | Purpose |
+| --- | --- |
+| `SHOPIFY_SHOP_DOMAIN` | e.g. `your-shop.myshopify.com` |
+| `SHOPIFY_ACCESS_TOKEN` | Admin API access token of a custom app |
+| `SHOPIFY_WEBHOOK_SECRET` | The app's webhook signing secret (verifies `X-Shopify-Hmac-Sha256`) |
+| `SHOPIFY_LOCATION_ID` | GraphQL id of the Shopify location that holds stock, `gid://shopify/Location/...` |
+
+**Custom-app scopes:** read and write products, inventory and orders
+(`read_products`, `write_products`, `read_inventory`, `write_inventory`,
+`read_orders`, `write_orders`). Add `read_all_orders` if orders older than 60
+days must be readable.
+
+**StoreCentral is the stock and price master.** Quantities and prices are
+pushed from Medusa to Shopify, and edits made in Shopify are overwritten on the
+next sync or drift check. Variants are linked by exact SKU at boot; unmatched
+and duplicate SKUs are not linked and are recorded as failed `product` sync jobs.
+
+**Setup**
+
+1. Create the "Shopify" sales channel in Medusa (links it to the stock
+   location(s) and every product; safe to re-run). From `apps/backend`:
+   `npx medusa exec ./src/scripts/setup-shopify-channel.ts`
+2. Set the variables above and restart seller-hub.
+3. Shopify can only deliver webhooks to a public HTTPS URL, so expose the
+   webhook port (`WEBHOOK_PORT`, default 7005) and register
+   `https://<public-host>/webhooks/shopify` for the topics `orders/create`,
+   `orders/paid` and `orders/cancelled`. Without it (for example on a dev
+   machine), the hourly drift check catches up orders updated since its last
+   clean scan instead.
+
+**API version:** pinned to `2026-10` in `src/shopify/client.ts`. The GraphQL
+field names used have not yet been verified against a real shop; do that
+before relying on it.
+
+**Known limitation:** there is a brief oversell window between a sale on
+Shopify and its import into Medusa (webhook or drift check), during which
+Medusa's stock has not yet been decremented.
