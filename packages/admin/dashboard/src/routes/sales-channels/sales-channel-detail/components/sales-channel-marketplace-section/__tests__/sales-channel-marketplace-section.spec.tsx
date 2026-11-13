@@ -86,7 +86,7 @@ const connection = (over: Record<string, unknown> = {}) => ({
   sales_channel_id: "sc_1",
   managed: true,
   read_only: false,
-  credentials_source: "db",
+  credentials_source: "database",
   sync_live: true,
   fields: { shop_domain: "my-store.myshopify.com", location_id: "42" },
   webhook_url: "https://hub.example.com/webhooks/conn_1",
@@ -165,6 +165,36 @@ describe("SalesChannelMarketplaceSection", () => {
     expect(
       screen.getByText("salesChannels.marketplace.testFailedUnchanged")
     ).toBeTruthy()
+  })
+
+  it("hides the stored hint when the connection has no stored credentials", () => {
+    setConnection(connection({ credentials_source: "none" }))
+    renderSection()
+    fireEvent.click(
+      screen.getByText("salesChannels.marketplace.editCredentials")
+    )
+    expect(screen.queryByText("salesChannels.marketplace.stored")).toBeNull()
+  })
+
+  it("omits the unchanged note on a 422 when the connection is not connected", async () => {
+    setConnection(connection({ status: "error" }))
+    mocks.save.mockRejectedValueOnce(
+      Object.assign(new Error("bad token"), { status: 422 })
+    )
+    renderSection()
+    fireEvent.click(
+      screen.getByText("salesChannels.marketplace.editCredentials")
+    )
+    fireEvent.change(screen.getByLabelText("Access token"), {
+      target: { value: "shpat_new" },
+    })
+    fireEvent.click(screen.getByText("actions.save"))
+
+    await waitFor(() => expect(screen.getByRole("alert")).toBeTruthy())
+    expect(screen.getByText("bad token")).toBeTruthy()
+    expect(
+      screen.queryByText("salesChannels.marketplace.testFailedUnchanged")
+    ).toBeNull()
   })
 
   it("Test, Link and Disconnect call their hooks", async () => {

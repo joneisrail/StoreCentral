@@ -225,6 +225,9 @@ affecting the other connections.
   off, and its status is left as it was, until a Test or Edit passes; a passing
   Test on a connection that is not running starts it. One failing to start
   (status `error`) never stops the others.
+  A managed connection that fails to start at boot (for example a transient
+  Redis problem) is left in `error` and stays off after later restarts until the
+  owner presses Test or an Edit succeeds.
 - **Network exposure.** The internal API must be reachable only from the
   backend (private network or firewall rule). Do not expose `/internal/*`
   publicly; only `/webhooks/*` needs to be reachable from the internet.

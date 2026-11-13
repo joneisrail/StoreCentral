@@ -46,7 +46,9 @@ export const MarketplaceEditDrawer = ({
     if (!field.secret) {
       return field
     }
-    return { ...field, help: t("salesChannels.marketplace.stored") }
+    return connection.credentials_source === "database"
+      ? { ...field, help: t("salesChannels.marketplace.stored") }
+      : field
   })
 
   const handleSubmit = async (e: FormEvent) => {
@@ -99,9 +101,11 @@ export const MarketplaceEditDrawer = ({
                 <Text size="small" className="text-ui-fg-error">
                   {failure}
                 </Text>
-                <Text size="small" className="text-ui-fg-subtle">
-                  {t("salesChannels.marketplace.testFailedUnchanged")}
-                </Text>
+                {connection.status === "connected" ? (
+                  <Text size="small" className="text-ui-fg-subtle">
+                    {t("salesChannels.marketplace.testFailedUnchanged")}
+                  </Text>
+                ) : null}
               </div>
             ) : null}
             <MarketplaceFields

@@ -500,7 +500,7 @@ test("legacy env connection and its old webhook URL keep working with no managed
   expect(creds.rows.some((r) => r.managed)).toBe(false)
 })
 
-test("a managed connection overrides the env connection for its marketplace", async () => {
+test("a managed connection created beside an env connection leaves the env webhook URL answering until restart", async () => {
   const { manager } = await boot({ env: ENV_SHOPIFY })
   expect(manager.list("shopify")[0]!.legacy).toBe(true)
   await createConnection(manager, GOOD_TOKEN_2, WH2, "sc_b", "b.myshopify.com")

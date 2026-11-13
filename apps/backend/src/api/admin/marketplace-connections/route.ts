@@ -9,7 +9,7 @@ type View = Record<string, any>
 type Status = "connected" | "error" | "disconnected" | "unavailable"
 
 const UNAVAILABLE_MESSAGE =
-  "The sales channel was created, but the marketplace could not be reached. Open the sales channel and choose Connect to try again."
+  "The sales channel was kept, but the marketplace could not be reached. Open the sales channel and choose Connect to try again."
 
 // Maps seller-hub's create reply to the status the admin shows.
 export function deriveStatus(status: number, body: any): Status {
@@ -44,7 +44,7 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
   })
 }
 
-// The channel is always created first and kept, whatever happens next.
+// The channel is always created (or looked up) first and kept, whatever happens next.
 export async function POST(req: MedusaRequest, res: MedusaResponse) {
   const { marketplace, name, sales_channel_id, description, is_disabled, ...rest } =
     (req.validatedBody ?? {}) as CreateConnectionSchema
