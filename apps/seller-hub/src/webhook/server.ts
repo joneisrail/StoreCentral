@@ -29,7 +29,7 @@ export type WebhookRegistry = {
   /** Every live connection of the marketplace (Medusa fan-out). */
   all(marketplace: WebhookMarketplace): Array<ShopifyWebhookDeps | WooCommerceWebhookDeps>
   /** Optional: true when the id is a known connection that is merely not live (503 rather than 404). */
-  known?(marketplace: WebhookMarketplace, accountId: string): boolean
+  known?(marketplace: WebhookMarketplace, accountId: string): boolean | Promise<boolean>
 }
 
 export type CreateWebhookServerDeps = {
@@ -175,15 +175,27 @@ export const createWebhookServer = (
           }
           if (!order) {
             // Unknown id -> 404; a known-but-stopped id, no live legacy/oldest
-            // runtime, or a throwing registry -> 503.
-            const known =
-              accountId !== undefined && safeRegistry(() => registry.known?.(marketplace, accountId) ?? false, false)
-            if (accountId !== undefined && !known && !threw) {
-              req.resume()
-              res.writeHead(404).end()
+            // runtime, or a throwing registry -> 503. `known` may hit the DB.
+            const respond = (known: boolean, failed: boolean) => {
+              if (accountId !== undefined && !known && !failed) {
+                res.writeHead(404).end()
+              } else {
+                res.writeHead(503).end()
+              }
+            }
+            req.resume()
+            if (accountId === undefined || threw) {
+              respond(false, true)
               return
             }
-            unavailable(req, res)
+            void (async () => {
+              try {
+                respond((await registry.known?.(marketplace, accountId)) ?? false, false)
+              } catch (err) {
+                console.error("[seller-hub] webhook registry threw:", errName(err))
+                respond(false, true)
+              }
+            })()
             return
           }
         } else if (accountId !== undefined) {

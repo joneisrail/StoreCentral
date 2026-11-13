@@ -711,7 +711,7 @@ const secretFor = (secret: string, body: string) =>
 
 const makeRegistry = (
   conns: Record<string, { marketplace: "shopify" | "woocommerce"; deps: Deps; legacy?: boolean }>,
-  opts: { known?: string[]; throws?: boolean } = {}
+  opts: { known?: string[]; throws?: boolean; knownThrows?: boolean } = {}
 ) => ({
   get: (marketplace: "shopify" | "woocommerce", accountId?: string) => {
     if (opts.throws) throw new TypeError("secret-detail")
@@ -728,7 +728,10 @@ const makeRegistry = (
       .filter((c) => c.marketplace === marketplace)
       .map((c) => c.deps)
   },
-  known: (_m: "shopify" | "woocommerce", id: string) => (opts.known ?? []).includes(id),
+  known: (_m: "shopify" | "woocommerce", id: string) => {
+    if (opts.knownThrows) throw new TypeError("secret-detail")
+    return (opts.known ?? []).includes(id)
+  },
 })
 
 const startRegistryServer = (connectors: ReturnType<typeof makeRegistry>) => {
@@ -923,4 +926,35 @@ test("connectors wins over the shopify option", async () => {
   expect(reg.orderQueue.add).toHaveBeenCalledTimes(1)
   expect(legacyOpt.orderQueue.add).not.toHaveBeenCalled()
   server.close()
+})
+
+test("woocommerce unknown id returns 404", async () => {
+  const { server, url } = startRegistryServer(makeRegistry({}))
+  const res = await fetch(`${url}/webhooks/woocommerce/nope`, { method: "POST", body: "{}" })
+  expect(res.status).toBe(404)
+  server.close()
+})
+
+test("a query string is ignored on /webhooks/medusa and the old un-suffixed url", async () => {
+  const a = withSecret("sa")
+  const { server, amazon, url } = startRegistryServer(makeRegistry({ a: { marketplace: "shopify", deps: a } }))
+  const medusa = await fetch(`${url}/webhooks/medusa?x=1`, {
+    method: "POST",
+    body: JSON.stringify({ event: "inventory-level.updated", data: { id: "il_1" } }),
+  })
+  expect(medusa.status).toBe(200)
+  expect(amazon.inventoryQueue.add).toHaveBeenCalledTimes(1)
+  const old = await postTo(url, "/webhooks/shopify?x=1", "orders/create", JSON.stringify({ id: 5 }), "sa")
+  expect(old.status).toBe(200)
+  expect(a.orderQueue.add).toHaveBeenCalledTimes(1)
+  server.close()
+})
+
+test("a throwing registry.known is treated as not live (503, not 404)", async () => {
+  const errSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+  const { server, url } = startRegistryServer(makeRegistry({}, { knownThrows: true }))
+  expect((await postTo(url, "/webhooks/shopify/a", "orders/create", "{}")).status).toBe(503)
+  expect(JSON.stringify(errSpy.mock.calls)).not.toContain("secret-detail")
+  server.close()
+  errSpy.mockRestore()
 })

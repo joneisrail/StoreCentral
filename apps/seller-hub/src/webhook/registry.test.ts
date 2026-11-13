@@ -1,6 +1,7 @@
-import { expect, test } from "vitest"
+import type { Pool } from "pg"
+import { expect, test, vi } from "vitest"
 import type { ConnectorManager, LiveConnector } from "../connectors/manager.js"
-import { createWebhookRegistry } from "./registry.js"
+import { createWebhookRegistry, dbKnownConnection } from "./registry.js"
 
 const conn = (id: string, marketplace: "shopify" | "woocommerce", legacy = false) =>
   ({ id, marketplace, legacy, runtime: { webhook: { webhookSecret: id } } }) as unknown as LiveConnector
@@ -33,4 +34,22 @@ test("get without an id prefers the legacy connector, else the oldest managed", 
 test("all returns every live connector's webhook deps of that marketplace", () => {
   const reg = createWebhookRegistry(manager([conn("a", "shopify"), conn("b", "shopify"), conn("w", "woocommerce")]))
   expect(reg.all("shopify").map(secret)).toEqual(["a", "b"])
+})
+
+test("known is passed through to the registry", () => {
+  const known = vi.fn(() => true)
+  expect(createWebhookRegistry(manager([]), known).known).toBe(known)
+  expect(createWebhookRegistry(manager([])).known).toBeUndefined()
+})
+
+test("dbKnownConnection checks a row of that marketplace and id, and never queries a non-uuid id", async () => {
+  const id = "3f2b8c1e-5a4d-4e6f-9a7b-1c2d3e4f5a6b"
+  const query = vi.fn(async () => ({ rows: [{ "?column?": 1 }] }))
+  const known = dbKnownConnection({ query } as unknown as Pool)
+  expect(await known("shopify", id)).toBe(true)
+  expect(query).toHaveBeenCalledWith(expect.stringMatching(/integration_account/), [id, "shopify"])
+  expect(await known("shopify", "not-a-uuid")).toBe(false)
+  expect(query).toHaveBeenCalledTimes(1)
+  query.mockResolvedValueOnce({ rows: [] })
+  expect(await known("woocommerce", id)).toBe(false)
 })

@@ -171,29 +171,60 @@ stock management for each linked product.
 
 ## Managing connections from the admin
 
-Shopify and WooCommerce can be connected, changed and disconnected from the
-**Marketplace connections** page in the Medusa admin (built in a later task),
-without editing env files or restarting this service. Saving a connection tests
-the credentials first, then applies them live: the webhook server and workers
-switch over immediately.
+Several Shopify and WooCommerce stores (and one or more Amazon accounts) can be
+connected, changed and disconnected from the **Marketplace connections** page in
+the Medusa admin, without editing env files or restarting this service. Each
+connection is linked to one Medusa sales channel and runs as its own live
+connection: its own queues, workers, SKU link and webhook secret. Saving a
+connection stores the credentials, tests them, and applies them live without
+affecting the other connections.
 
 - **Internal secret.** The admin talks to this service through an internal API
   that is authenticated with a shared secret. Set the same
   `SELLER_HUB_INTERNAL_SECRET` in both seller-hub and the backend, and set
-  `SELLER_HUB_INTERNAL_URL` in the backend to this service's address. The secret must be at
-  least 16 characters (after trimming). When it is unset or too short here, the internal API is disabled and `/internal/*` returns
-  404.
+  `SELLER_HUB_INTERNAL_URL` in the backend to this service's address. The secret
+  must be at least 16 characters (after trimming). When it is unset or too short
+  here, the internal API is disabled and `/internal/*` returns 404.
+- **Internal routes** (all need `Authorization: Bearer <secret>`; `:id` is the
+  connection's id):
+
+  | Route | Purpose |
+  | --- | --- |
+  | `GET /internal/connections` | List every connection (managed first, then legacy) with status, linked listings and webhook URL; never returns credentials |
+  | `POST /internal/connections` | Create a connection for a sales channel. Credentials are saved even if the test fails; a failed test leaves it with status `error` and starts nothing |
+  | `PUT /internal/connections/:id` | Edit; blank secret fields keep the stored values. Bad new credentials return 422 and the running connection is left untouched |
+  | `DELETE /internal/connections/:id` | Stop this connection and clear its stored credentials (the sales-channel link stays) |
+  | `POST /internal/connections/:id/test` | Test the stored credentials |
+  | `POST /internal/connections/:id/link` | Re-run the SKU link |
+
+- **Per-connection webhook URLs.** Register
+  `https://<public-host>/webhooks/<marketplace>/<id>` (for example
+  `/webhooks/shopify/<id>` or `/webhooks/woocommerce/<id>`) in each store; the
+  admin shows the exact URL. The signature is checked against that connection's
+  own secret. An id that never existed returns 404; a connection that exists but
+  is not running right now (stopped, or being swapped) returns 503 so the sender
+  retries. `POST /webhooks/medusa` fans each Medusa event out to every running
+  connection.
 - **Public URL.** Set `SELLER_HUB_PUBLIC_URL` (for example
-  `https://hub.example.com`) so the admin can show the webhook URLs to register
-  in Shopify and WooCommerce. It is only used for display.
-- **Env variables are a fallback.** `SHOPIFY_*` and `WOOCOMMERCE_*` still work
-  exactly as before. A connection saved from the admin takes precedence over
-  them.
-- **Disconnecting.** Disconnect stops the connector and clears the stored
-  credentials. If the env variables are still set, the connector reconnects from
-  them on the next restart; remove them to stay disconnected.
+  `https://hub.example.com`) so the admin can show the webhook URLs. It is only
+  used for display.
+- **Legacy behaviour and precedence.** `SHOPIFY_*` and `WOOCOMMERCE_*` env
+  connections still work as before, and the old un-suffixed
+  `/webhooks/shopify` and `/webhooks/woocommerce` URLs keep working: they go to
+  the legacy (env) connection if it is running, otherwise to the oldest managed
+  connection of that marketplace. A managed connection overrides the env
+  connection for its marketplace: once one exists for Shopify (or WooCommerce),
+  the env connection for it is not started, and on the next restart any old
+  legacy runtime is stopped. Remove the env variables to avoid the confusion.
+- **Disconnecting.** Disconnect stops that connection only and clears its stored
+  credentials. A legacy env connection cannot be disconnected from the admin;
+  unset its env variables instead.
+- **Restart.** On startup every managed connection with saved credentials is
+  started again; one failing to start (status `error`) never stops the others.
 - **Network exposure.** The internal API must be reachable only from the
   backend (private network or firewall rule). Do not expose `/internal/*`
   publicly; only `/webhooks/*` needs to be reachable from the internet.
-- **Amazon is read-only for now.** The page shows Amazon's status but it cannot
-  be connected or changed there yet.
+- **Amazon is saved-only.** Amazon connections can be saved and shown (seller
+  id, marketplace, encrypted refresh token) but are not started by the
+  connection manager; the single Amazon sync engine still runs from the legacy
+  unmanaged account and the `AMAZON_LWA_*` env, as before.

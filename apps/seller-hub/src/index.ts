@@ -27,8 +27,9 @@ import {
   type InventorySyncJobData,
   type PriceSyncJobData,
 } from "./sync/resolve-channel-listing.js"
-import { createConnectorManager, legacyManagerView } from "./connectors/manager.js"
+import { createConnectorManager } from "./connectors/manager.js"
 import { createInternalHandler } from "./internal/connections.js"
+import { createWebhookRegistry, dbKnownConnection } from "./webhook/registry.js"
 import { createWebhookServer } from "./webhook/server.js"
 
 // SP-API's North America regional endpoint. There's no per-region config
@@ -64,7 +65,7 @@ const resolveIntegrationAccountId = async (
 ): Promise<string> => {
   const existing = await pool.query<{ id: string }>(
     `SELECT id FROM seller_hub.integration_account
-     WHERE marketplace = 'amazon'
+     WHERE marketplace = 'amazon' AND managed = false
      ORDER BY created_at ASC
      LIMIT 1`
   )
@@ -73,8 +74,8 @@ const resolveIntegrationAccountId = async (
   }
 
   const inserted = await pool.query<{ id: string }>(
-    `INSERT INTO seller_hub.integration_account (marketplace, status)
-     VALUES ('amazon', 'disconnected')
+    `INSERT INTO seller_hub.integration_account (marketplace, status, managed)
+     VALUES ('amazon', 'disconnected', false)
      RETURNING id`
   )
   return inserted.rows[0]!.id
@@ -222,17 +223,17 @@ const main = async (): Promise<void> => {
 
   console.log("[seller-hub] queues and workers started")
 
-  // Optional Shopify / WooCommerce connectors. Connections saved from the admin
-  // take precedence; SHOPIFY_* / WOOCOMMERCE_* env remain a fallback. applyAll
-  // never throws and one connector failing never stops the other.
-  const connectors = createConnectorManager({
+  // Optional Shopify / WooCommerce connectors, one live runtime per saved
+  // connection. A managed connection overrides SHOPIFY_* / WOOCOMMERCE_* env for
+  // its marketplace (env stays the fallback). applyAll never throws and one
+  // connection failing never stops the others.
+  const manager = createConnectorManager({
     pool,
     medusaClient,
     encryptionKey: env.encryptionKey,
     redisConnection,
     reconcileIntervalMs: RECONCILE_INTERVAL_MS,
   })
-  const manager = legacyManagerView(connectors, pool) // TEMP adapter (Task 5 removes)
   await manager.applyAll()
 
   // The internal API (used by the backend admin) is only mounted when a shared
@@ -242,7 +243,7 @@ const main = async (): Promise<void> => {
   const internalHandler = internalSecret
     ? createInternalHandler({
         pool,
-        manager: connectors,
+        manager,
         encryptionKey: env.encryptionKey,
         secret: internalSecret,
         publicUrl: process.env.SELLER_HUB_PUBLIC_URL,
@@ -259,8 +260,9 @@ const main = async (): Promise<void> => {
   const webhookServer = createWebhookServer({
     inventoryQueue: inventorySyncQueue,
     priceQueue: priceSyncQueue,
-    shopify: () => manager.getShopify()?.webhook ?? null,
-    woocommerce: () => manager.getWooCommerce()?.webhook ?? null,
+    // `known` keeps a stopped or swapping connection at 503 (sender retries)
+    // instead of 404 (sender gives up).
+    connectors: createWebhookRegistry(manager, dbKnownConnection(pool)),
     ...(internalHandler ? { internalHandler } : {}),
   })
   await new Promise<void>((resolve) => {

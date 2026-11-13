@@ -32,7 +32,7 @@ vi.mock("./credentials.js", () => ({
   listConnectionRows: vi.fn(async () => state.rows),
 }))
 
-import { createConnectorManager, legacyManagerView } from "./manager.js"
+import { createConnectorManager } from "./manager.js"
 
 const SECRET = "shpat_TOP_SECRET_VALUE"
 const cfg = (token: string) => ({
@@ -381,20 +381,5 @@ describe("connector manager", () => {
     await mgr.stop("a")
     await mgr.stop("a")
     expect(rt.stop).toHaveBeenCalledTimes(1)
-  })
-})
-
-describe("legacyManagerView (temporary adapter)", () => {
-  it("maps the old marketplace-keyed calls onto the marketplace's row", async () => {
-    const { mgr } = setup()
-    state.rows = [row("l", "woocommerce", { managed: false })]
-    state.legacy.woocommerce = wcfg
-    const view = legacyManagerView(mgr, {} as any)
-    expect(view.getWooCommerce()).toBeNull()
-    expect(await view.apply("woocommerce")).toEqual({ started: true })
-    expect(view.getWooCommerce()).toBe(mgr.get("l")!.runtime)
-    expect(view.getShopify()).toBeNull()
-    await view.stop("woocommerce")
-    expect(view.getWooCommerce()).toBeNull()
   })
 })
