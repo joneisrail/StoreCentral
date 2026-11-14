@@ -37,6 +37,14 @@ describe("OrderSearchQuerySchema", () => {
     expect(parse({ q: "a".repeat(101) }).success).toBe(false)
     expect(parse({ q: "a".repeat(100) }).success).toBe(true)
   })
+  it("rejects empty or blank values for every param", () => {
+    for (const k of ["q", "sku", "carrier", "ship_from", "delivery"]) {
+      expect(parse({ [k]: "" }).success).toBe(false)
+      expect(parse({ [k]: "   " }).success).toBe(false)
+      expect(parse({ country: "us", [k]: "  " }).success).toBe(false)
+    }
+    expect(parse({ country: "" }).success).toBe(false)
+  })
   it("rejects empty input and unknown keys", () => {
     expect(parse({}).success).toBe(false)
     expect(parse({ q: "ab", limit: "5" }).success).toBe(false)
@@ -102,7 +110,7 @@ describe("searchOrders", () => {
       { product_title: { $ilike: "%abc%" } },
     ])
     const ful = calls.find((c) => c.entity === "fulfillment")!
-    expect(ful.filters).toEqual({ labels: { tracking_number: { $ilike: "%abc%" } } })
+    expect(ful.filters).toEqual({ labels: { tracking_number: { $ilike: "%abc%" } }, canceled_at: null })
   })
 
   it("AND-combines params: sku, country, carrier, ship_from and delivery narrow the same result", async () => {
@@ -130,6 +138,7 @@ describe("searchOrders", () => {
     expect(res.order_ids).toEqual(["o_2"])
     const ful = calls.find((c) => c.entity === "fulfillment")!
     expect(ful.filters).toEqual({
+      canceled_at: null,
       location_id: "sloc_1",
       $or: [
         { data: { easypost_carrier: { $ilike: "UPS" } } },
@@ -162,7 +171,7 @@ describe("searchOrders", () => {
     expect(res.order_ids).toHaveLength(MAX_RESULTS)
     expect(res.truncated).toBe(true)
     expect(res.order_ids[0]).toBe("order_0")
-    expect(calls[0].pagination).toEqual({ take: MAX_RESULTS + 1, order: { created_at: "DESC" } })
+    expect(calls[0].pagination).toEqual({ take: MAX_RESULTS + 1, order: { created_at: "DESC", id: "DESC" } })
     const exact = makeQuery({ order: () => ids(MAX_RESULTS) })
     expect(await searchOrders(exact.query, { country: "GB" })).toMatchObject({ truncated: false })
   })
@@ -174,6 +183,38 @@ describe("searchOrders", () => {
       order: () => [{ id: "o_1" }],
     })
     expect(await searchOrders(query, { sku: "abc" })).toEqual({ order_ids: ["o_1"], truncated: true })
+  })
+
+  it("orders every capped candidate fetch newest first (created_at DESC, id DESC)", async () => {
+    const { query, calls } = makeQuery({
+      order: (c) => (c.filters.q ? [{ id: "o_q" }] : [{ id: "o_q" }, { id: "o_x" }]),
+      order_line_item: () => [{ id: "li_1", variant_sku: "abc", title: "abc", product_title: "abc" }],
+      order_item: () => [{ order_id: "o_x", item_id: "li_1" }],
+      fulfillment: () => [{ id: "f_1", labels: [{ tracking_number: "abc" }], data: {}, metadata: {} }],
+      order_fulfillment: () => [{ order_id: "o_x", fulfillment_id: "f_1" }],
+      order_shipping_method: () => [{ id: "osm_1", name: "abc" }],
+    })
+    await searchOrders(query, { q: "abc", carrier: "abc", ship_from: "sloc", delivery: "abc" })
+    const capped = calls.filter((c) => !(c.entity === "order" && c.filters.id))
+    expect(capped.map((c) => c.entity).sort()).toEqual(
+      ["fulfillment", "fulfillment", "order", "order_fulfillment", "order_fulfillment", "order_item", "order_line_item", "order_shipping_method"].sort()
+    )
+    for (const c of capped) {
+      expect(c.pagination).toEqual({ take: expect.any(Number), order: { created_at: "DESC", id: "DESC" } })
+    }
+  })
+
+  it("accepts injectable caps: a branch reaching candidateCap flags truncation and maxResults limits the ids", async () => {
+    const { query, calls } = makeQuery({
+      order_line_item: () => [1, 2, 3].map((i) => ({ id: "li_" + i, variant_sku: "abc" })),
+      order_item: () => [1, 2, 3].map((i) => ({ order_id: "o_" + i, item_id: "li_" + i })),
+      order: () => [{ id: "o_3" }, { id: "o_2" }, { id: "o_1" }],
+    })
+    const res = await searchOrders(query, { sku: "abc" }, { candidateCap: 3, maxResults: 2 })
+    expect(res).toEqual({ order_ids: ["o_3", "o_2"], truncated: true })
+    expect(calls[0].pagination!.take).toBe(3)
+    expect(calls[1].pagination!.take).toBe(8)
+    expect(calls[2].pagination!.take).toBe(3)
   })
 
   it("never puts wildcard characters into a pattern: uses the longest literal segment and verifies literally", async () => {

@@ -1,5 +1,6 @@
 import { medusaIntegrationTestRunner } from "@medusajs/test-utils"
-import { Modules, ProductStatus } from "@medusajs/framework/utils"
+import { ContainerRegistrationKeys, Modules, ProductStatus } from "@medusajs/framework/utils"
+import { searchOrders } from "../../src/api/admin/order-search/search"
 import { adminHeaders, createAdminUser } from "../fixtures/create-admin-user"
 import { createOrderSeeder } from "../fixtures/order"
 
@@ -99,7 +100,7 @@ medusaIntegrationTestRunner({
       })
 
       it("400s on empty, too-short, unknown and malformed input", async () => {
-        for (const qs of ["", "q=a", "q=%20a%20", "country=usa", "q=ab&limit=5", "bogus=1", "sku="]) {
+        for (const qs of ["", "q=a", "q=%20a%20", "country=usa", "q=ab&limit=5", "bogus=1", "sku=", "q=", "carrier=", "ship_from=", "delivery=", "delivery=%20%20", "country=us&delivery="]) {
           const res = await api.get(`/admin/order-search?${qs}`, adminHeaders).catch((e) => e.response)
           expect(res.status).toBe(400)
         }
@@ -173,6 +174,58 @@ medusaIntegrationTestRunner({
         expect((await search({ sku: "ALPHA-01" })).order_ids).toEqual([])
         expect((await search({ sku: "ALPH_" })).order_ids).toEqual([])
         expect((await search({ sku: "SRCH-___" })).order_ids).toEqual([])
+      })
+
+      it("ignores canceled (voided) fulfillments for tracking number, carrier and ship_from", async () => {
+        const s4 = await createOrder("SRCH-DELTA-04", "Okapi Thing")
+        const ship = await api.post(
+          `/admin/orders/${s4.order.id}/mark-shipped`,
+          { carrier: "DHLX", tracking_number: "1ZVOIDED001" },
+          adminHeaders
+        )
+        expect((await search({ q: "1zvoided001" })).order_ids).toEqual([s4.order.id])
+        expect((await search({ carrier: "dhlx" })).order_ids).toEqual([s4.order.id])
+        expect((await search({ ship_from: s4.stockLocation.id })).order_ids).toEqual([s4.order.id])
+
+        await container
+          .resolve(Modules.FULFILLMENT)
+          .updateFulfillment(ship.data.fulfillment_id, { canceled_at: new Date() } as any)
+
+        expect((await search({ q: "1zvoided001" })).order_ids).toEqual([])
+        expect((await search({ carrier: "dhlx" })).order_ids).toEqual([])
+        expect((await search({ ship_from: s4.stockLocation.id })).order_ids).toEqual([])
+        // the order itself is still found by its SKU
+        expect((await search({ sku: "DELTA-04" })).order_ids).toEqual([s4.order.id])
+      })
+
+      it("keeps the NEWEST candidates and the newest orders when a candidate cap is hit", async () => {
+        const orderModule = container.resolve(Modules.ORDER)
+        const fulfillment = container.resolve(Modules.FULFILLMENT)
+        const link = container.resolve(ContainerRegistrationKeys.LINK)
+        const created: string[] = []
+        for (let i = 0; i < 6; i++) {
+          const order = await orderModule.createOrders({ currency_code: "usd", email: `cap${i}@cap.test` })
+          const f = await fulfillment.createFulfillment({
+            location_id: "sloc_captest",
+            provider_id: "manual_manual",
+            delivery_address: { address_1: "1 Cap St", country_code: "us" },
+            items: [],
+            labels: [],
+            data: {},
+            metadata: {},
+          } as any)
+          await link.create({
+            [Modules.ORDER]: { order_id: order.id },
+            [Modules.FULFILLMENT]: { fulfillment_id: f.id },
+          })
+          created.push(order.id)
+        }
+        const query = container.resolve(ContainerRegistrationKeys.QUERY)
+        const res = await searchOrders(query, { ship_from: "sloc_captest" }, { candidateCap: 3, maxResults: 2 })
+        // candidates kept: fulfillments of the 3 newest orders; of those the newest 2 are returned
+        expect(res).toEqual({ order_ids: [created[5], created[4]], truncated: true })
+        const all = await searchOrders(query, { ship_from: "sloc_captest" })
+        expect(all).toEqual({ order_ids: [...created].reverse(), truncated: false })
       })
 
       it("returns an empty list when nothing matches", async () => {

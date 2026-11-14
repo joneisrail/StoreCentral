@@ -5,17 +5,17 @@ import { z } from "@medusajs/framework/zod"
 export const OrderSearchQuerySchema = z
   .strictObject({
     q: z.string().trim().min(2).max(100).optional(),
-    sku: z.string().min(1).max(100).optional(),
+    sku: z.string().trim().min(1).max(100).optional(),
     country: z
       .string()
       .regex(/^[A-Za-z]{2}$/)
       .transform((c) => c.toUpperCase())
       .optional(),
-    carrier: z.string().max(50).optional(),
-    ship_from: z.string().max(100).optional(),
-    delivery: z.string().max(100).optional(),
+    carrier: z.string().trim().min(1).max(50).optional(),
+    ship_from: z.string().trim().min(1).max(100).optional(),
+    delivery: z.string().trim().min(1).max(100).optional(),
   })
-  .refine((v) => Object.values(v).some((x) => x !== undefined), {
+  .refine((v) => Object.values(v).some((x) => (typeof x === "string" ? x.trim().length > 0 : x !== undefined)), {
     message: "Provide at least one search parameter",
   })
 export type OrderSearchQuerySchema = z.infer<typeof OrderSearchQuerySchema>

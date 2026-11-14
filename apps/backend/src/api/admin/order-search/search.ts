@@ -15,12 +15,45 @@
 // comparison. Text made only of wildcard characters matches nothing. Text
 // without those characters is used directly as a bound `%text%` value.
 //
-// Each candidate branch is capped at CANDIDATE_CAP rows; hitting the cap sets
-// `truncated`. Search text is never logged.
+// Limits (documented, not hidden):
+// - Child-entity lookups (line items, fulfillments, their links, shipping
+//   methods) cannot be pushed into the final order query (they are other
+//   entities or modules), so each is capped at CANDIDATE_CAP rows (link
+//   lookups at 2.5x). Every capped fetch is ordered newest first
+//   (created_at DESC, id DESC) so a hit cap keeps the NEWEST candidates, and
+//   hitting a cap sets `truncated`. Candidates are ordered by the child row's
+//   created_at, which approximates but is not identical to order recency (for
+//   example a fulfillment created later for an older order).
+// - Canceled fulfillments (voided labels) never match carrier, ship_from or
+//   tracking number.
+// - Order text verification (only for text containing wildcard characters)
+//   covers exactly the fields core `q` searches: display_id,
+//   custom_display_id, email and the shipping/billing address fields company,
+//   first_name, last_name, address_1, address_2, city, province, postal_code,
+//   phone. Core `q` tokenises on whitespace and ANDs tokens; the verify step
+//   treats the text as one literal string.
+// - order_item keeps one row per order version, so an item removed by an order
+//   edit can still match its order.
+// Search text is never logged.
 
 export const MAX_RESULTS = 200
 export const CANDIDATE_CAP = 2000
-const ORDER_ITEM_CAP = 5000
+const LINK_CAP_FACTOR = 2.5
+
+export type SearchOptions = { candidateCap?: number; maxResults?: number }
+
+const NEWEST_FIRST = { created_at: "DESC", id: "DESC" } as const
+const ADDRESS_FIELDS = [
+  "company",
+  "first_name",
+  "last_name",
+  "address_1",
+  "address_2",
+  "city",
+  "province",
+  "postal_code",
+  "phone",
+] as const
 
 export type SearchParams = {
   q?: string
@@ -69,12 +102,21 @@ const toPattern = (text: string, exact = false): Pattern | null => {
 
 class Search {
   capped = false
-  constructor(private readonly query: QueryLike) {}
+  readonly cap: number
+  readonly linkCap: number
+  constructor(
+    private readonly query: QueryLike,
+    cap: number
+  ) {
+    this.cap = cap
+    this.linkCap = Math.ceil(cap * LINK_CAP_FACTOR)
+  }
 
-  async fetch(args: GraphArgs, cap = CANDIDATE_CAP): Promise<any[]> {
+  // Every capped fetch is ordered newest first so a hit cap keeps the newest rows.
+  async fetch(args: GraphArgs, cap = this.cap): Promise<any[]> {
     const { data } = await this.query.graph({
       ...args,
-      pagination: { take: cap, ...args.pagination },
+      pagination: { take: cap, order: { ...NEWEST_FIRST }, ...args.pagination },
     })
     if (data.length >= cap) this.capped = true
     return data
@@ -87,10 +129,16 @@ class Search {
     const rows = await this.fetch({
       entity: "order",
       fields: p.verify
-        ? ["id", "display_id", "custom_display_id", "email", "shipping_address.*", "billing_address.*"]
+        ? [
+            "id",
+            "display_id",
+            "custom_display_id",
+            "email",
+            ...ADDRESS_FIELDS.map((f) => `shipping_address.${f}`),
+            ...ADDRESS_FIELDS.map((f) => `billing_address.${f}`),
+          ]
         : ["id"],
       filters: { q: p.verify ? longestLiteralSegment(text) : text, is_draft_order: false },
-      pagination: { order: { created_at: "DESC" } },
     })
     const kept = p.verify
       ? rows.filter((r) =>
@@ -99,8 +147,8 @@ class Search {
               r.display_id,
               r.custom_display_id,
               r.email,
-              ...Object.values(r.shipping_address ?? {}),
-              ...Object.values(r.billing_address ?? {}),
+              ...ADDRESS_FIELDS.map((f) => r.shipping_address?.[f]),
+              ...ADDRESS_FIELDS.map((f) => r.billing_address?.[f]),
             ],
             text
           )
@@ -123,7 +171,7 @@ class Search {
     if (!itemIds.length) return new Set()
     const links = await this.fetch(
       { entity: "order_item", fields: ["order_id", "item_id"], filters: { item_id: itemIds } },
-      ORDER_ITEM_CAP
+      this.linkCap
     )
     return new Set(links.map((l) => l.order_id as string))
   }
@@ -132,7 +180,7 @@ class Search {
     if (!fulfillmentIds.length) return new Set()
     const links = await this.fetch(
       { entity: "order_fulfillment", fields: ["order_id", "fulfillment_id"], filters: { fulfillment_id: fulfillmentIds } },
-      ORDER_ITEM_CAP
+      this.linkCap
     )
     return new Set(links.map((l) => l.order_id as string))
   }
@@ -144,7 +192,7 @@ class Search {
     const ful = await this.fetch({
       entity: "fulfillment",
       fields: ["id", "labels.tracking_number"],
-      filters: { labels: { tracking_number: { $ilike: p.like } } },
+      filters: { labels: { tracking_number: { $ilike: p.like } }, canceled_at: null },
     })
     const kept = p.verify
       ? ful.filter((f) => containsLiteral((f.labels ?? []).map((l: any) => l?.tracking_number), text))
@@ -155,7 +203,7 @@ class Search {
   // carrier (case-insensitive equals over three JSON paths) and ship_from
   // (location id) on the same fulfillment.
   async fulfillmentOrderIds(carrier?: string, shipFrom?: string): Promise<Set<string>> {
-    const filters: Record<string, unknown> = {}
+    const filters: Record<string, unknown> = { canceled_at: null }
     let p: Pattern | null = null
     if (shipFrom) filters.location_id = shipFrom
     if (carrier) {
@@ -198,8 +246,13 @@ const intersect = (sets: Set<string>[]): string[] => {
   return [...first].filter((id) => rest.every((s) => s.has(id)))
 }
 
-export async function searchOrders(query: QueryLike, params: SearchParams): Promise<SearchResult> {
-  const s = new Search(query)
+export async function searchOrders(
+  query: QueryLike,
+  params: SearchParams,
+  options: SearchOptions = {}
+): Promise<SearchResult> {
+  const maxResults = options.maxResults ?? MAX_RESULTS
+  const s = new Search(query, options.candidateCap ?? CANDIDATE_CAP)
   const empty: SearchResult = { order_ids: [], truncated: false }
   const restrictions: Set<string>[] = []
   const filters: Record<string, unknown> = { is_draft_order: false }
@@ -233,10 +286,10 @@ export async function searchOrders(query: QueryLike, params: SearchParams): Prom
     entity: "order",
     fields: ["id"],
     filters,
-    pagination: { take: MAX_RESULTS + 1, order: { created_at: "DESC" } },
+    pagination: { take: maxResults + 1, order: { ...NEWEST_FIRST } },
   })
   return {
-    order_ids: data.slice(0, MAX_RESULTS).map((o) => o.id as string),
-    truncated: data.length > MAX_RESULTS || s.capped,
+    order_ids: data.slice(0, maxResults).map((o) => o.id as string),
+    truncated: data.length > maxResults || s.capped,
   }
 }
