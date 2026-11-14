@@ -9,7 +9,7 @@ import {
 import userEvent from "@testing-library/user-event"
 import { TooltipProvider } from "@medusajs/ui"
 import type { ReactElement } from "react"
-import { MemoryRouter, Route, Routes } from "react-router-dom"
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import type { OrderCarrierRatesResponse } from "../../../../../../hooks/api/orders"
@@ -24,6 +24,35 @@ vi.mock("react-i18next", () => ({
     // directly, not just `t`.
     i18n: { language: "en" },
   }),
+}))
+
+// The tab tables render the search/filter toolbar and use `useOrderSearch`;
+// both reach `lib/client` (build-time defines). Search is inactive by default.
+const { mockUseOrderSearch } = vi.hoisted(() => ({
+  mockUseOrderSearch: vi.fn((..._args: unknown[]) => ({
+    orderIds: null as string[] | null,
+    truncated: false,
+    isLoading: false,
+    isError: false,
+    refetch: vi.fn(),
+  })),
+}))
+vi.mock("../../../../../../lib/client", () => ({ sdk: {} }))
+vi.mock("../../../../../../hooks/api/order-search", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../../../../../../hooks/api/order-search")
+  >()),
+  useOrderSearch: (...args: unknown[]) =>
+    (mockUseOrderSearch as (...a: unknown[]) => unknown)(...args),
+}))
+vi.mock("../../../../../../hooks/api/regions", () => ({
+  useRegions: () => ({ regions: [] }),
+}))
+vi.mock("../../../../../../hooks/api/sales-channels", () => ({
+  useSalesChannels: () => ({ sales_channels: [] }),
+}))
+vi.mock("../../../../../../hooks/api/order-tags", () => ({
+  useOrderTags: () => ({ order_tags: [] }),
 }))
 
 const {
@@ -2005,5 +2034,235 @@ describe("ReadyToShipTable stale selection is never fulfilled", () => {
         (f: any) => f.order_id
       )
     ).toEqual(["order_2"])
+  })
+})
+
+describe("ReadyToShipTable search and filters", () => {
+  const inactiveSearch = {
+    orderIds: null as string[] | null,
+    truncated: false,
+    isLoading: false,
+    isError: false,
+    refetch: vi.fn(),
+  }
+  const searchResult = (overrides: Record<string, unknown> = {}) => ({
+    ...inactiveSearch,
+    ...overrides,
+  })
+
+  const LocationProbe = () => {
+    const location = useLocation()
+    return <output data-testid="search">{location.search}</output>
+  }
+
+  const renderAt = (url: string) =>
+    render(
+      <MemoryRouter initialEntries={[url]}>
+        <TooltipProvider>
+          <ReadyToShipTable />
+          <LocationProbe />
+        </TooltipProvider>
+      </MemoryRouter>
+    )
+
+  const setOrders = (orders: unknown[], count = orders.length) =>
+    mockUseOrders.mockReturnValue({
+      orders,
+      count,
+      isLoading: false,
+      isError: false,
+      error: undefined,
+    })
+
+  const lastParams = () => mockUseOrders.mock.calls.at(-1)![0]
+  const lastOptions = () => mockUseOrders.mock.calls.at(-1)![1]
+
+  afterEach(() => mockUseOrderSearch.mockReset())
+
+  it("typing in the search box requests orders with id $in and without q", async () => {
+    setOrders([])
+    mockUseOrderSearch.mockImplementation(((p: { q?: string }) => {
+      return p.q
+        ? searchResult({ orderIds: ["order_1", "order_2"] })
+        : searchResult()
+    }) as any)
+    const user = userEvent.setup()
+    renderAt("/")
+
+    await user.type(
+      screen.getByPlaceholderText("orders.list.searchPlaceholder"),
+      "smith"
+    )
+
+    await waitFor(() =>
+      expect(lastParams().id).toEqual({ $in: ["order_1", "order_2"] })
+    )
+    expect(lastParams()).not.toHaveProperty("q")
+    expect(mockUseOrderSearch.mock.calls.at(-1)![0]).toMatchObject({
+      q: "smith",
+    })
+  })
+
+  it("a filter chip narrows the tab query and does not widen it", () => {
+    setOrders([])
+    renderAt("/?rts_f_payment_status=captured,not_paid")
+
+    expect(lastParams().payment_status).toEqual(["captured"])
+    expect(lastParams().fulfillment_status).toEqual([
+      "not_fulfilled",
+      "partially_fulfilled",
+      "canceled",
+    ])
+    expect(lastParams().status).toEqual({ $nin: ["canceled"] })
+  })
+
+  it("no user criteria leaves the request identical to before", () => {
+    setOrders([])
+    setHoldLookups({ tag: { tagId: "tag_hold" }, held: { ids: ["order_h"] } })
+    renderAt("/")
+
+    expect(lastParams()).toEqual({
+      fields: expect.any(String),
+      fulfillment_status: ["not_fulfilled", "partially_fulfilled", "canceled"],
+      payment_status: ["captured", "partially_captured"],
+      status: { $nin: ["canceled"] },
+      id: { $nin: ["order_h"] },
+      limit: 20,
+      offset: 0,
+      order: "-created_at",
+    })
+    expect(lastOptions().enabled).toBe(true)
+  })
+
+  it("offset resets when criteria change", async () => {
+    setOrders([], 100)
+    const user = userEvent.setup()
+    renderAt("/?rts_offset=20")
+    expect(lastParams().offset).toBe(20)
+
+    await user.type(
+      screen.getByPlaceholderText("orders.list.searchPlaceholder"),
+      "ab"
+    )
+
+    await waitFor(() => expect(lastParams().offset).toBe(0))
+    await waitFor(() =>
+      expect(screen.getByTestId("search").textContent).not.toContain(
+        "rts_offset"
+      )
+    )
+  })
+
+  it("no rows requested while the search is loading", () => {
+    setOrders([makeReadyToShipOrder("order_1")])
+    mockUseOrderSearch.mockReturnValue(searchResult({ isLoading: true }))
+    renderAt("/?rts_q=smith")
+
+    expect(lastOptions().enabled).toBe(false)
+    expect(screen.queryByText("jane@example.com")).toBeNull()
+  })
+
+  it("search error shows the inline error with Retry", async () => {
+    const refetch = vi.fn()
+    setOrders([makeReadyToShipOrder("order_1")])
+    mockUseOrderSearch.mockReturnValue(searchResult({ isError: true, refetch }))
+    const user = userEvent.setup()
+    renderAt("/?rts_q=smith")
+
+    expect(screen.getByText("orders.list.searchError")).toBeTruthy()
+    expect(lastOptions().enabled).toBe(false)
+    expect(screen.queryByText("jane@example.com")).toBeNull()
+    await user.click(
+      screen.getByRole("button", { name: "orders.list.searchRetry" })
+    )
+    expect(refetch).toHaveBeenCalledTimes(1)
+  })
+
+  it("held ids never appear in search results", () => {
+    setOrders([])
+    setHoldLookups({ tag: { tagId: "tag_hold" }, held: { ids: ["order_h"] } })
+    mockUseOrderSearch.mockReturnValue(
+      searchResult({ orderIds: ["order_1", "order_h"] })
+    )
+    renderAt("/?rts_q=smith")
+
+    expect(lastParams().id).toEqual({ $in: ["order_1"] })
+  })
+
+  it("selection is pruned when the search hides selected rows", async () => {
+    const both = [
+      makeReadyToShipOrder("order_1"),
+      makeReadyToShipOrder("order_2"),
+    ]
+    mockUseOrders.mockImplementation((params: any) => {
+      const orders = params.id?.$in
+        ? both.filter((o) => params.id.$in.includes(o.id))
+        : both
+      return {
+        orders,
+        count: orders.length,
+        isLoading: false,
+        isError: false,
+        error: undefined,
+      }
+    })
+    mockUseOrderSearch.mockImplementation(((p: { q?: string }) => {
+      return p.q ? searchResult({ orderIds: ["order_2"] }) : searchResult()
+    }) as any)
+    setOrderRate("order_1", "shp_1", "rate_1")
+    setOrderRate("order_2", "shp_2", "rate_2")
+    mockBulkFulfillOrders.mockResolvedValue({ succeeded: [], failed: [] })
+
+    const user = userEvent.setup()
+    renderAt("/")
+
+    await user.click((await screen.findAllByRole("checkbox"))[1])
+    await user.click((await screen.findAllByRole("checkbox"))[2])
+
+    await user.type(
+      screen.getByPlaceholderText("orders.list.searchPlaceholder"),
+      "two"
+    )
+    await waitFor(() => expect(lastParams().id).toEqual({ $in: ["order_2"] }))
+
+    await user.click(
+      await screen.findByRole("button", { name: /fulfillSelected/ })
+    )
+    await waitFor(() => expect(mockBulkFulfillOrders).toHaveBeenCalledTimes(1))
+    expect(
+      mockBulkFulfillOrders.mock.calls[0][0].fulfillments.map(
+        (f: any) => f.order_id
+      )
+    ).toEqual(["order_2"])
+  })
+
+  it("bulk fulfill still works with active criteria", async () => {
+    setOrders([makeReadyToShipOrder("order_1")])
+    mockUseOrderSearch.mockReturnValue(searchResult({ orderIds: ["order_1"] }))
+    setOrderRate("order_1", "shp_1", "rate_1")
+    mockBulkFulfillOrders.mockResolvedValue({
+      succeeded: ["order_1"],
+      failed: [],
+    })
+    const user = userEvent.setup()
+    renderAt("/?rts_q=smith")
+
+    await user.click((await screen.findAllByRole("checkbox"))[1])
+    await user.click(
+      await screen.findByRole("button", { name: /fulfillSelected/ })
+    )
+
+    await waitFor(() =>
+      expect(mockBulkFulfillOrders).toHaveBeenCalledWith({
+        fulfillments: [
+          {
+            order_id: "order_1",
+            location_id: "loc_default",
+            shipment_id: "shp_1",
+            rate_id: "rate_1",
+          },
+        ],
+      })
+    )
   })
 })

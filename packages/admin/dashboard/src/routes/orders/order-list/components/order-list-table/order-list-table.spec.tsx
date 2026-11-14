@@ -10,6 +10,35 @@ vi.mock("react-i18next", () => ({
   }),
 }))
 
+// The tab tables render the search/filter toolbar and use `useOrderSearch`;
+// both reach `lib/client` (build-time defines). Search is inactive by default.
+const { mockUseOrderSearch } = vi.hoisted(() => ({
+  mockUseOrderSearch: vi.fn(() => ({
+    orderIds: null as string[] | null,
+    truncated: false,
+    isLoading: false,
+    isError: false,
+    refetch: vi.fn(),
+  })),
+}))
+vi.mock("../../../../../lib/client", () => ({ sdk: {} }))
+vi.mock("../../../../../hooks/api/order-search", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../../../../../hooks/api/order-search")
+  >()),
+  useOrderSearch: (...args: unknown[]) =>
+    (mockUseOrderSearch as (...a: unknown[]) => unknown)(...args),
+}))
+vi.mock("../../../../../hooks/api/regions", () => ({
+  useRegions: () => ({ regions: [] }),
+}))
+vi.mock("../../../../../hooks/api/sales-channels", () => ({
+  useSalesChannels: () => ({ sales_channels: [] }),
+}))
+vi.mock("../../../../../hooks/api/order-tags", () => ({
+  useOrderTags: () => ({ order_tags: [] }),
+}))
+
 // `order-list-table.tsx` (via its All-tab body) pulls in `useOrders`,
 // which pulls in `lib/client` - that module reads build-time defines
 // (`__AUTH_TYPE__` etc.) injected by the Vite config and isn't available

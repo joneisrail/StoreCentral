@@ -3,7 +3,6 @@ import { keepPreviousData } from "@tanstack/react-query"
 import { ColumnDef, createColumnHelper } from "@tanstack/react-table"
 import { useMemo } from "react"
 import { useTranslation } from "react-i18next"
-import { useSearchParams } from "react-router-dom"
 
 import { _DataTable } from "../../../../../../components/table/data-table/data-table"
 import { DateCell } from "../../../../../../components/table/table-cells/common/date-cell"
@@ -30,7 +29,9 @@ import {
 import { useOrders } from "../../../../../../hooks/api/orders"
 import { useDataTable } from "../../../../../../hooks/use-data-table"
 import { DEFAULT_FIELDS } from "../../../const"
+import { useTabTableCriteria } from "../use-tab-table-criteria"
 import { HoldLookupError } from "./hold-lookup-error"
+import { TabTableToolbar } from "./tab-table-toolbar"
 
 const PAGE_SIZE = 20
 
@@ -105,6 +106,8 @@ type ViewOrderTableProps = {
    * listing orders that should be excluded.
    */
   lookupError?: boolean
+  /** Toolbar filters the tab already fixes (On Hold defines the tag). */
+  excludeFilters?: string[]
 }
 
 const NO_EXTRA_COLUMNS: OrderColumn[] = []
@@ -122,31 +125,31 @@ export const ViewOrderTable = ({
   extraColumns = NO_EXTRA_COLUMNS,
   lookupLoading = false,
   lookupError = false,
+  excludeFilters,
 }: ViewOrderTableProps) => {
-  const [searchParams] = useSearchParams()
-
-  const offset = Number(searchParams.get(`${prefix}_offset`) ?? 0)
+  const { ordersQuery, offset, searchBlocked, searchLoading, toolbarProps } =
+    useTabTableCriteria(prefix, query)
 
   const { orders, count, isLoading, isError, error } = useOrders(
     {
       fields: extraFields ? `${DEFAULT_FIELDS},${extraFields}` : DEFAULT_FIELDS,
-      ...query,
+      ...ordersQuery,
       limit: PAGE_SIZE,
       offset,
       order: "-created_at",
     } as HttpTypes.AdminOrderFilters,
     {
       placeholderData: keepPreviousData,
-      enabled: !lookupLoading && !lookupError,
+      enabled: !lookupLoading && !lookupError && !searchBlocked,
     }
   )
 
   const columns = useViewOrderColumns(extraColumns)
 
   const { table } = useDataTable({
-    data: orders ?? [],
+    data: searchBlocked ? [] : (orders ?? []),
     columns,
-    count,
+    count: searchBlocked ? 0 : count,
     enablePagination: true,
     pageSize: PAGE_SIZE,
     getRowId: (row) => row.id,
@@ -162,16 +165,19 @@ export const ViewOrderTable = ({
   }
 
   return (
-    <_DataTable
-      columns={columns}
-      table={table}
-      pagination
-      navigateTo={(row) => `/orders/${row.original.id}`}
-      count={count}
-      isLoading={isLoading || lookupLoading}
-      pageSize={PAGE_SIZE}
-      prefix={prefix}
-      noRecords={{ message: noRecordsMessage }}
-    />
+    <>
+      <TabTableToolbar {...toolbarProps} excludeFilters={excludeFilters} />
+      <_DataTable
+        columns={columns}
+        table={table}
+        pagination
+        navigateTo={(row) => `/orders/${row.original.id}`}
+        count={searchBlocked ? 0 : count}
+        isLoading={isLoading || lookupLoading || searchLoading}
+        pageSize={PAGE_SIZE}
+        prefix={prefix}
+        noRecords={{ message: noRecordsMessage }}
+      />
+    </>
   )
 }

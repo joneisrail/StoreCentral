@@ -16,6 +16,9 @@ vi.mock("react-i18next", () => ({
   }),
 }))
 
+// ready-to-ship-table (imported for its types) reaches lib/client via order-search.
+vi.mock("../../../../../../lib/client", () => ({ sdk: {} }))
+
 const { mutateAsync, mockUseStockLocations } = vi.hoisted(() => ({
   mutateAsync: vi.fn(),
   mockUseStockLocations: vi.fn(),

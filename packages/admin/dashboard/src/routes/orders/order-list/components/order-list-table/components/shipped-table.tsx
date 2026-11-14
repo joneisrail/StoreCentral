@@ -3,7 +3,6 @@ import { keepPreviousData } from "@tanstack/react-query"
 import { createColumnHelper } from "@tanstack/react-table"
 import { useMemo } from "react"
 import { useTranslation } from "react-i18next"
-import { useSearchParams } from "react-router-dom"
 
 import { _DataTable } from "../../../../../../components/table/data-table/data-table"
 import { DateCell } from "../../../../../../components/table/table-cells/common/date-cell"
@@ -26,7 +25,9 @@ import { useDataTable } from "../../../../../../hooks/use-data-table"
 import { formatProvider } from "../../../../../../lib/format-provider"
 import { SHIPPED_FIELDS } from "../../../const"
 import { SHIPPED_QUERY } from "../../../order-views"
+import { useTabTableCriteria } from "../use-tab-table-criteria"
 import { SHIPPED_ROW_ACTIONS_COLUMN } from "./row-actions-menu"
+import { TabTableToolbar } from "./tab-table-toolbar"
 import { getFulfillmentShipDate } from "./fulfillment-ship-date"
 
 const PAGE_SIZE = 20
@@ -168,30 +169,29 @@ const useShippedTableColumns = () => {
  */
 export const ShippedTable = () => {
   const { t } = useTranslation()
-  const [searchParams] = useSearchParams()
-
-  const offsetKey = `${QUERY_PREFIX}_offset`
-  const offset = Number(searchParams.get(offsetKey) ?? 0)
+  const { ordersQuery, offset, searchBlocked, searchLoading, toolbarProps } =
+    useTabTableCriteria(QUERY_PREFIX, SHIPPED_QUERY)
 
   const { orders, count, isLoading, isError, error } = useOrders(
     {
       fields: SHIPPED_FIELDS,
-      ...SHIPPED_QUERY,
+      ...ordersQuery,
       limit: PAGE_SIZE,
       offset,
       order: "-created_at",
     },
     {
       placeholderData: keepPreviousData,
+      enabled: !searchBlocked,
     }
   )
 
   const columns = useShippedTableColumns()
 
   const { table } = useDataTable({
-    data: orders ?? [],
+    data: searchBlocked ? [] : (orders ?? []),
     columns,
-    count,
+    count: searchBlocked ? 0 : count,
     enablePagination: true,
     pageSize: PAGE_SIZE,
     getRowId: (row) => row.id,
@@ -203,18 +203,21 @@ export const ShippedTable = () => {
   }
 
   return (
-    <_DataTable
-      columns={columns}
-      table={table}
-      pagination
-      navigateTo={(row) => `/orders/${row.original.id}`}
-      count={count}
-      isLoading={isLoading}
-      pageSize={PAGE_SIZE}
-      prefix={QUERY_PREFIX}
-      noRecords={{
-        message: t("orders.shipped.noRecordsMessage"),
-      }}
-    />
+    <>
+      <TabTableToolbar {...toolbarProps} />
+      <_DataTable
+        columns={columns}
+        table={table}
+        pagination
+        navigateTo={(row) => `/orders/${row.original.id}`}
+        count={searchBlocked ? 0 : count}
+        isLoading={isLoading || searchLoading}
+        pageSize={PAGE_SIZE}
+        prefix={QUERY_PREFIX}
+        noRecords={{
+          message: t("orders.shipped.noRecordsMessage"),
+        }}
+      />
+    </>
   )
 }

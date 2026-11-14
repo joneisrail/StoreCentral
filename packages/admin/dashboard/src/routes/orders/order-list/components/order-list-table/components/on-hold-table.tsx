@@ -64,6 +64,7 @@ export const OnHoldTable = () => {
       extraColumns={extraColumns}
       lookupLoading={isLoading}
       lookupError={isError}
+      excludeFilters={["tag_id"]}
     />
   )
 }

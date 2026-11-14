@@ -4,7 +4,6 @@ import { keepPreviousData } from "@tanstack/react-query"
 import { createColumnHelper, RowSelectionState } from "@tanstack/react-table"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { useSearchParams } from "react-router-dom"
 
 import { _DataTable } from "../../../../../../components/table/data-table/data-table"
 import { DateCell } from "../../../../../../components/table/table-cells/common/date-cell"
@@ -56,7 +55,9 @@ import { PackagePopover, PackageSelection } from "./package-popover"
 import { ShipDateCell, ShipTimeCell } from "./ship-by-cell"
 import { ShipFromSelect } from "./ship-from-select"
 import { ShippingRateSelect } from "./shipping-rate-select"
+import { useTabTableCriteria } from "../use-tab-table-criteria"
 import { HoldLookupError } from "./hold-lookup-error"
+import { TabTableToolbar } from "./tab-table-toolbar"
 
 // Re-exported for Task 11/13 (re-quoting carrier rates and buying the
 // fulfillment) to import the exact payload shape `rowPackages` below is
@@ -790,7 +791,6 @@ const useReadyToShipTableColumns = (
 export const ReadyToShipTable = () => {
   const { t } = useTranslation()
   const prompt = usePrompt()
-  const [searchParams] = useSearchParams()
 
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({})
   const [bulkFulfillResult, setBulkFulfillResult] =
@@ -956,9 +956,6 @@ export const ReadyToShipTable = () => {
     store?.metadata?.high_value_threshold
   )
 
-  const offsetKey = `${QUERY_PREFIX}_offset`
-  const offset = Number(searchParams.get(offsetKey) ?? 0)
-
   // The query comes from the same `getViewQuery` the tab's count uses, so
   // the rows equal the count (held orders excluded). The table does not
   // fetch until the hold tag and held ids resolve, and errors if either
@@ -973,17 +970,25 @@ export const ReadyToShipTable = () => {
   const lookupLoading = tagLoading || heldLoading
   const lookupError = tagError || heldError
 
+  // The tab's own query (held ids excluded) narrowed by the toolbar's
+  // search and filters; held orders can never be widened back in.
+  const { ordersQuery, offset, searchBlocked, searchLoading, toolbarProps } =
+    useTabTableCriteria(
+      QUERY_PREFIX,
+      getViewQuery("ready-to-ship", { heldIds, holdTagId: tagId })
+    )
+
   const { orders, count, isLoading, isError, error } = useOrders(
     {
       fields: READY_TO_SHIP_FIELDS,
-      ...getViewQuery("ready-to-ship", { heldIds, holdTagId: tagId }),
+      ...ordersQuery,
       limit: PAGE_SIZE,
       offset,
       order: "-created_at",
     } as HttpTypes.AdminOrderFilters,
     {
       placeholderData: keepPreviousData,
-      enabled: !lookupLoading && !lookupError,
+      enabled: !lookupLoading && !lookupError && !searchBlocked,
     }
   )
 
@@ -1001,8 +1006,9 @@ export const ReadyToShipTable = () => {
   )
 
   const loadedOrders = useMemo(
-    () => (orders as ReadyToShipOrder[] | undefined) ?? [],
-    [orders]
+    () =>
+      (searchBlocked ? [] : (orders as ReadyToShipOrder[] | undefined)) ?? [],
+    [orders, searchBlocked]
   )
   const overdueOrderIds = useMemo(() => {
     const now = new Date()
@@ -1044,7 +1050,7 @@ export const ReadyToShipTable = () => {
 
   useEffect(() => {
     // Not while (re)loading: nothing is known to be gone yet.
-    if (isLoading || lookupLoading) {
+    if (isLoading || lookupLoading || searchLoading) {
       return
     }
     setRowSelection((prev) => {
@@ -1054,14 +1060,14 @@ export const ReadyToShipTable = () => {
       }
       return Object.fromEntries(kept.map((id) => [id, prev[id]]))
     })
-  }, [actionableIds, isLoading, lookupLoading])
+  }, [actionableIds, isLoading, lookupLoading, searchLoading])
 
   const { mutateAsync: bulkFulfillOrders } = useBulkFulfillOrders()
 
   const { table } = useDataTable({
     data: visibleOrders,
     columns,
-    count,
+    count: searchBlocked ? 0 : count,
     enablePagination: true,
     pageSize: PAGE_SIZE,
     getRowId: (row) => row.id,
@@ -1091,6 +1097,7 @@ export const ReadyToShipTable = () => {
 
   return (
     <>
+      <TabTableToolbar {...toolbarProps} />
       <OverdueBanner
         count={overdueOrderIds.size}
         active={showOverdueOnly}
@@ -1101,8 +1108,8 @@ export const ReadyToShipTable = () => {
         table={table}
         pagination
         navigateTo={(row) => `/orders/${row.original.id}`}
-        count={count}
-        isLoading={isLoading || lookupLoading}
+        count={searchBlocked ? 0 : count}
+        isLoading={isLoading || lookupLoading || searchLoading}
         pageSize={PAGE_SIZE}
         prefix={QUERY_PREFIX}
         noRecords={{
