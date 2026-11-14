@@ -1824,8 +1824,27 @@
           "shipping_address": "Shipping address updated",
           "billing_address": "Billing address updated",
           "email": "Email updated"
+        },
+        "order": {
+          "held": "Order put on hold",
+          "released": "Order released from hold",
+          "label_voided": "Shipping label voided",
+          "marked_shipped": "Order marked as shipped",
+          "canceled": "Order canceled",
+          "shipped": "Order shipped",
+          "delivered": "Order delivered",
+          "reason": "Reason: {{reason}}",
+          "previousReason": "Previous reason: {{reason}}",
+          "labelsVoided_one": "{{count}} label voided",
+          "labelsVoided_other": "{{count}} labels voided",
+          "via": "via {{carrier}}",
+          "actor": {
+            "system": "System",
+            "unknown": "Unknown"
+          }
         }
-      }
+      },
+      "eventsUnavailable": "History unavailable"
     },
     "fields": {
       "displayId": "Display ID",

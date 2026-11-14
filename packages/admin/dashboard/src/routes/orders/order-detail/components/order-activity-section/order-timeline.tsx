@@ -29,11 +29,13 @@ import {
   useExchanges,
 } from "../../../../../hooks/api/exchanges"
 import { useCancelReturn, useReturns } from "../../../../../hooks/api/returns"
+import { useOrderEvents } from "../../../../../hooks/api/order-events"
 import { useDate } from "../../../../../hooks/use-date"
 import { getFormattedAddress } from "../../../../../lib/addresses"
 import { getStylizedAmount } from "../../../../../lib/money-amount-helpers"
 import { getPaymentsFromOrder } from "../../../../../lib/orders"
 import ActivityItems from "./activity-items"
+import { eventsToActivityItems } from "./order-event-items"
 import ChangeDetailsTooltip from "./change-details-tooltip"
 import { Thumbnail } from "../../../../../components/common/thumbnail"
 import { ExtendedOrderFulfillment, ExtendedOrder } from "../../constants"
@@ -48,7 +50,13 @@ type OrderTimelineProps = {
 const NON_RMA_CHANGE_TYPES = ["transfer", "update_order"]
 
 export const OrderTimeline = ({ order }: OrderTimelineProps) => {
-  const items = useActivityItems(order)
+  const { t } = useTranslation()
+  const { events, isError } = useOrderEvents(order.id)
+  const eventItems = useMemo(
+    () => eventsToActivityItems(events, t),
+    [events, t]
+  )
+  const items = useActivityItems(order, eventItems)
 
   if (items.length <= 3) {
     return (
@@ -68,6 +76,7 @@ export const OrderTimeline = ({ order }: OrderTimelineProps) => {
             </OrderActivityItem>
           )
         })}
+        {isError && <EventsUnavailableNote />}
       </div>
     )
   }
@@ -103,7 +112,18 @@ export const OrderTimeline = ({ order }: OrderTimelineProps) => {
       >
         {firstItem.children}
       </OrderActivityItem>
+      {isError && <EventsUnavailableNote />}
     </div>
+  )
+}
+
+const EventsUnavailableNote = () => {
+  const { t } = useTranslation()
+
+  return (
+    <Text size="small" className="text-ui-fg-muted">
+      {t("orders.activity.eventsUnavailable")}
+    </Text>
   )
 }
 
@@ -117,7 +137,10 @@ type Activity = {
   itemsMap?: Map<string, AdminOrderLineItem>
 }
 
-const useActivityItems = (order: ExtendedOrder): Activity[] => {
+const useActivityItems = (
+  order: ExtendedOrder,
+  eventItems: Activity[] = []
+): Activity[] => {
   const { t } = useTranslation()
 
   const { order: initialOrder = order } = useOrder(
@@ -575,6 +598,8 @@ const useActivityItems = (order: ExtendedOrder): Activity[] => {
       })
     }
 
+    items.push(...eventItems)
+
     const sortedActivities = items.sort((a, b) => {
       return (
         new Date(b.timestamp as string | Date).getTime() -
@@ -602,8 +627,11 @@ const useActivityItems = (order: ExtendedOrder): Activity[] => {
     payments,
     returns,
     exchanges,
+    claims,
+    t,
     orderChanges,
     itemsMap,
+    eventItems,
   ])
 }
 

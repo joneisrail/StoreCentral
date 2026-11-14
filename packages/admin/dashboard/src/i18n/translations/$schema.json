@@ -7137,6 +7137,86 @@
                   },
                   "required": ["shipping_address", "billing_address", "email"],
                   "additionalProperties": false
+                },
+                "order": {
+                  "type": "object",
+                  "properties": {
+                    "held": {
+                      "type": "string"
+                    },
+                    "released": {
+                      "type": "string"
+                    },
+                    "label_voided": {
+                      "type": "string"
+                    },
+                    "marked_shipped": {
+                      "type": "string"
+                    },
+                    "canceled": {
+                      "type": "string"
+                    },
+                    "shipped": {
+                      "type": "string"
+                    },
+                    "delivered": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "type": "string"
+                    },
+                    "previousReason": {
+                      "type": "string"
+                    },
+                    "labelsVoided_zero": {
+                      "type": "string"
+                    },
+                    "labelsVoided_one": {
+                      "type": "string"
+                    },
+                    "labelsVoided_two": {
+                      "type": "string"
+                    },
+                    "labelsVoided_few": {
+                      "type": "string"
+                    },
+                    "labelsVoided_many": {
+                      "type": "string"
+                    },
+                    "labelsVoided_other": {
+                      "type": "string"
+                    },
+                    "via": {
+                      "type": "string"
+                    },
+                    "actor": {
+                      "type": "object",
+                      "properties": {
+                        "system": {
+                          "type": "string"
+                        },
+                        "unknown": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["system", "unknown"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "held",
+                    "released",
+                    "label_voided",
+                    "marked_shipped",
+                    "canceled",
+                    "shipped",
+                    "delivered",
+                    "reason",
+                    "previousReason",
+                    "via",
+                    "actor"
+                  ],
+                  "additionalProperties": false
                 }
               },
               "required": [
@@ -7151,12 +7231,23 @@
                 "exchange",
                 "edit",
                 "transfer",
-                "update_order"
+                "update_order",
+                "order"
               ],
               "additionalProperties": false
+            },
+            "eventsUnavailable": {
+              "type": "string"
             }
           },
-          "required": ["header", "comment", "from", "to", "events"],
+          "required": [
+            "header",
+            "comment",
+            "from",
+            "to",
+            "events",
+            "eventsUnavailable"
+          ],
           "additionalProperties": false
         },
         "fields": {
