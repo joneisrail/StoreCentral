@@ -17,13 +17,9 @@ type RowActionsOrder = Pick<
   "id" | "display_id" | "fulfillment_status" | "status"
 > & { fulfillments?: { id: string }[] | null }
 
-const NON_HOLDABLE_FULFILLMENT = [
-  "shipped",
-  "partially_shipped",
-  "delivered",
-  "partially_delivered",
-  "canceled",
-]
+// Allow-list mirroring the backend hold step: only orders that are not yet
+// (fully) fulfilled can be held; unknown or missing statuses are not offered.
+const HOLDABLE_FULFILLMENT = ["not_fulfilled", "partially_fulfilled"]
 
 /**
  * Per-row actions: Put on hold / Release and Cancel order. Cancel is
@@ -47,7 +43,7 @@ export const RowActionsMenu = ({
   const canHold =
     mode === "active" &&
     order.status !== "canceled" &&
-    !NON_HOLDABLE_FULFILLMENT.includes(order.fulfillment_status as string)
+    HOLDABLE_FULFILLMENT.includes(order.fulfillment_status as string)
 
   const handleRelease = async () => {
     const ok = await prompt({

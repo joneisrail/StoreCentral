@@ -115,4 +115,36 @@ describe("RowActionsMenu", () => {
     await screen.findByText("orders.rowActions.cancel")
     expect(screen.queryByText("orders.rowActions.hold")).toBeNull()
   })
+  it.each([
+    ["fulfilled", undefined],
+    ["partially_shipped", undefined],
+    ["shipped", undefined],
+    ["delivered", undefined],
+    ["partially_delivered", undefined],
+    ["not_fulfilled", "canceled"],
+    [undefined, undefined],
+    ["something_new", undefined],
+  ])(
+    "does not offer hold for fulfillment_status %s / status %s",
+    async (fulfillment_status, status) => {
+      await open(
+        <RowActionsMenu
+          order={order({ fulfillment_status, status })}
+          mode="active"
+        />
+      )
+      await screen.findByText("orders.rowActions.cancel")
+      expect(screen.queryByText("orders.rowActions.hold")).toBeNull()
+    }
+  )
+
+  it.each(["not_fulfilled", "partially_fulfilled"])(
+    "offers hold for fulfillment_status %s",
+    async (fulfillment_status) => {
+      await open(
+        <RowActionsMenu order={order({ fulfillment_status })} mode="active" />
+      )
+      expect(await screen.findByText("orders.rowActions.hold")).toBeTruthy()
+    }
+  )
 })
