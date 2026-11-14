@@ -275,3 +275,33 @@ describe("markOrderShippedWorkflow", () => {
     expect(mockCancel).not.toHaveBeenCalled()
   })
 })
+
+describe("mark shipped event recording", () => {
+  const mockRecord = jest.fn()
+  const withEvents = (container: any) => {
+    container.register("orderEvents", { resolve: () => ({ recordOrderEvent: mockRecord }) } as any)
+    return container
+  }
+  beforeEach(() => {
+    mockRecord.mockReset().mockResolvedValue(undefined)
+    mockFulfill.mockResolvedValue({ result: { id: "ful_1" } })
+    mockShip.mockResolvedValue({})
+  })
+
+  it("records exactly one order.marked_shipped event with the shipment values and the actor", async () => {
+    await run(withEvents(makeContainer({ order: order(), options })))
+    expect(mockRecord).toHaveBeenCalledTimes(1)
+    expect(mockRecord).toHaveBeenCalledWith({
+      order_id: "order_1",
+      type: "order.marked_shipped",
+      actor: "user_1",
+      old_value: undefined,
+      new_value: { carrier: "UPS", tracking_number: "1Z999", fulfillment_id: "ful_1" },
+    })
+  })
+
+  it("a failing event write does not fail the action", async () => {
+    mockRecord.mockRejectedValue(new Error("db down"))
+    await expect(run(withEvents(makeContainer({ order: order(), options })))).resolves.toBeDefined()
+  })
+})

@@ -1,5 +1,6 @@
 import { acquireLockStep, releaseLockStep } from "@medusajs/medusa/core-flows"
 import { createWorkflow, transform, WorkflowResponse } from "@medusajs/framework/workflows-sdk"
+import { recordOrderEventStep } from "./steps/record-order-event"
 import {
   markOrderShippedStep,
   resolveMarkShippedPlacementStep,
@@ -43,6 +44,18 @@ export const markOrderShippedWorkflow = createWorkflow(
     }))
     const result = markOrderShippedStep(stepInput)
     releaseLockStep({ key: input.order_id })
+    recordOrderEventStep(
+      transform({ input, result }, ({ input, result }) => ({
+        order_id: input.order_id,
+        type: "order.marked_shipped" as const,
+        actor: input.user_id,
+        new_value: {
+          carrier: input.carrier,
+          tracking_number: input.tracking_number,
+          fulfillment_id: result.fulfillment_id,
+        },
+      }))
+    )
     return new WorkflowResponse(result)
   }
 )

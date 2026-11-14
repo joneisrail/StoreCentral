@@ -1,5 +1,6 @@
 import { createWorkflow, transform, WorkflowResponse } from "@medusajs/framework/workflows-sdk"
 import { bulkTagOrdersWorkflow, updateOrderWorkflow } from "@medusajs/medusa/core-flows"
+import { recordOrderEventStep } from "./steps/record-order-event"
 import { validateOrderHoldStep } from "./steps/hold-order-steps"
 
 export type ReleaseOrderWorkflowInput = { order_id: string; user_id?: string }
@@ -24,6 +25,18 @@ export const releaseOrderWorkflow = createWorkflow(
         metadata: { hold: "" },
       })),
     })
+
+    recordOrderEventStep(
+      transform({ input, state }, ({ input, state }) => {
+        const hold = state.metadata?.hold as { reason?: unknown } | undefined
+        return {
+          order_id: input.order_id,
+          type: "order.released" as const,
+          actor: input.user_id,
+          old_value: { reason: typeof hold?.reason === "string" ? hold.reason : null },
+        }
+      })
+    )
 
     return new WorkflowResponse(transform({ input }, ({ input }) => ({ order_id: input.order_id })))
   }

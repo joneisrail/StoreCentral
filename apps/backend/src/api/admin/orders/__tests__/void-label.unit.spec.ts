@@ -36,7 +36,7 @@ describe("void-label route", () => {
     await voidLabel(req(), res)
     expect(res.statusCode).toBe(200)
     expect(res.payload).toEqual(result)
-    expect(mockRun).toHaveBeenCalledWith({ input: { order_id: "order_1" } })
+    expect(mockRun).toHaveBeenCalledWith({ input: { order_id: "order_1", user_id: "user_1" } })
   })
 
   it("propagates NOT_FOUND and NOT_ALLOWED to the framework error handler", async () => {

@@ -180,3 +180,65 @@ describe("releaseOrderWorkflow", () => {
     expect(mockBulk).not.toHaveBeenCalled()
   })
 })
+
+describe("order event recording (hold and release)", () => {
+  const mockRecord = jest.fn()
+  const withEvents = (container: any) => {
+    container.register("orderEvents", { resolve: () => ({ recordOrderEvent: mockRecord }) } as any)
+    return container
+  }
+  const heldOrder = () =>
+    openOrder({
+      tags: [{ id: "otag_old", value: "On hold" }],
+      metadata: { hold: { reason: "Check address", held_by: "user_9" } },
+    })
+  beforeEach(() => mockRecord.mockReset().mockResolvedValue(undefined))
+
+  it("hold records exactly one order.held event with the reason and the actor", async () => {
+    await runHold(withEvents(makeContainer(openOrder(), [{ id: "otag_old", value: "On hold" }])))
+    expect(mockRecord).toHaveBeenCalledTimes(1)
+    expect(mockRecord).toHaveBeenCalledWith({
+      order_id: "order_1",
+      type: "order.held",
+      actor: "user_1",
+      old_value: undefined,
+      new_value: { reason: "Check address" },
+    })
+  })
+
+  it("hold without a user records the actor as unknown", async () => {
+    await runHold(withEvents(makeContainer(openOrder(), [])), { user_id: undefined })
+    expect(mockRecord.mock.calls[0][0].actor).toBe("unknown")
+  })
+
+  it("release records exactly one order.released event with the previous reason", async () => {
+    await releaseOrderWorkflow(withEvents(makeContainer(heldOrder()))).run({
+      input: { order_id: "order_1", user_id: "user_2" },
+    })
+    expect(mockRecord).toHaveBeenCalledTimes(1)
+    expect(mockRecord).toHaveBeenCalledWith({
+      order_id: "order_1",
+      type: "order.released",
+      actor: "user_2",
+      old_value: { reason: "Check address" },
+      new_value: undefined,
+    })
+  })
+
+  it("release records a null reason when the metadata has none", async () => {
+    await releaseOrderWorkflow(
+      withEvents(makeContainer(openOrder({ tags: [{ id: "otag_old", value: "On hold" }] })))
+    ).run({ input: { order_id: "order_1" } })
+    expect(mockRecord.mock.calls[0][0].old_value).toEqual({ reason: null })
+  })
+
+  it("a failing event write does not fail hold or release", async () => {
+    mockRecord.mockRejectedValue(new Error("db down"))
+    await expect(
+      runHold(withEvents(makeContainer(openOrder(), [{ id: "otag_old", value: "On hold" }])))
+    ).resolves.toBeDefined()
+    await expect(
+      releaseOrderWorkflow(withEvents(makeContainer(heldOrder()))).run({ input: { order_id: "order_1" } })
+    ).resolves.toBeDefined()
+  })
+})

@@ -28,6 +28,9 @@ import {
 } from "@medusajs/framework/utils"
 import type { MedusaRequest, MedusaResponse } from "@medusajs/framework/http"
 import { EasyPostClient } from "@dtc/fulfillment-easypost"
+import { ORDER_EVENTS_MODULE } from "../../../modules/order-events"
+import type { OrderEventType } from "../../../modules/order-events"
+import { resolveOrderIdForFulfillment } from "../../../subscribers/seller-hub-sync"
 
 const SIGNATURE_HEADER = "x-hmac-signature"
 
@@ -74,6 +77,35 @@ const emitShipmentCreated = async (
             error instanceof Error ? error.name : typeof error
           }`
         )
+    } catch {
+      // No logger available.
+    }
+  }
+}
+
+// Best-effort audit write for a state change the webhook caused: must never
+// change the response or throw. Logs only the event type.
+const recordSystemEvent = async (
+  container: MedusaRequest["scope"],
+  type: OrderEventType,
+  fulfillmentId: string
+) => {
+  try {
+    const query = container.resolve(ContainerRegistrationKeys.QUERY)
+    const orderId = await resolveOrderIdForFulfillment(query, fulfillmentId)
+    if (!orderId) return
+    const service = container.resolve(ORDER_EVENTS_MODULE) as any
+    await service.recordOrderEvent({
+      order_id: orderId,
+      type,
+      actor: "system",
+      new_value: { fulfillment_id: fulfillmentId },
+    })
+  } catch {
+    try {
+      container
+        .resolve(ContainerRegistrationKeys.LOGGER)
+        .warn(`Failed to record order event ${type}`)
     } catch {
       // No logger available.
     }
@@ -175,6 +207,7 @@ export const POST = async (req: MedusaRequest, res: MedusaResponse) => {
         await markFulfillmentAsDeliveredWorkflow(req.scope).run({
           input: { id: fulfillment.id },
         })
+        await recordSystemEvent(req.scope, "order.delivered", fulfillment.id)
       }
     } else if (IN_TRANSIT_STATUSES.has(status) && !fulfillment.shipped_at) {
       const existingLabels = (fulfillment.labels ?? [])
@@ -209,6 +242,7 @@ export const POST = async (req: MedusaRequest, res: MedusaResponse) => {
         // the seller-hub-sync subscriber to push tracking to the sales
         // channel. Only reached when this request actually created it.
         await emitShipmentCreated(req.scope, fulfillment.id)
+        await recordSystemEvent(req.scope, "order.shipped", fulfillment.id)
       }
     }
   } catch (error) {

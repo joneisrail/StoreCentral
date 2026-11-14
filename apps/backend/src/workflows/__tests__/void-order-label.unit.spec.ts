@@ -99,3 +99,36 @@ describe("voidOrderLabelWorkflow", () => {
     })
   })
 })
+
+describe("void order event recording", () => {
+  const mockRecord = jest.fn()
+  const withEvents = (container: any) => {
+    container.register("orderEvents", { resolve: () => ({ recordOrderEvent: mockRecord }) } as any)
+    return container
+  }
+  beforeEach(() => {
+    mockRecord.mockReset().mockResolvedValue(undefined)
+    mockCancel.mockResolvedValue({})
+  })
+
+  it("records exactly one order.label_voided event with the voided ids and the actor", async () => {
+    await voidOrderLabelWorkflow(withEvents(makeContainer(orderWith([label("ful_1"), label("ful_2")])))).run({
+      input: { order_id: "order_1", user_id: "user_1" },
+    })
+    expect(mockRecord).toHaveBeenCalledTimes(1)
+    expect(mockRecord).toHaveBeenCalledWith({
+      order_id: "order_1",
+      type: "order.label_voided",
+      actor: "user_1",
+      old_value: undefined,
+      new_value: { fulfillment_ids: ["ful_1", "ful_2"] },
+    })
+  })
+
+  it("records no event when the void fails, and a failing event write does not fail the void", async () => {
+    await expect(run(withEvents(makeContainer(orderWith([]))))).rejects.toBeDefined()
+    expect(mockRecord).not.toHaveBeenCalled()
+    mockRecord.mockRejectedValue(new Error("db down"))
+    await expect(run(withEvents(makeContainer(orderWith([label("ful_1")]))))).resolves.toBeDefined()
+  })
+})

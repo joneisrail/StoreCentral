@@ -4,6 +4,7 @@ import {
   createOrderTagsWorkflow,
   updateOrderWorkflow,
 } from "@medusajs/medusa/core-flows"
+import { recordOrderEventStep } from "./steps/record-order-event"
 import { findHoldTagStep, HOLD_TAG_VALUE, validateOrderHoldStep } from "./steps/hold-order-steps"
 
 export type HoldOrderWorkflowInput = { order_id: string; reason: string; user_id?: string }
@@ -46,6 +47,15 @@ export const holdOrderWorkflow = createWorkflow(
       },
     }))
     updateOrderWorkflow.runAsStep({ input: update })
+
+    recordOrderEventStep(
+      transform({ input }, ({ input }) => ({
+        order_id: input.order_id,
+        type: "order.held" as const,
+        actor: input.user_id,
+        new_value: { reason: input.reason },
+      }))
+    )
 
     return new WorkflowResponse(
       transform({ input, tagId }, ({ input, tagId }) => ({ order_id: input.order_id, tag_id: tagId }))
