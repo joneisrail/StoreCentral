@@ -41,37 +41,32 @@ class OrderEventsModuleService extends MedusaService({
     })
   }
 
-  // Intentionally replaces the generated list method (filter/config signature)
-  // with the order-scoped, newest-first variant the app uses.
-  // @ts-expect-error incompatible override of the generated list method
-  async listOrderEvents(
+  async listForOrder(
     orderId: string,
     limit = 200
   ): Promise<OrderEventRecord[]> {
-    const rows = await this.baseList(
+    const rows = await this.listOrderEvents(
       { order_id: orderId },
-      { take: limit, order: { created_at: "DESC", id: "DESC" } }
+      { order: { created_at: "DESC", id: "DESC" }, take: limit }
     )
-    return rows as OrderEventRecord[]
-  }
-
-  private baseList(filters: unknown, config: unknown): Promise<any[]> {
-    return (super.listOrderEvents as any).call(this, filters, config)
+    return rows as unknown as OrderEventRecord[]
   }
 
   /**
-   * Hard-deletes (not soft-deletes) events created before the cutoff.
-   * Returns the number of rows removed.
+   * Hard-deletes (not soft-deletes) events created before the cutoff, in
+   * batches. Returns the total number of rows removed.
    */
-  async pruneOlderThan(cutoff: Date): Promise<number> {
-    const stale = await this.baseList(
-      { created_at: { $lt: cutoff } },
-      { select: ["id"], withDeleted: true }
-    )
-    const ids = stale.map((e: { id: string }) => e.id)
-    if (!ids.length) return 0
-    await this.deleteOrderEvents(ids)
-    return ids.length
+  async pruneOlderThan(cutoff: Date, batchSize = 1000): Promise<number> {
+    let total = 0
+    for (;;) {
+      const stale = await this.listOrderEvents(
+        { created_at: { $lt: cutoff } },
+        { select: ["id"], take: batchSize, withDeleted: true }
+      )
+      if (!stale.length) return total
+      await this.deleteOrderEvents(stale.map((e) => e.id))
+      total += stale.length
+    }
   }
 }
 

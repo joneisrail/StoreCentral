@@ -22,7 +22,7 @@ moduleIntegrationTestRunner<OrderEventsModuleService>({
           old_value: { held: false },
           new_value: { held: true },
         })
-        const events = await service.listOrderEvents("order_1")
+        const events = await service.listForOrder("order_1")
         expect(events).toHaveLength(1)
         expect(events[0]).toMatchObject({
           order_id: "order_1",
@@ -34,7 +34,7 @@ moduleIntegrationTestRunner<OrderEventsModuleService>({
         expect(events[0].id).toMatch(/^oevt_/)
       })
 
-      it("listOrderEvents returns newest first and caps at the limit", async () => {
+      it("listForOrder returns newest first and caps at the limit", async () => {
         for (const [i, type] of (
           ["order.held", "order.released", "order.shipped"] as const
         ).entries()) {
@@ -44,15 +44,15 @@ moduleIntegrationTestRunner<OrderEventsModuleService>({
             actor: "system",
           })
         }
-        const all = await (service as any).baseList({ order_id: "order_2" }, {})
+        const all = await service.listOrderEvents({ order_id: "order_2" }, {})
         const ids = all.map((e: any) => e.id)
         await backdate(ids[0], "2026-01-01T00:00:00Z")
         await backdate(ids[1], "2026-01-03T00:00:00Z")
         await backdate(ids[2], "2026-01-02T00:00:00Z")
 
-        const events = await service.listOrderEvents("order_2")
+        const events = await service.listForOrder("order_2")
         expect(events.map((e) => e.id)).toEqual([ids[1], ids[2], ids[0]])
-        const capped = await service.listOrderEvents("order_2", 2)
+        const capped = await service.listForOrder("order_2", 2)
         expect(capped.map((e) => e.id)).toEqual([ids[1], ids[2]])
       })
 
@@ -67,7 +67,7 @@ moduleIntegrationTestRunner<OrderEventsModuleService>({
           type: "order.canceled",
           actor: "system",
         })
-        const events = await service.listOrderEvents("order_a")
+        const events = await service.listForOrder("order_a")
         expect(events).toHaveLength(1)
         expect(events[0].order_id).toBe("order_a")
       })
@@ -76,14 +76,14 @@ moduleIntegrationTestRunner<OrderEventsModuleService>({
         for (const type of ["order.held", "order.released", "order.shipped"] as const) {
           await service.recordOrderEvent({ order_id: "order_p", type, actor: "system" })
         }
-        const all = await (service as any).baseList({ order_id: "order_p" }, {})
+        const all = await service.listOrderEvents({ order_id: "order_p" }, {})
         const ids = all.map((e: any) => e.id)
         await backdate(ids[0], "2020-01-01T00:00:00Z")
         await backdate(ids[1], "2021-01-01T00:00:00Z")
 
         const count = await service.pruneOlderThan(new Date("2024-01-01T00:00:00Z"))
         expect(count).toBe(2)
-        const remaining = await service.listOrderEvents("order_p")
+        const remaining = await service.listForOrder("order_p")
         expect(remaining.map((e) => e.id)).toEqual([ids[2]])
 
         // truly gone, not soft-deleted
@@ -93,6 +93,35 @@ moduleIntegrationTestRunner<OrderEventsModuleService>({
         )
         expect(rows).toHaveLength(1)
         expect(await service.pruneOlderThan(new Date("2024-01-01T00:00:00Z"))).toBe(0)
+      })
+
+      it("pruneOlderThan deletes across multiple batches and returns the total", async () => {
+        for (let i = 0; i < 5; i++) {
+          await service.recordOrderEvent({
+            order_id: "order_batch",
+            type: "order.held",
+            actor: "system",
+          })
+        }
+        await service.recordOrderEvent({
+          order_id: "order_keep",
+          type: "order.held",
+          actor: "system",
+        })
+        await MikroOrmWrapper.forkManager().execute(
+          `update "order_event" set created_at = ? where order_id = ?`,
+          ["2020-01-01T00:00:00Z", "order_batch"]
+        )
+
+        const count = await service.pruneOlderThan(
+          new Date("2024-01-01T00:00:00Z"),
+          2
+        )
+        expect(count).toBe(5)
+        const rows = await MikroOrmWrapper.forkManager().execute(
+          `select order_id from "order_event"`
+        )
+        expect(rows.map((r: any) => r.order_id)).toEqual(["order_keep"])
       })
     })
   },

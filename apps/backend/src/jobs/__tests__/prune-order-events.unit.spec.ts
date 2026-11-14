@@ -16,9 +16,7 @@ describe("prune-order-events job", () => {
 
     expect(pruneOlderThan).toHaveBeenCalledTimes(1)
     const cutoff: Date = pruneOlderThan.mock.calls[0][0]
-    expect(cutoff.getFullYear()).toBe(2024)
-    expect(cutoff.getMonth()).toBe(10)
-    expect(cutoff.getDate()).toBe(15)
+    expect(cutoff.toISOString()).toBe("2024-11-15T03:00:00.000Z")
     expect(logger.info).toHaveBeenCalledWith(expect.stringContaining("7"))
     expect(config.schedule).toBe("0 3 * * *")
   })
