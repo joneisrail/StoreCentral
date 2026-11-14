@@ -68,6 +68,8 @@ export class SpApiClient {
       })
 
       if (response.ok) {
+        // e.g. confirmShipment answers 204 No Content.
+        if (response.status === 204) return undefined as T
         return (await response.json()) as T
       }
 

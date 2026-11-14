@@ -330,3 +330,32 @@ test("applies a separate rate-limit bucket per operation name", async () => {
     vi.useRealTimers()
   }
 })
+
+test("request() resolves undefined on a 204 No Content response instead of parsing a body", async () => {
+  const fakeFetch = vi.fn().mockImplementation(async (url: string) => {
+    if (url.toString().startsWith(TOKEN_URL)) return tokenResponse()
+    return {
+      ok: true,
+      status: 204,
+      headers: new Headers(),
+      json: async () => {
+        throw new SyntaxError("Unexpected end of JSON input")
+      },
+    }
+  })
+  const client = new SpApiClient({
+    baseUrl: BASE_URL,
+    refreshToken: "r",
+    clientId: "c",
+    clientSecret: "s",
+    fetchImpl: fakeFetch as unknown as typeof fetch,
+  })
+  const result = await client.request<void>({
+    name: "confirmShipment",
+    method: "POST",
+    path: "/orders/v0/orders/X/shipmentConfirmation",
+    body: {},
+    rateLimit: { ratePerSecond: 10, burst: 10 },
+  })
+  expect(result).toBeUndefined()
+})
