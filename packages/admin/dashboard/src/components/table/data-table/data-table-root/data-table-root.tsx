@@ -214,6 +214,9 @@ export const DataTableRoot = <TData,>({
                     className={clx(
                       "group/row group relative transition-fg [&_td:last-of-type]:w-[1%] [&_td:last-of-type]:whitespace-nowrap",
                       "has-[[data-row-link]:focus-visible]:bg-ui-bg-base-hover",
+                      // Rows whose cells carry `data-row-alert` (the Ready to
+                      // Ship Alerts cell) get a soft highlight.
+                      "has-[[data-row-alert]]:bg-ui-bg-subtle-hover",
                       {
                         "bg-ui-bg-subtle hover:bg-ui-bg-subtle-hover": isOdd,
                         "cursor-pointer": !!to,

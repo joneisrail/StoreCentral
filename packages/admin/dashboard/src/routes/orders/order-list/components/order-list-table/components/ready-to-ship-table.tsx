@@ -35,10 +35,19 @@ import {
   OrderParcel,
 } from "../../../../../../lib/order-parcel"
 import { READY_TO_SHIP_FIELDS } from "../../../const"
+import { getOrderDueStatus } from "../../due-status"
+import { parseHighValueThreshold } from "../../order-alerts"
 import { getViewQuery } from "../../../order-views"
 import { BulkFulfillResultSummary } from "./bulk-fulfill-result-summary"
 import { FulfillConfirmPopover } from "./fulfill-confirm-popover"
+import { AlertsCell } from "./alerts-cell"
+import { ChannelChip } from "./channel-chip"
+import { DeliveryCell } from "./delivery-cell"
+import { DueBadge } from "./due-badge"
+import { EmailToggle } from "./email-toggle"
 import { ItemCell } from "./item-cell"
+import { OverdueBanner } from "./overdue-banner"
+import { RowTagsCell } from "./row-tags-cell"
 import { PackagePopover, PackageSelection } from "./package-popover"
 import { ShipDateCell, ShipTimeCell } from "./ship-by-cell"
 import { ShipFromSelect } from "./ship-from-select"
@@ -327,6 +336,7 @@ export type BulkFulfillmentEntry = {
   location_id?: string
   shipment_id: string
   rate_id: string
+  no_notification?: true
 }
 
 /**
@@ -354,7 +364,10 @@ export const buildBulkFulfillments = (
   rowLocationOverride: Record<string, string>,
   rowRates: Record<string, { shipmentId: string; rateId: string }>,
   defaultLocationId: string | null,
-  orders: Pick<ReadyToShipOrder, "id" | "shipping_methods">[] = []
+  orders: Pick<ReadyToShipOrder, "id" | "shipping_methods">[] = [],
+  // Per-order "email the customer" toggle; an order is only marked
+  // `no_notification` when its toggle was explicitly turned off.
+  rowSendEmail: Record<string, boolean> = {}
 ): { fulfillments: BulkFulfillmentEntry[]; skippedOrderIds: string[] } => {
   const skippedOrderIds: string[] = []
   const ordersById = new Map(orders.map((order) => [order.id, order]))
@@ -378,6 +391,7 @@ export const buildBulkFulfillments = (
           ) ?? undefined,
         shipment_id: rate.shipmentId,
         rate_id: rate.rateId,
+        ...(rowSendEmail[orderId] === false ? { no_notification: true } : {}),
       })
 
       return acc
@@ -401,7 +415,10 @@ const useReadyToShipTableColumns = (
   rowLocationOverride: Record<string, string>,
   setRowLocationOverride: (orderId: string, locationId: string) => void,
   rowRates: Record<string, { shipmentId: string; rateId: string }>,
-  setRowRate: (orderId: string, rate: { shipmentId: string; rateId: string }) => void
+  setRowRate: (orderId: string, rate: { shipmentId: string; rateId: string }) => void,
+  rowSendEmail: Record<string, boolean>,
+  setRowSendEmail: (orderId: string, sendEmail: boolean) => void,
+  highValueThreshold: number
 ) => {
   const { t } = useTranslation()
 
@@ -440,6 +457,10 @@ const useReadyToShipTableColumns = (
   rowLocationOverrideRef.current = rowLocationOverride
   const rowRatesRef = useRef(rowRates)
   rowRatesRef.current = rowRates
+  const rowSendEmailRef = useRef(rowSendEmail)
+  rowSendEmailRef.current = rowSendEmail
+  const highValueThresholdRef = useRef(highValueThreshold)
+  highValueThresholdRef.current = highValueThreshold
 
   return useMemo(
     () => [
@@ -486,6 +507,45 @@ const useReadyToShipTableColumns = (
       columnHelper.accessor("customer", {
         header: () => <CustomerHeader />,
         cell: ({ getValue }) => <CustomerCell customer={getValue()} />,
+      }),
+      columnHelper.display({
+        id: "alerts",
+        header: () => (
+          <div className="flex h-full w-full items-center">
+            <span className="truncate">
+              {tRef.current("orders.readyToShip.alerts.header")}
+            </span>
+          </div>
+        ),
+        cell: ({ row }) => (
+          <AlertsCell
+            order={row.original}
+            locationId={resolveShipFromLocationId(
+              row.original,
+              rowLocationOverrideRef.current,
+              defaultLocationIdRef.current
+            )}
+            parcel={toShippingRateParcel(
+              rowPackagesRef.current[row.original.id] ??
+                computeOrderParcel(row.original.items ?? [])
+            )}
+            selectedRateId={rowRatesRef.current[row.original.id]?.rateId}
+            highValueThreshold={highValueThresholdRef.current}
+          />
+        ),
+      }),
+      columnHelper.display({
+        id: "channel",
+        header: () => (
+          <div className="flex h-full w-full items-center">
+            <span className="truncate">
+              {tRef.current("orders.readyToShip.channel")}
+            </span>
+          </div>
+        ),
+        cell: ({ row }) => (
+          <ChannelChip name={row.original.sales_channel?.name} />
+        ),
       }),
       columnHelper.display({
         id: "item",
@@ -616,6 +676,67 @@ const useReadyToShipTableColumns = (
           />
         ),
       }),
+      columnHelper.display({
+        id: "due",
+        header: () => (
+          <div className="flex h-full w-full items-center">
+            <span className="truncate">
+              {tRef.current("orders.readyToShip.due.header")}
+            </span>
+          </div>
+        ),
+        cell: ({ row }) => (
+          <DueBadge
+            createdAt={row.original.created_at}
+            handlingHours={getHandlingHours(row.original.sales_channel)}
+          />
+        ),
+      }),
+      columnHelper.display({
+        id: "delivery",
+        header: () => (
+          <div className="flex h-full w-full items-center">
+            <span className="truncate">
+              {tRef.current("orders.readyToShip.delivery")}
+            </span>
+          </div>
+        ),
+        cell: ({ row }) => (
+          <DeliveryCell name={row.original.shipping_methods?.[0]?.name} />
+        ),
+      }),
+      columnHelper.display({
+        id: "email",
+        header: () => (
+          <div className="flex h-full w-full items-center">
+            <span className="truncate">
+              {tRef.current("orders.readyToShip.emailToggle")}
+            </span>
+          </div>
+        ),
+        cell: ({ row }) => (
+          <EmailToggle
+            orderId={row.original.id}
+            checked={rowSendEmailRef.current[row.original.id] !== false}
+            onCheckedChange={(checked) =>
+              setRowSendEmail(row.original.id, checked)
+            }
+          />
+        ),
+      }),
+      columnHelper.display({
+        id: "tags",
+        header: () => (
+          <div className="flex h-full w-full items-center">
+            <span className="truncate">
+              {tRef.current("orders.readyToShip.tagsHeader")}
+            </span>
+          </div>
+        ),
+        cell: ({ row }) => (
+          <RowTagsCell orderId={row.original.id} tags={row.original.tags} />
+        ),
+      }),
       columnHelper.accessor("total", {
         header: () => <TotalHeader />,
         cell: ({ getValue, row }) => (
@@ -633,6 +754,7 @@ const useReadyToShipTableColumns = (
             rowLocationOverride={rowLocationOverrideRef.current}
             rowRates={rowRatesRef.current}
             defaultLocationId={defaultLocationIdRef.current}
+            sendEmail={rowSendEmailRef.current[row.original.id] !== false}
           />
         ),
       }),
@@ -643,7 +765,7 @@ const useReadyToShipTableColumns = (
     // all three are already stable (`useCallback` with an empty dependency
     // array in `ReadyToShipTable` below), so this array is, in effect,
     // created exactly once for the table's lifetime.
-    [setRowPackage, setRowLocationOverride, setRowRate]
+    [setRowPackage, setRowLocationOverride, setRowRate, setRowSendEmail]
   )
 }
 
@@ -797,6 +919,18 @@ export const ReadyToShipTable = () => {
     [clearRowRate]
   )
 
+  // Per-order "email the customer on fulfill" toggle, keyed by order id.
+  // Absent means ON (the default); only an explicit `false` suppresses the
+  // notification (`no_notification: true`) for that order.
+  const [rowSendEmail, setRowSendEmailState] = useState<
+    Record<string, boolean>
+  >({})
+  const setRowSendEmail = useCallback((orderId: string, sendEmail: boolean) => {
+    setRowSendEmailState((prev) => ({ ...prev, [orderId]: sendEmail }))
+  }, [])
+
+  const [overdueOnly, setOverdueOnly] = useState(false)
+
   // The store-wide default ship-from location, written by the Fulfillment
   // settings page - resolved once here rather than per row, since every row
   // without its own override falls back to the same value.
@@ -804,6 +938,9 @@ export const ReadyToShipTable = () => {
   const defaultLocationId =
     (store?.metadata?.default_ship_from_location_id as string | undefined) ??
     null
+  const highValueThreshold = parseHighValueThreshold(
+    store?.metadata?.high_value_threshold
+  )
 
   const offsetKey = `${QUERY_PREFIX}_offset`
   const offset = Number(searchParams.get(offsetKey) ?? 0)
@@ -847,13 +984,45 @@ export const ReadyToShipTable = () => {
     rowLocationOverride,
     setRowLocationOverride,
     rowRates,
-    setRowRate
+    setRowRate,
+    rowSendEmail,
+    setRowSendEmail,
+    highValueThreshold
   )
+
+  const loadedOrders = useMemo(
+    () => (orders as ReadyToShipOrder[] | undefined) ?? [],
+    [orders]
+  )
+  const overdueOrderIds = useMemo(() => {
+    const now = new Date()
+
+    return new Set(
+      loadedOrders
+        .filter(
+          (order) =>
+            getOrderDueStatus(
+              order.created_at,
+              getHandlingHours(order.sales_channel),
+              now
+            )?.kind === "overdue"
+        )
+        .map((order) => order.id)
+    )
+  }, [loadedOrders])
+  const showOverdueOnly = overdueOnly && overdueOrderIds.size > 0
+  const visibleOrders = useMemo(() => {
+    if (!showOverdueOnly) {
+      return loadedOrders
+    }
+
+    return loadedOrders.filter((order) => overdueOrderIds.has(order.id))
+  }, [showOverdueOnly, loadedOrders, overdueOrderIds])
 
   const { mutateAsync: bulkFulfillOrders } = useBulkFulfillOrders()
 
   const { table } = useDataTable({
-    data: (orders as ReadyToShipOrder[] | undefined) ?? [],
+    data: visibleOrders,
     columns,
     count,
     enablePagination: true,
@@ -885,6 +1054,11 @@ export const ReadyToShipTable = () => {
 
   return (
     <>
+      <OverdueBanner
+        count={overdueOrderIds.size}
+        active={showOverdueOnly}
+        onToggle={() => setOverdueOnly((prev) => !prev)}
+      />
       <_DataTable
         columns={columns}
         table={table}
@@ -943,7 +1117,8 @@ export const ReadyToShipTable = () => {
                   rowLocationOverride,
                   rowRates,
                   defaultLocationId,
-                  (orders as ReadyToShipOrder[] | undefined) ?? []
+                  loadedOrders,
+                  rowSendEmail
                 )
 
                 if (skippedOrderIds.length > 0) {

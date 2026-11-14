@@ -117,6 +117,12 @@ vi.mock("../../../../../../hooks/api/orders", () => ({
 // cell renders `ShipFromSelect`, which reads `useStockLocations` - both
 // pull in the same build-time-define-dependent `lib/client` as `orders`
 // above, so both are mocked out for the same reason.
+// The Tags cell renders `BulkTagOrdersModal` (via `row-tags-cell.tsx`), which
+// pulls in `lib/client` build-time defines through `hooks/api/order-tags`.
+vi.mock("./bulk-tag-orders-modal", () => ({
+  BulkTagOrdersModal: () => null,
+}))
+
 vi.mock("../../../../../../hooks/api/store", () => ({
   useStore: (...args: any[]) => mockUseStore(...args),
 }))
@@ -1640,5 +1646,230 @@ describe("ReadyToShipTable view query / held-order exclusion", () => {
     expect(() => renderReadyToShipTable()).toThrow()
 
     spy.mockRestore()
+  })
+})
+
+describe("buildBulkFulfillments no_notification", () => {
+  it("sends no_notification: true only for orders whose email toggle is off", () => {
+    const { fulfillments } = buildBulkFulfillments(
+      ["order_1", "order_2"],
+      {},
+      {
+        order_1: { shipmentId: "shp_1", rateId: "rate_1" },
+        order_2: { shipmentId: "shp_2", rateId: "rate_2" },
+      },
+      "loc_default",
+      [],
+      { order_1: false, order_2: true }
+    )
+
+    expect(fulfillments[0]).toEqual({
+      order_id: "order_1",
+      location_id: "loc_default",
+      shipment_id: "shp_1",
+      rate_id: "rate_1",
+      no_notification: true,
+    })
+    expect("no_notification" in fulfillments[1]).toBe(false)
+  })
+})
+
+describe("ReadyToShipTable alerts, channel, due, delivery, email and tags", () => {
+  const richOrder = (id: string, overrides: Record<string, unknown> = {}) => ({
+    ...makeReadyToShipOrder(id),
+    payment_status: "captured",
+    sales_channel: { name: "Amazon", metadata: { handling_hours: 24 } },
+    tags: [{ id: `tag_${id}`, value: `tag-${id}` }],
+    // far in the future so the order is not overdue
+    created_at: "2999-01-01T00:00:00.000Z",
+    ...overrides,
+  })
+
+  const overdueOrder = (id: string) =>
+    richOrder(id, { created_at: "2020-01-01T00:00:00.000Z" })
+
+  const setOrders = (orders: unknown[]) =>
+    mockUseOrders.mockReturnValue({
+      orders,
+      count: orders.length,
+      isLoading: false,
+      isError: false,
+      error: undefined,
+    })
+
+  it("renders channel, delivery and tags cells for each row", async () => {
+    setOrders([richOrder("order_1")])
+
+    renderReadyToShipTable()
+
+    expect(await screen.findByText("Amazon")).toBeTruthy()
+    expect(screen.getAllByText("Standard Shipping").length).toBeGreaterThan(0)
+    expect(screen.getByText("tag-order_1")).toBeTruthy()
+    expect(
+      screen.getByRole("button", { name: "orders.tags.addToOrder" })
+    ).toBeTruthy()
+  })
+
+  it("places the new columns after Customer and around Ship Time as specified", async () => {
+    setOrders([richOrder("order_1")])
+
+    renderReadyToShipTable()
+    await screen.findByText("Amazon")
+
+    const headers = screen
+      .getAllByRole("columnheader")
+      .map((h) => h.textContent ?? "")
+    const idx = (needle: string) => headers.findIndex((h) => h.includes(needle))
+
+    expect(idx("orders.readyToShip.alerts.header")).toBeGreaterThan(-1)
+    expect(idx("orders.readyToShip.channel")).toBe(
+      idx("orders.readyToShip.alerts.header") + 1
+    )
+    expect(idx("orders.readyToShip.due.header")).toBe(
+      idx("orders.readyToShip.shipTime") + 1
+    )
+    expect(idx("orders.readyToShip.delivery")).toBe(
+      idx("orders.readyToShip.due.header") + 1
+    )
+    expect(idx("orders.readyToShip.emailToggle")).toBe(
+      idx("orders.readyToShip.delivery") + 1
+    )
+    expect(idx("orders.readyToShip.tagsHeader")).toBe(
+      idx("orders.readyToShip.emailToggle") + 1
+    )
+  })
+
+  it("highlights a row that has alerts", async () => {
+    setOrders([
+      richOrder("order_1", {
+        items: [
+          {
+            id: "i1",
+            quantity: 1,
+            detail: { fulfilled_quantity: 0 },
+            variant: { weight: null },
+          },
+        ],
+      }),
+    ])
+
+    renderReadyToShipTable()
+
+    const marker = await screen.findByTestId("order-alerts")
+    const row = marker.closest("tr")!
+    expect(row.className).toContain("has-[[data-row-alert]]")
+  })
+
+  it("shows the overdue banner count and filters to overdue rows on click", async () => {
+    setOrders([
+      richOrder("order_1"),
+      overdueOrder("order_2"),
+      overdueOrder("order_3"),
+    ])
+    const user = userEvent.setup()
+
+    renderReadyToShipTable()
+
+    const banner = await screen.findByRole("button", {
+      name: /overdueBanner/,
+    })
+    expect(banner.textContent).toContain(`"count":2`)
+    expect(screen.getByText("tag-order_1")).toBeTruthy()
+
+    await user.click(banner)
+
+    expect(screen.queryByText("tag-order_1")).toBeNull()
+    expect(screen.getByText("tag-order_2")).toBeTruthy()
+    expect(screen.getByText("tag-order_3")).toBeTruthy()
+
+    await user.click(banner)
+    expect(screen.getByText("tag-order_1")).toBeTruthy()
+  })
+
+  it("hides the overdue banner when nothing is overdue", async () => {
+    setOrders([richOrder("order_1")])
+
+    renderReadyToShipTable()
+    await screen.findByText("Amazon")
+
+    expect(screen.queryByRole("button", { name: /overdueBanner/ })).toBeNull()
+  })
+
+  it("turning one row's email toggle off sends no_notification true for that order only, in the bulk call", async () => {
+    setOrders([richOrder("order_1"), richOrder("order_2")])
+    setOrderRate("order_1", "shp_1", "rate_1")
+    setOrderRate("order_2", "shp_2", "rate_2")
+    mockBulkFulfillOrders.mockResolvedValue({ succeeded: [], failed: [] })
+    const user = userEvent.setup()
+
+    renderReadyToShipTable()
+
+    const switches = await screen.findAllByRole("switch")
+    expect(
+      switches.every((s) => s.getAttribute("aria-checked") === "true")
+    ).toBe(true)
+    await user.click(switches[0])
+    expect(switches[0].getAttribute("aria-checked")).toBe("false")
+
+    // index 0 is the header "select all" checkbox.
+    const checkboxes = await screen.findAllByRole("checkbox")
+    await user.click(checkboxes[0])
+    await user.click(
+      await screen.findByRole("button", { name: /fulfillSelected/ })
+    )
+
+    await waitFor(() => {
+      expect(mockBulkFulfillOrders).toHaveBeenCalledWith({
+        fulfillments: [
+          {
+            order_id: "order_1",
+            location_id: "loc_default",
+            shipment_id: "shp_1",
+            rate_id: "rate_1",
+            no_notification: true,
+          },
+          {
+            order_id: "order_2",
+            location_id: "loc_default",
+            shipment_id: "shp_2",
+            rate_id: "rate_2",
+          },
+        ],
+      })
+    })
+  })
+
+  it("the single-row Fulfill passes no_notification true when that row's email toggle is off", async () => {
+    setOrders([richOrder("order_1")])
+    setOrderRate("order_1", "shp_1", "rate_1")
+    mockBulkFulfillOrders.mockResolvedValue({
+      succeeded: ["order_1"],
+      failed: [],
+    })
+    const user = userEvent.setup()
+
+    renderReadyToShipTable()
+
+    await user.click(await screen.findByRole("switch"))
+    await user.click(
+      await screen.findByRole("button", { name: "orders.readyToShip.fulfill" })
+    )
+    await user.click(
+      await screen.findByRole("button", { name: "actions.confirm" })
+    )
+
+    await waitFor(() => {
+      expect(mockBulkFulfillOrders).toHaveBeenCalledWith({
+        fulfillments: [
+          {
+            order_id: "order_1",
+            location_id: "loc_default",
+            shipment_id: "shp_1",
+            rate_id: "rate_1",
+            no_notification: true,
+          },
+        ],
+      })
+    })
   })
 })

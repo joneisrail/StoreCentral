@@ -4797,6 +4797,9 @@
             },
             "bulkRemoveSuccess": {
               "type": "string"
+            },
+            "addToOrder": {
+              "type": "string"
             }
           },
           "required": [
@@ -4808,7 +4811,8 @@
             "removeModalHeader",
             "removeModalDescription",
             "bulkAddSuccess",
-            "bulkRemoveSuccess"
+            "bulkRemoveSuccess",
+            "addToOrder"
           ],
           "additionalProperties": false
         },
@@ -4890,6 +4894,96 @@
         "readyToShip": {
           "type": "object",
           "properties": {
+            "alerts": {
+              "type": "object",
+              "properties": {
+                "header": {
+                  "type": "string"
+                },
+                "missing_weight": {
+                  "type": "string"
+                },
+                "no_rates": {
+                  "type": "string"
+                },
+                "payment_pending": {
+                  "type": "string"
+                },
+                "po_box_non_usps": {
+                  "type": "string"
+                },
+                "high_value": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "header",
+                "missing_weight",
+                "no_rates",
+                "payment_pending",
+                "po_box_non_usps",
+                "high_value"
+              ],
+              "additionalProperties": false
+            },
+            "channel": {
+              "type": "string"
+            },
+            "due": {
+              "type": "object",
+              "properties": {
+                "header": {
+                  "type": "string"
+                },
+                "overdue": {
+                  "type": "string"
+                },
+                "today": {
+                  "type": "string"
+                },
+                "tomorrow": {
+                  "type": "string"
+                },
+                "days": {
+                  "type": "string"
+                }
+              },
+              "required": ["header", "overdue", "today", "tomorrow", "days"],
+              "additionalProperties": false
+            },
+            "delivery": {
+              "type": "string"
+            },
+            "emailToggle": {
+              "type": "string"
+            },
+            "tagsHeader": {
+              "type": "string"
+            },
+            "overdueBanner_zero": {
+              "type": "string"
+            },
+            "overdueBanner_one": {
+              "type": "string"
+            },
+            "overdueBanner_two": {
+              "type": "string"
+            },
+            "overdueBanner_few": {
+              "type": "string"
+            },
+            "overdueBanner_many": {
+              "type": "string"
+            },
+            "overdueBanner_other": {
+              "type": "string"
+            },
+            "overdueShowOnly": {
+              "type": "string"
+            },
+            "overdueShowAll": {
+              "type": "string"
+            },
             "shipFrom": {
               "type": "string"
             },
@@ -4973,6 +5067,14 @@
             }
           },
           "required": [
+            "alerts",
+            "channel",
+            "due",
+            "delivery",
+            "emailToggle",
+            "tagsHeader",
+            "overdueShowOnly",
+            "overdueShowAll",
             "shipFrom",
             "package",
             "weight",

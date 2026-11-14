@@ -41,6 +41,12 @@ vi.mock("../../../../../../hooks/api/order-holds", () => ({
   useHeldOrderIds: () => ({ ids: [], isLoading: false, isError: false }),
 }))
 
+// The Tags cell renders `BulkTagOrdersModal` (via `row-tags-cell.tsx`), which
+// pulls in `lib/client` build-time defines through `hooks/api/order-tags`.
+vi.mock("./bulk-tag-orders-modal", () => ({
+  BulkTagOrdersModal: () => null,
+}))
+
 vi.mock("../../../../../../hooks/api/store", () => ({
   useStore: () => ({ store: undefined }),
 }))
@@ -400,5 +406,59 @@ describe("FulfillConfirmPopover", () => {
         expect.objectContaining({ order_id: "order_1", location_id: "loc_1" }),
       ],
     })
+  })
+})
+
+describe("FulfillConfirmPopover email toggle", () => {
+  it("sends no_notification: true when sendEmail is false, and omits it otherwise", async () => {
+    mutateAsync.mockResolvedValue({ succeeded: ["order_1"], failed: [] })
+    const user = userEvent.setup()
+    const { unmount } = render(
+      <FulfillConfirmPopover
+        order={baseOrder}
+        rowLocationOverride={{}}
+        rowRates={quotedRate}
+        defaultLocationId="loc_1"
+        sendEmail={false}
+      />
+    )
+
+    await user.click(
+      screen.getByRole("button", { name: "orders.readyToShip.fulfill" })
+    )
+    await user.click(
+      await screen.findByRole("button", { name: "actions.confirm" })
+    )
+
+    expect(mutateAsync).toHaveBeenLastCalledWith({
+      fulfillments: [
+        {
+          order_id: "order_1",
+          location_id: "loc_1",
+          shipment_id: "shp_1",
+          rate_id: "rate_1",
+          no_notification: true,
+        },
+      ],
+    })
+    unmount()
+
+    render(
+      <FulfillConfirmPopover
+        order={baseOrder}
+        rowLocationOverride={{}}
+        rowRates={quotedRate}
+        defaultLocationId="loc_1"
+      />
+    )
+    await user.click(
+      screen.getByRole("button", { name: "orders.readyToShip.fulfill" })
+    )
+    await user.click(
+      await screen.findByRole("button", { name: "actions.confirm" })
+    )
+
+    const lastCall = mutateAsync.mock.calls.at(-1)![0]
+    expect("no_notification" in lastCall.fulfillments[0]).toBe(false)
   })
 })

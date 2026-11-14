@@ -35,6 +35,9 @@ type FulfillConfirmPopoverProps = {
   // those cells use - what's displayed, quoted against, and sent must
   // always be the same value.
   defaultLocationId: string | null
+  // Whether the customer is emailed about this fulfillment (the row's Email
+  // toggle). Defaults to on; `false` sends `no_notification: true`.
+  sendEmail?: boolean
 }
 
 /**
@@ -76,6 +79,7 @@ export const FulfillConfirmPopover = ({
   rowLocationOverride,
   rowRates,
   defaultLocationId,
+  sendEmail = true,
 }: FulfillConfirmPopoverProps) => {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
@@ -156,6 +160,7 @@ export const FulfillConfirmPopover = ({
             location_id: locationId,
             shipment_id: rate.shipmentId,
             rate_id: rate.rateId,
+            ...(sendEmail ? {} : { no_notification: true }),
           },
         ],
       })

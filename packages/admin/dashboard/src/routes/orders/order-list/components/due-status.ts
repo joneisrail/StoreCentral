@@ -1,3 +1,5 @@
+import { computeShipDeadline } from "./order-list-table/components/ship-by-cell"
+
 export type DueStatus = {
   kind: "overdue" | "today" | "tomorrow" | "days"
   days?: number
@@ -50,4 +52,35 @@ export const getDueStatus = (
   }
 
   return { kind: "days", days: diff }
+}
+
+export const getBrowserTimeZone = (): string => {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"
+  } catch {
+    return "UTC"
+  }
+}
+
+/**
+ * Due status of an order from its `created_at` and its sales channel's
+ * handling hours (the same deadline the Ship Date/Ship Time columns use).
+ * Null when no handling hours are configured, or when anything throws (e.g.
+ * an invalid time zone), so a bad value never breaks the table.
+ */
+export const getOrderDueStatus = (
+  createdAt: string | Date,
+  handlingHours: number | null | undefined,
+  now: Date = new Date(),
+  timeZone: string = getBrowserTimeZone()
+): DueStatus | null => {
+  try {
+    const deadline = computeShipDeadline(createdAt, handlingHours)
+
+    return deadline == null
+      ? null
+      : getDueStatus(new Date(deadline), now, timeZone)
+  } catch {
+    return null
+  }
 }

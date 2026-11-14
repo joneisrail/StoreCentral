@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { getDueStatus } from "./due-status"
+import { getDueStatus, getOrderDueStatus } from "./due-status"
 
 const d = (s: string) => new Date(s)
 
@@ -75,5 +75,36 @@ describe("getDueStatus", () => {
         "America/New_York"
       )
     ).toEqual({ kind: "today" })
+  })
+})
+
+describe("getOrderDueStatus", () => {
+  const now = new Date("2026-11-14T12:00:00Z")
+
+  it("is null when handling hours are not configured", () => {
+    expect(
+      getOrderDueStatus("2026-11-14T00:00:00Z", null, now, "UTC")
+    ).toBeNull()
+    expect(
+      getOrderDueStatus("2026-11-14T00:00:00Z", undefined, now, "UTC")
+    ).toBeNull()
+  })
+
+  it("derives the deadline from created_at plus handling hours", () => {
+    expect(getOrderDueStatus("2026-11-13T00:00:00Z", 24, now, "UTC")).toEqual({
+      kind: "overdue",
+    })
+    expect(getOrderDueStatus("2026-11-14T10:00:00Z", 6, now, "UTC")).toEqual({
+      kind: "today",
+    })
+    expect(getOrderDueStatus("2026-11-14T10:00:00Z", 24, now, "UTC")).toEqual({
+      kind: "tomorrow",
+    })
+  })
+
+  it("returns null instead of throwing for an invalid time zone", () => {
+    expect(
+      getOrderDueStatus("2026-11-14T10:00:00Z", 6, now, "Not/AZone")
+    ).toBeNull()
   })
 })

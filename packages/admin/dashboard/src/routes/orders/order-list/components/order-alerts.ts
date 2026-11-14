@@ -26,7 +26,7 @@ const PAID_STATES = new Set([
   "partially_refunded",
 ])
 
-const PO_BOX_REGEX = /\b(p\.?\s?o\.?\s?box|post office box)\b/i
+const PO_BOX_REGEX = /\b(p\.?\s*o\.?\s*box|post\s+office\s+box)\b/i
 
 const alert = (
   code: OrderAlertCode,
@@ -45,7 +45,12 @@ type LooseItem = {
 }
 
 const hasWeight = (item: LooseItem | null | undefined): boolean => {
-  const weight = item?.variant?.weight ?? item?.variant?.product?.weight
+  const variantWeight = item?.variant?.weight
+  const productWeight = item?.variant?.product?.weight
+  const weight =
+    typeof variantWeight === "number" && variantWeight > 0
+      ? variantWeight
+      : productWeight
   return typeof weight === "number" && Number.isFinite(weight) && weight > 0
 }
 
@@ -110,4 +115,23 @@ export const computeOrderAlerts = ({
   }
 
   return alerts
+}
+
+const DEFAULT_HIGH_VALUE_THRESHOLD = 500
+
+/**
+ * Reads `store.metadata.high_value_threshold` (a number or numeric string),
+ * falling back to 500 when absent, non-numeric or not a positive number.
+ */
+export const parseHighValueThreshold = (value: unknown): number => {
+  const parsed =
+    typeof value === "number"
+      ? value
+      : typeof value === "string" && value.trim() !== ""
+        ? Number(value)
+        : Number.NaN
+
+  return Number.isFinite(parsed) && parsed > 0
+    ? parsed
+    : DEFAULT_HIGH_VALUE_THRESHOLD
 }

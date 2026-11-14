@@ -1228,7 +1228,8 @@
       "removeModalHeader": "Remove tag from orders",
       "removeModalDescription": "Select a tag to remove from the selected orders.",
       "bulkAddSuccess": "Tag added to the selected orders.",
-      "bulkRemoveSuccess": "Tag removed from the selected orders."
+      "bulkRemoveSuccess": "Tag removed from the selected orders.",
+      "addToOrder": "Add tag to this order"
     },
     "list": {
       "noRecordsMessage": "Your orders will show up here.",
@@ -1252,6 +1253,29 @@
       "noRecordsMessage": "Canceled orders will show up here."
     },
     "readyToShip": {
+      "alerts": {
+        "header": "Alerts",
+        "missing_weight": "An item has no weight set",
+        "no_rates": "No shipping rates available",
+        "payment_pending": "Payment is {{status}}",
+        "po_box_non_usps": "P.O. box address cannot ship with {{carrier}}",
+        "high_value": "High value order ({{total}} is over {{threshold}})"
+      },
+      "channel": "Channel",
+      "due": {
+        "header": "Due",
+        "overdue": "Overdue",
+        "today": "Due today",
+        "tomorrow": "Due tomorrow",
+        "days": "Due in {{days}} days"
+      },
+      "delivery": "Delivery",
+      "emailToggle": "Email",
+      "tagsHeader": "Tags",
+      "overdueBanner_one": "{{count}} overdue order",
+      "overdueBanner_other": "{{count}} overdue orders",
+      "overdueShowOnly": "Show only overdue",
+      "overdueShowAll": "Show all orders",
       "shipFrom": "Ship From",
       "package": "Package",
       "weight": "Weight",

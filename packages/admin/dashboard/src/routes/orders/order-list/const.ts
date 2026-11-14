@@ -45,11 +45,14 @@ export const READY_TO_SHIP_RELATIONS = [
   "+items.variant.length",
   "+items.variant.width",
   "+items.variant.height",
+  "+items.variant.product.weight",
   "+items.detail.fulfilled_quantity",
   "*shipping_methods",
   "+shipping_methods.shipping_option.service_zone.fulfillment_set.location.name",
   "+shipping_methods.shipping_option.service_zone.fulfillment_set.location.id",
   "+sales_channel.metadata",
+  "+tags.id",
+  "+tags.value",
 ]
 
 export const READY_TO_SHIP_FIELDS = `${DEFAULT_PROPERTIES.join(

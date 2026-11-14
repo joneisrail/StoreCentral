@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { computeOrderAlerts } from "./order-alerts"
+import { computeOrderAlerts, parseHighValueThreshold } from "./order-alerts"
 
 const okQuote = { status: "ok" as const, rates: [{}], selectedCarrier: "UPS" }
 
@@ -55,6 +55,27 @@ describe("computeOrderAlerts", () => {
     )
   })
 
+  it("falls back to product weight when the variant weight is 0 or null", () => {
+    for (const variantWeight of [0, null]) {
+      expect(
+        run(
+          makeOrder({
+            items: [
+              { variant: { weight: variantWeight, product: { weight: 3 } } },
+            ],
+          })
+        )
+      ).not.toContain("missing_weight")
+    }
+    expect(
+      run(
+        makeOrder({
+          items: [{ variant: { weight: 0, product: { weight: 0 } } }],
+        })
+      )
+    ).toContain("missing_weight")
+  })
+
   it("falls back to product weight", () => {
     const order = makeOrder({
       items: [{ variant: { weight: null, product: { weight: 3 } } }],
@@ -107,6 +128,10 @@ describe("computeOrderAlerts", () => {
       "P O BOX 5",
       "Post Office Box 9",
       "PO box 7",
+      "Pobox 12",
+      "P.O.Box 5",
+      "P.O.  Box 5",
+      "Post  Office  Box 2",
     ]) {
       expect(
         run(makeOrder({ shipping_address: { address_1: a } }), ok("UPS"))
@@ -157,5 +182,18 @@ describe("computeOrderAlerts", () => {
       []
     )
     expect(run(null)).toEqual([])
+  })
+})
+
+describe("parseHighValueThreshold", () => {
+  it("accepts numbers and numeric strings, defaulting to 500 otherwise", () => {
+    expect(parseHighValueThreshold(250)).toBe(250)
+    expect(parseHighValueThreshold("1200.5")).toBe(1200.5)
+    expect(parseHighValueThreshold(undefined)).toBe(500)
+    expect(parseHighValueThreshold("abc")).toBe(500)
+    expect(parseHighValueThreshold("")).toBe(500)
+    expect(parseHighValueThreshold(-5)).toBe(500)
+    expect(parseHighValueThreshold(Number.NaN)).toBe(500)
+    expect(parseHighValueThreshold({})).toBe(500)
   })
 })
