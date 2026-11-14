@@ -1,7 +1,8 @@
 import type { SubscriberArgs, SubscriberConfig } from "@medusajs/framework"
+import { ContainerRegistrationKeys } from "@medusajs/framework/utils"
 
 /**
- * The two Medusa event names this subscriber forwards to Seller Hub's
+ * The Medusa event names this subscriber forwards to Seller Hub's
  * webhook receiver (`apps/seller-hub/src/webhook/server.ts`), confirmed
  * empirically against a real running local Medusa backend (Task 9 Step 1):
  *
@@ -20,6 +21,13 @@ import type { SubscriberArgs, SubscriberConfig } from "@medusajs/framework"
  */
 export const INVENTORY_LEVEL_UPDATED_EVENT = "inventory-level.updated"
 export const PRODUCT_VARIANT_UPDATED_EVENT = "product-variant.updated"
+/**
+ * Emitted by createOrderShipmentWorkflow with
+ * `data: { id: <fulfillment id>, no_notification }`. The fulfillment id alone
+ * is useless to Seller Hub, so the owning order id is resolved through the
+ * order<->fulfillment link and sent along.
+ */
+export const SHIPMENT_CREATED_EVENT = "shipment.created"
 
 /**
  * Forwards an inventory/price change event to Seller Hub's webhook
@@ -33,7 +41,8 @@ export const PRODUCT_VARIANT_UPDATED_EVENT = "product-variant.updated"
  */
 export default async function sellerHubSyncHandler({
   event,
-}: SubscriberArgs<{ id: string }>) {
+  container,
+}: SubscriberArgs<{ id: string; no_notification?: boolean }>) {
   const webhookBaseUrl = process.env.SELLER_HUB_WEBHOOK_URL
   if (!webhookBaseUrl) {
     console.error(
@@ -43,10 +52,32 @@ export default async function sellerHubSyncHandler({
   }
 
   try {
+    let data: Record<string, unknown> = event.data
+    if (event.name === SHIPMENT_CREATED_EVENT) {
+      const query = container.resolve(ContainerRegistrationKeys.QUERY)
+      const { data: links } = await query.graph({
+        entity: "order_fulfillment",
+        fields: ["order_id"],
+        filters: { fulfillment_id: event.data.id },
+      })
+      const orderId = links?.[0]?.order_id
+      if (!orderId) {
+        console.error(
+          `[seller-hub-sync] no order found for fulfillment ${event.data.id} -- dropping event "${event.name}"`
+        )
+        return
+      }
+      data = {
+        id: event.data.id,
+        order_id: orderId,
+        no_notification: event.data.no_notification === true,
+      }
+    }
+
     const response = await fetch(`${webhookBaseUrl}/webhooks/medusa`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ event: event.name, data: event.data }),
+      body: JSON.stringify({ event: event.name, data }),
     })
 
     if (!response.ok) {
@@ -63,5 +94,9 @@ export default async function sellerHubSyncHandler({
 }
 
 export const config: SubscriberConfig = {
-  event: [INVENTORY_LEVEL_UPDATED_EVENT, PRODUCT_VARIANT_UPDATED_EVENT],
+  event: [
+    INVENTORY_LEVEL_UPDATED_EVENT,
+    PRODUCT_VARIANT_UPDATED_EVENT,
+    SHIPMENT_CREATED_EVENT,
+  ],
 }

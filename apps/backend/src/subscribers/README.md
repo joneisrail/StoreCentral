@@ -59,3 +59,9 @@ export const config: SubscriberConfig = {
   event: "product.created",
 }
 ```
+## seller-hub-sync
+
+`seller-hub-sync.ts` forwards events to Seller Hub (`POST ${SELLER_HUB_WEBHOOK_URL}/webhooks/medusa`, body `{ event, data }`), best-effort: failures are logged (event name only) and never thrown.
+
+- `inventory-level.updated`, `product-variant.updated`: `data` is forwarded unchanged (`{ id }`).
+- `shipment.created`: Medusa emits `{ id: <fulfillment id>, no_notification }`. The subscriber resolves the owning order via the `order_fulfillment` link (Query graph) and forwards `data: { id, order_id, no_notification }` (`no_notification` defaults to `false`). If the order cannot be resolved the event is logged and dropped.
