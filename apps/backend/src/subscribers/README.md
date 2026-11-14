@@ -59,6 +59,7 @@ export const config: SubscriberConfig = {
   event: "product.created",
 }
 ```
+
 ## seller-hub-sync
 
 `seller-hub-sync.ts` forwards events to Seller Hub (`POST ${SELLER_HUB_WEBHOOK_URL}/webhooks/medusa`, body `{ event, data }`), best-effort: failures are logged (event name only) and never thrown.

@@ -3,6 +3,7 @@ import { ContainerRegistrationKeys, Modules, ProductStatus } from "@medusajs/fra
 import { adminHeaders, createAdminUser } from "../fixtures/create-admin-user"
 import { installFakeEasyPost } from "../fixtures/fake-easypost"
 import { createOrderSeeder } from "../fixtures/order"
+import { resolveOrderIdForFulfillment } from "../../src/subscribers/seller-hub-sync"
 
 jest.setTimeout(100000)
 
@@ -119,15 +120,10 @@ medusaIntegrationTestRunner({
         emitSpy.mockRestore()
 
         // The seller-hub-sync subscriber resolves the order of a shipment's
-        // fulfillment with exactly this Query call (the harness does not run
-        // subscribers, so the query is exercised directly).
+        // fulfillment with this exact helper (the harness does not run
+        // subscribers, so the helper is exercised directly).
         const query = container.resolve(ContainerRegistrationKeys.QUERY)
-        const { data: links } = await query.graph({
-          entity: "order_fulfillment",
-          fields: ["order_id"],
-          filters: { fulfillment_id: fulfillment.id },
-        })
-        expect(links).toEqual([expect.objectContaining({ order_id: seeder.order.id })])
+        expect(await resolveOrderIdForFulfillment(query, fulfillment.id)).toBe(seeder.order.id)
 
         const again = await markShipped(seeder.order.id)
         expect(again.status).toBe(400)

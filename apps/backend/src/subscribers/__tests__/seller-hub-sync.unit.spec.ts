@@ -1,4 +1,4 @@
-import sellerHubSyncHandler, { config } from "../seller-hub-sync"
+import sellerHubSyncHandler, { config, resolveOrderIdForFulfillment } from "../seller-hub-sync"
 
 const mockGraph = jest.fn()
 const container: any = { resolve: () => ({ graph: mockGraph }) }
@@ -82,7 +82,19 @@ describe("seller-hub-sync subscriber", () => {
     mockFetch.mockRejectedValueOnce(new Error("ECONNREFUSED"))
     await expect(run("shipment.created", { id: "ful_1" })).resolves.toBeUndefined()
     await expect(run("inventory-level.updated", { id: "i" })).resolves.toBeUndefined()
-    expect(errSpy.mock.calls.length).toBeGreaterThanOrEqual(2)
+    // exactly one log for the 500, one for the network error, none for the success
+    expect(errSpy.mock.calls).toEqual([
+      ['[seller-hub-sync] webhook receiver responded with status 500 for event "shipment.created"'],
+      ['[seller-hub-sync] failed to forward event "shipment.created" to Seller Hub: Error'],
+    ])
+    expect(logged()).not.toContain("ECONNREFUSED")
+  })
+
+  it("resolveOrderIdForFulfillment queries the order_fulfillment link", async () => {
+    mockGraph.mockResolvedValue({ data: [{ order_id: "order_9" }] })
+    await expect(resolveOrderIdForFulfillment({ graph: mockGraph }, "ful_9")).resolves.toBe("order_9")
+    mockGraph.mockResolvedValue({ data: [] })
+    await expect(resolveOrderIdForFulfillment({ graph: mockGraph }, "ful_9")).resolves.toBeUndefined()
   })
 
   it("no tracking data or request body in logs", async () => {

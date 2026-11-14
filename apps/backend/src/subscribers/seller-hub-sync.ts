@@ -30,6 +30,22 @@ export const PRODUCT_VARIANT_UPDATED_EVENT = "product-variant.updated"
 export const SHIPMENT_CREATED_EVENT = "shipment.created"
 
 /**
+ * Resolves the order that owns a fulfillment through the order<->fulfillment
+ * link. Shared with the mark-shipped integration spec so the two cannot drift.
+ */
+export async function resolveOrderIdForFulfillment(
+  query: { graph: (args: any) => Promise<{ data?: any[] }> },
+  fulfillmentId: string
+): Promise<string | undefined> {
+  const { data: links } = await query.graph({
+    entity: "order_fulfillment",
+    fields: ["order_id"],
+    filters: { fulfillment_id: fulfillmentId },
+  })
+  return links?.[0]?.order_id
+}
+
+/**
  * Forwards an inventory/price change event to Seller Hub's webhook
  * receiver, so its BullMQ push-workers (Task 8) eventually sync the change
  * to Amazon.
@@ -55,12 +71,7 @@ export default async function sellerHubSyncHandler({
     let data: Record<string, unknown> = event.data
     if (event.name === SHIPMENT_CREATED_EVENT) {
       const query = container.resolve(ContainerRegistrationKeys.QUERY)
-      const { data: links } = await query.graph({
-        entity: "order_fulfillment",
-        fields: ["order_id"],
-        filters: { fulfillment_id: event.data.id },
-      })
-      const orderId = links?.[0]?.order_id
+      const orderId = await resolveOrderIdForFulfillment(query, event.data.id)
       if (!orderId) {
         console.error(
           `[seller-hub-sync] no order found for fulfillment ${event.data.id} -- dropping event "${event.name}"`
@@ -87,8 +98,9 @@ export default async function sellerHubSyncHandler({
     }
   } catch (err) {
     console.error(
-      `[seller-hub-sync] failed to forward event "${event.name}" to Seller Hub:`,
-      err
+      `[seller-hub-sync] failed to forward event "${event.name}" to Seller Hub: ${
+        err instanceof Error ? err.name : typeof err
+      }`
     )
   }
 }
