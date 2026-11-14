@@ -184,6 +184,17 @@ connection and fulfillment makes a replayed webhook a no-op, and the push
 itself checks the channel (an existing Shopify fulfillment with that tracking
 number, an existing WooCommerce `Tracking number: <n>` note) before writing.
 
+Two paths create the shipment. Mark shipped goes through
+`createOrderShipmentWorkflow`, which emits `shipment.created` itself and
+carries the user's `no_notification` choice. An order whose label was bought
+through EasyPost is shipped by EasyPost's tracker webhook
+(`POST /webhooks/easypost`, first `in_transit` or `out_for_delivery` update),
+which uses the fulfillment-level `createShipmentWorkflow` and so emits nothing;
+the route therefore emits `shipment.created` with `no_notification: false`
+right after it creates the shipment (once per fulfillment, best-effort). As a
+result, automatic EasyPost shipments notify the customer through the channel by
+default (Shopify fulfillment email, WooCommerce customer note).
+
 - **Shopify** creates a fulfillment (with carrier, tracking number and URL) on
   the order's open fulfillment orders; a partial shipment fulfils only the
   matching SKUs and quantities. `no_notification` suppresses the customer

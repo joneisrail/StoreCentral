@@ -45,6 +45,7 @@ import {
   getMostRecentShippedFulfillment,
   ShippedTable,
 } from "./shipped-table"
+import { getFulfillmentShipDate } from "./fulfillment-ship-date"
 
 const emptyResult = {
   orders: [],
@@ -108,6 +109,38 @@ describe("getMostRecentShippedFulfillment", () => {
   })
 })
 
+describe("getFulfillmentShipDate", () => {
+  it("prefers a valid metadata.shipped_at over the stamped shipped_at", () => {
+    expect(
+      getFulfillmentShipDate({
+        shipped_at: "2024-03-05T00:00:00.000Z",
+        metadata: { shipped_at: "2024-02-02T10:00:00.000Z" },
+      } as any)
+    ).toBe("2024-02-02T10:00:00.000Z")
+  })
+
+  it("falls back to shipped_at when the metadata date is missing or invalid", () => {
+    const shipped_at = "2024-03-05T00:00:00.000Z"
+    expect(getFulfillmentShipDate({ shipped_at } as any)).toBe(shipped_at)
+    expect(
+      getFulfillmentShipDate({
+        shipped_at,
+        metadata: { shipped_at: "nope" },
+      } as any)
+    ).toBe(shipped_at)
+    expect(
+      getFulfillmentShipDate({
+        shipped_at,
+        metadata: { shipped_at: 12 },
+      } as any)
+    ).toBe(shipped_at)
+  })
+
+  it("returns undefined without a fulfillment", () => {
+    expect(getFulfillmentShipDate(null)).toBeUndefined()
+  })
+})
+
 describe("CarrierCell", () => {
   it("renders the formatted provider name for a shipped fulfillment", () => {
     render(
@@ -123,6 +156,51 @@ describe("CarrierCell", () => {
       />
     )
 
+    expect(screen.getByText("Easypost")).toBeTruthy()
+  })
+
+  it("prefers the carrier a user recorded in metadata over the provider", () => {
+    render(
+      <CarrierCell
+        fulfillment={
+          {
+            id: "ful_1",
+            provider_id: "fp_manual_manual",
+            metadata: { carrier: "UPS" },
+            shipped_at: "2024-01-01T00:00:00.000Z",
+            canceled_at: null,
+          } as any
+        }
+      />
+    )
+
+    expect(screen.getByText("UPS")).toBeTruthy()
+  })
+
+  it("falls back to the provider when the metadata carrier is empty or not a string", () => {
+    const { rerender } = render(
+      <CarrierCell
+        fulfillment={
+          {
+            id: "f",
+            provider_id: "fp_easypost",
+            metadata: { carrier: "  " },
+          } as any
+        }
+      />
+    )
+    expect(screen.getByText("Easypost")).toBeTruthy()
+    rerender(
+      <CarrierCell
+        fulfillment={
+          {
+            id: "f",
+            provider_id: "fp_easypost",
+            metadata: { carrier: 5 },
+          } as any
+        }
+      />
+    )
     expect(screen.getByText("Easypost")).toBeTruthy()
   })
 

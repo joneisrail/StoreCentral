@@ -80,7 +80,11 @@ export const READY_TO_SHIP_FIELDS = `${DEFAULT_PROPERTIES.join(
  * `provider_id`/`shipped_at`). The Tracking Status column reads
  * `fulfillment_status`, which is already part of `DEFAULT_PROPERTIES`.
  */
-export const SHIPPED_RELATIONS = [...DEFAULT_RELATIONS, "*fulfillments"]
+export const SHIPPED_RELATIONS = [
+  ...DEFAULT_RELATIONS,
+  "*fulfillments",
+  "+fulfillments.metadata",
+]
 
 export const SHIPPED_FIELDS = `${DEFAULT_PROPERTIES.join(
   ","

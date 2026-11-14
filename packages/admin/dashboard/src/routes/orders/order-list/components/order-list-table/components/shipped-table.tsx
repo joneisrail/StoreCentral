@@ -27,6 +27,7 @@ import { formatProvider } from "../../../../../../lib/format-provider"
 import { SHIPPED_FIELDS } from "../../../const"
 import { SHIPPED_QUERY } from "../../../order-views"
 import { SHIPPED_ROW_ACTIONS_COLUMN } from "./row-actions-menu"
+import { getFulfillmentShipDate } from "./fulfillment-ship-date"
 
 const PAGE_SIZE = 20
 const QUERY_PREFIX = "shp"
@@ -59,9 +60,10 @@ export const getMostRecentShippedFulfillment = (
 }
 
 /**
- * Renders the carrier (fulfillment provider) that shipped the order, via
- * the same `formatProvider` helper the order detail fulfillment panel uses
- * to render its own Provider field - keeping the two labels consistent.
+ * Renders the carrier that shipped the order: the carrier a user recorded
+ * when marking it shipped (`metadata.carrier`) if present, otherwise the
+ * fulfillment provider via the same `formatProvider` helper the order detail
+ * fulfillment panel uses to render its own Provider field.
  */
 export const CarrierCell = ({
   fulfillment,
@@ -72,11 +74,17 @@ export const CarrierCell = ({
     return <PlaceholderCell />
   }
 
+  const metadataCarrier = (
+    fulfillment.metadata as Record<string, unknown> | null
+  )?.carrier
+  const carrier =
+    typeof metadataCarrier === "string" && metadataCarrier.trim()
+      ? metadataCarrier.trim()
+      : formatProvider(fulfillment.provider_id)
+
   return (
     <div className="flex h-full w-full items-center overflow-hidden">
-      <span className="truncate">
-        {formatProvider(fulfillment.provider_id)}
-      </span>
+      <span className="truncate">{carrier}</span>
     </div>
   )
 }
@@ -130,10 +138,9 @@ const useShippedTableColumns = () => {
         ),
         cell: ({ row }) => (
           <DateCell
-            date={
+            date={getFulfillmentShipDate(
               getMostRecentShippedFulfillment(row.original.fulfillments)
-                ?.shipped_at
-            }
+            )}
           />
         ),
       }),

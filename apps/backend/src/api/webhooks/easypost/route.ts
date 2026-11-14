@@ -21,7 +21,11 @@ import {
   createShipmentWorkflow,
   markFulfillmentAsDeliveredWorkflow,
 } from "@medusajs/medusa/core-flows"
-import { ContainerRegistrationKeys } from "@medusajs/framework/utils"
+import {
+  ContainerRegistrationKeys,
+  FulfillmentWorkflowEvents,
+  Modules,
+} from "@medusajs/framework/utils"
 import type { MedusaRequest, MedusaResponse } from "@medusajs/framework/http"
 import { EasyPostClient } from "@dtc/fulfillment-easypost"
 
@@ -46,6 +50,33 @@ type EasyPostTrackerWebhookBody = {
     tracking_code?: string
     status?: string
     public_url?: string
+  }
+}
+
+// Best-effort: an event bus failure must never change the webhook response.
+// Logs only the event name and the error name (no ids, no tracking data).
+const emitShipmentCreated = async (
+  container: MedusaRequest["scope"],
+  fulfillmentId: string
+) => {
+  try {
+    const eventBus = container.resolve(Modules.EVENT_BUS)
+    await eventBus.emit({
+      name: FulfillmentWorkflowEvents.SHIPMENT_CREATED,
+      data: { id: fulfillmentId, no_notification: false },
+    })
+  } catch (error) {
+    try {
+      container
+        .resolve(ContainerRegistrationKeys.LOGGER)
+        .error(
+          `Failed to emit ${FulfillmentWorkflowEvents.SHIPMENT_CREATED}: ${
+            error instanceof Error ? error.name : typeof error
+          }`
+        )
+    } catch {
+      // No logger available.
+    }
   }
 }
 
@@ -172,6 +203,12 @@ export const POST = async (req: MedusaRequest, res: MedusaResponse) => {
                 ],
           },
         })
+
+        // createShipmentWorkflow (fulfillment level) emits no event, unlike
+        // createOrderShipmentWorkflow, so announce the shipment ourselves for
+        // the seller-hub-sync subscriber to push tracking to the sales
+        // channel. Only reached when this request actually created it.
+        await emitShipmentCreated(req.scope, fulfillment.id)
       }
     }
   } catch (error) {
