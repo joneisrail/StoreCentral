@@ -20,6 +20,11 @@ vi.mock("../../../../../../hooks/api/orders", () => ({
   useOrders: (...args: any[]) => mockUseOrders(...args),
   useCancelOrder: () => ({ mutateAsync: vi.fn() }),
 }))
+// Row actions read the shipping hooks, which pull in `lib/client` build defines.
+vi.mock("../../../../../../hooks/api/order-shipping", () => ({
+  useVoidOrderLabel: () => ({ mutateAsync: vi.fn() }),
+  useMarkOrderShipped: () => ({ mutateAsync: vi.fn() }),
+}))
 vi.mock("../../../../../../hooks/api/order-holds", () => ({
   useHoldTag: () => mockUseHoldTag(),
   useReleaseOrder: () => ({ mutateAsync: vi.fn() }),

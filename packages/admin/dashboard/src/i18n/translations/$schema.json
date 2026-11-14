@@ -5172,6 +5172,70 @@
           ],
           "additionalProperties": false
         },
+        "shipping": {
+          "type": "object",
+          "properties": {
+            "voidLabel": {
+              "type": "string"
+            },
+            "voidWarning": {
+              "type": "string"
+            },
+            "voidSuccess": {
+              "type": "string"
+            },
+            "markShipped": {
+              "type": "string"
+            },
+            "markShippedTitle": {
+              "type": "string"
+            },
+            "markShippedDescription": {
+              "type": "string"
+            },
+            "markShippedConfirm": {
+              "type": "string"
+            },
+            "markShippedSuccess": {
+              "type": "string"
+            },
+            "carrier": {
+              "type": "string"
+            },
+            "trackingNumber": {
+              "type": "string"
+            },
+            "trackingUrl": {
+              "type": "string"
+            },
+            "trackingUrlHint": {
+              "type": "string"
+            },
+            "shipDate": {
+              "type": "string"
+            },
+            "emailCustomer": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "voidLabel",
+            "voidWarning",
+            "voidSuccess",
+            "markShipped",
+            "markShippedTitle",
+            "markShippedDescription",
+            "markShippedConfirm",
+            "markShippedSuccess",
+            "carrier",
+            "trackingNumber",
+            "trackingUrl",
+            "trackingUrlHint",
+            "shipDate",
+            "emailCustomer"
+          ],
+          "additionalProperties": false
+        },
         "shipped": {
           "type": "object",
           "properties": {
@@ -7057,6 +7121,7 @@
         "holdTable",
         "cancelled",
         "readyToShip",
+        "shipping",
         "shipped",
         "export",
         "status",

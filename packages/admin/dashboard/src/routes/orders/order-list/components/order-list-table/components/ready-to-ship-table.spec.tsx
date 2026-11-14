@@ -1611,7 +1611,7 @@ describe("ReadyToShipTable view query / held-order exclusion", () => {
 
     const [params, options] = mockUseOrders.mock.calls.at(-1)!
     expect(params).toMatchObject({
-      fulfillment_status: ["not_fulfilled", "partially_fulfilled"],
+      fulfillment_status: ["not_fulfilled", "partially_fulfilled", "canceled"],
       payment_status: ["captured", "partially_captured"],
       status: { $nin: ["canceled"] },
       id: { $nin: ["order_held_1", "order_held_2"] },

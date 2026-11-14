@@ -42,6 +42,11 @@ vi.mock("../../../../../../hooks/api/orders", () => ({
 // mocking for the same reason `useOrders` above does.
 // `ready-to-ship-table.tsx` also reads the hold tag / held ids; same
 // `lib/client` build-time-define reason as the mocks around this one.
+// Row actions read the shipping hooks, which pull in `lib/client` build defines.
+vi.mock("../../../../../../hooks/api/order-shipping", () => ({
+  useVoidOrderLabel: () => ({ mutateAsync: vi.fn() }),
+  useMarkOrderShipped: () => ({ mutateAsync: vi.fn() }),
+}))
 vi.mock("../../../../../../hooks/api/order-holds", () => ({
   useHoldTag: () => ({ tagId: null, isLoading: false, isError: false }),
   useHeldOrderIds: () => ({ ids: [], isLoading: false, isError: false }),

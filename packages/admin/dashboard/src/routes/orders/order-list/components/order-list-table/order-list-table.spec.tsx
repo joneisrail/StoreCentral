@@ -49,6 +49,11 @@ vi.mock("../../../../../hooks/api/order-view-counts", () => ({
     refetch: vi.fn(),
   }),
 }))
+// Row actions read the shipping hooks, which pull in `lib/client` build defines.
+vi.mock("../../../../../hooks/api/order-shipping", () => ({
+  useVoidOrderLabel: () => ({ mutateAsync: vi.fn() }),
+  useMarkOrderShipped: () => ({ mutateAsync: vi.fn() }),
+}))
 vi.mock("../../../../../hooks/api/order-holds", () => ({
   useHoldTag: () => ({ tagId: null, isLoading: false, isError: false }),
   useHeldOrderIds: () => ({ ids: [], isLoading: false, isError: false }),

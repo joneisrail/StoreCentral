@@ -1320,6 +1320,22 @@
       "noShipFromLocation": "Set a default ship-from location in Settings > Fulfillment",
       "orphanedLabel": "A shipping label was already bought (EasyPost shipment {{shipmentId}}), but the fulfillment couldn't be recorded. Don't ship or re-buy until this is resolved - contact support with this shipment id."
     },
+    "shipping": {
+      "voidLabel": "Void label",
+      "voidWarning": "The carrier will be asked for a refund. The order returns to Ready to Ship.",
+      "voidSuccess": "Label voided. Refund requested from the carrier.",
+      "markShipped": "Mark shipped",
+      "markShippedTitle": "Mark order {{id}} shipped",
+      "markShippedDescription": "Record a shipment made with your own carrier and tracking number.",
+      "markShippedConfirm": "Mark shipped",
+      "markShippedSuccess": "Order marked as shipped",
+      "carrier": "Carrier",
+      "trackingNumber": "Tracking number",
+      "trackingUrl": "Tracking URL (optional)",
+      "trackingUrlHint": "Filled in automatically for UPS, FedEx, USPS and DHL",
+      "shipDate": "Ship date",
+      "emailCustomer": "Email the customer"
+    },
     "shipped": {
       "trackingStatus": "Tracking Status",
       "carrier": "Carrier",

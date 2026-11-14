@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next"
 
 import { PlaceholderCell } from "../../../../../../components/table/table-cells/common/placeholder-cell"
 import { useHoldTag } from "../../../../../../hooks/api/order-holds"
+import { ROW_ACTION_FULFILLMENT_FIELDS } from "../../../const"
 import { getViewQuery } from "../../../order-views"
 import { getHoldReason } from "./hold-reason"
 import { HELD_ROW_ACTIONS_COLUMN } from "./row-actions-menu"
@@ -59,7 +60,7 @@ export const OnHoldTable = () => {
       query={getViewQuery("on-hold", { heldIds: [], holdTagId: tagId })}
       prefix="hld"
       noRecordsMessage={t("orders.holdTable.noRecordsMessage")}
-      extraFields="metadata,+fulfillments.id"
+      extraFields={`metadata,${ROW_ACTION_FULFILLMENT_FIELDS.join(",")}`}
       extraColumns={extraColumns}
       lookupLoading={isLoading}
       lookupError={isError}

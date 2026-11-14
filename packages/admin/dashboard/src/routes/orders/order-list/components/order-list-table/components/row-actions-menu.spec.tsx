@@ -8,15 +8,15 @@ vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (key: string) => key }),
 }))
 
-const { release, cancel, promptFn, toastSuccess, toastError } = vi.hoisted(
-  () => ({
+const { release, cancel, voidLabel, promptFn, toastSuccess, toastError } =
+  vi.hoisted(() => ({
+    voidLabel: vi.fn(),
     release: vi.fn(),
     cancel: vi.fn(),
     promptFn: vi.fn(),
     toastSuccess: vi.fn(),
     toastError: vi.fn(),
-  })
-)
+  }))
 
 vi.mock("../../../../../../hooks/api/order-holds", () => ({
   useReleaseOrder: () => ({ mutateAsync: release }),
@@ -24,6 +24,10 @@ vi.mock("../../../../../../hooks/api/order-holds", () => ({
 }))
 vi.mock("../../../../../../hooks/api/orders", () => ({
   useCancelOrder: () => ({ mutateAsync: cancel }),
+}))
+vi.mock("../../../../../../hooks/api/order-shipping", () => ({
+  useVoidOrderLabel: () => ({ mutateAsync: voidLabel }),
+  useMarkOrderShipped: () => ({ mutateAsync: vi.fn() }),
 }))
 vi.mock("@medusajs/ui", async () => {
   const actual = await vi.importActual<any>("@medusajs/ui")
@@ -38,8 +42,8 @@ import { RowActionsMenu } from "./row-actions-menu"
 
 afterEach(() => {
   cleanup()
-  ;[release, cancel, promptFn, toastSuccess, toastError].forEach((m) =>
-    m.mockReset()
+  ;[release, cancel, voidLabel, promptFn, toastSuccess, toastError].forEach(
+    (m) => m.mockReset()
   )
 })
 
@@ -147,4 +151,159 @@ describe("RowActionsMenu", () => {
       expect(await screen.findByText("orders.rowActions.hold")).toBeTruthy()
     }
   )
+
+  const labelFulfillment = (extra: Record<string, unknown> = {}) => ({
+    id: "ful_1",
+    data: { easypost_shipment_id: "shp_1" },
+    shipped_at: null,
+    delivered_at: null,
+    canceled_at: null,
+    ...extra,
+  })
+
+  it("offers Void label for an unshipped label fulfillment", async () => {
+    await open(
+      <RowActionsMenu
+        order={order({ fulfillments: [labelFulfillment()] })}
+        mode="active"
+      />
+    )
+    expect(await screen.findByText("orders.shipping.voidLabel")).toBeTruthy()
+  })
+
+  it.each([
+    ["shipped", { shipped_at: "2026-01-01" }],
+    ["delivered", { delivered_at: "2026-01-01" }],
+    ["canceled", { canceled_at: "2026-01-01" }],
+    ["unlabeled", { data: {} }],
+    ["data-less", { data: null }],
+  ])("hides Void label for a %s fulfillment", async (_n, extra) => {
+    await open(
+      <RowActionsMenu
+        order={order({ fulfillments: [labelFulfillment(extra)] })}
+        mode="active"
+      />
+    )
+    await screen.findByText("orders.rowActions.cancel")
+    expect(screen.queryByText("orders.shipping.voidLabel")).toBeNull()
+  })
+
+  it("void asks for confirmation, calls the route and toasts", async () => {
+    promptFn.mockResolvedValue(true)
+    voidLabel.mockResolvedValue({ order_id: "order_1", voided: [] })
+    await open(
+      <RowActionsMenu
+        order={order({ fulfillments: [labelFulfillment()] })}
+        mode="active"
+      />
+    )
+    await userEvent.click(await screen.findByText("orders.shipping.voidLabel"))
+    await waitFor(() =>
+      expect(voidLabel).toHaveBeenCalledWith({ id: "order_1" })
+    )
+    expect(promptFn).toHaveBeenCalledWith(
+      expect.objectContaining({ description: "orders.shipping.voidWarning" })
+    )
+    expect(toastSuccess).toHaveBeenCalled()
+  })
+
+  it("void does nothing when declined, and shows server errors", async () => {
+    promptFn.mockResolvedValueOnce(false)
+    await open(
+      <RowActionsMenu
+        order={order({ fulfillments: [labelFulfillment()] })}
+        mode="active"
+      />
+    )
+    await userEvent.click(await screen.findByText("orders.shipping.voidLabel"))
+    await waitFor(() => expect(promptFn).toHaveBeenCalled())
+    expect(voidLabel).not.toHaveBeenCalled()
+
+    promptFn.mockResolvedValueOnce(true)
+    voidLabel.mockRejectedValue(new Error("Label already used"))
+    await userEvent.click(screen.getByRole("button"))
+    await userEvent.click(await screen.findByText("orders.shipping.voidLabel"))
+    await waitFor(() =>
+      expect(toastError).toHaveBeenCalledWith("Label already used")
+    )
+  })
+
+  it("shipped mode offers only Void label, and only when voidable", async () => {
+    await open(
+      <RowActionsMenu
+        order={order({
+          fulfillment_status: "fulfilled",
+          fulfillments: [labelFulfillment()],
+        })}
+        mode="shipped"
+      />
+    )
+    expect(await screen.findByText("orders.shipping.voidLabel")).toBeTruthy()
+    expect(screen.queryByText("orders.rowActions.cancel")).toBeNull()
+    expect(screen.queryByText("orders.rowActions.hold")).toBeNull()
+    expect(screen.queryByText("orders.shipping.markShipped")).toBeNull()
+  })
+
+  it("shipped mode renders nothing for a shipped order", () => {
+    const { container } = render(
+      <TooltipProvider>
+        <RowActionsMenu
+          order={order({
+            fulfillment_status: "shipped",
+            fulfillments: [labelFulfillment({ shipped_at: "2026-01-01" })],
+          })}
+          mode="shipped"
+        />
+      </TooltipProvider>
+    )
+    expect(container.innerHTML).toBe("")
+  })
+
+  it.each([
+    ["active paid ready", "active", { payment_status: "captured" }, true],
+    ["held mode", "held", { payment_status: "captured" }, false],
+    ["unpaid", "active", { payment_status: "not_paid" }, false],
+    ["shipped status", "active", { fulfillment_status: "shipped" }, false],
+    ["voided order", "active", { fulfillment_status: "canceled" }, true],
+  ])("Mark shipped: %s", async (_n, mode, extra, visible) => {
+    await open(<RowActionsMenu order={order(extra)} mode={mode as any} />)
+    await screen.findByText("orders.rowActions.cancel")
+    expect(!!screen.queryByText("orders.shipping.markShipped")).toBe(visible)
+  })
+
+  it("cancel is enabled when every fulfillment is canceled", async () => {
+    promptFn.mockResolvedValue(true)
+    cancel.mockResolvedValue({})
+    await open(
+      <RowActionsMenu
+        order={order({
+          fulfillments: [
+            { id: "ful_1", canceled_at: "2026-01-01" },
+            { id: "ful_2", canceled_at: "2026-01-02" },
+          ],
+        })}
+        mode="active"
+      />
+    )
+    await userEvent.click(await screen.findByText("orders.rowActions.cancel"))
+    await waitFor(() => expect(cancel).toHaveBeenCalled())
+  })
+
+  it("cancel is disabled when one fulfillment is not canceled", async () => {
+    await open(
+      <RowActionsMenu
+        order={order({
+          fulfillments: [
+            { id: "ful_1", canceled_at: "2026-01-01" },
+            { id: "ful_2", canceled_at: null },
+          ],
+        })}
+        mode="active"
+      />
+    )
+    const item = (await screen.findByText("orders.rowActions.cancel")).closest(
+      "[role=menuitem]"
+    )
+    expect(item?.hasAttribute("data-disabled")).toBe(true)
+  })
 })

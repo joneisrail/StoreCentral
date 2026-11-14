@@ -16,13 +16,14 @@ describe("getViewQuery", () => {
     ])
     expect(getViewQuery("all", ctx)).toEqual({})
     expect(getViewQuery("ready-to-ship", ctx)).toEqual({
-      fulfillment_status: ["not_fulfilled", "partially_fulfilled"],
+      fulfillment_status: ["not_fulfilled", "partially_fulfilled", "canceled"],
       payment_status: ["captured", "partially_captured"],
       status: { $nin: ["canceled"] },
       id: { $nin: ["o1", "o2"] },
     })
     expect(getViewQuery("shipped", ctx)).toEqual(SHIPPED_QUERY)
     expect(SHIPPED_QUERY.fulfillment_status).toEqual([
+      "fulfilled",
       "shipped",
       "partially_shipped",
       "partially_delivered",

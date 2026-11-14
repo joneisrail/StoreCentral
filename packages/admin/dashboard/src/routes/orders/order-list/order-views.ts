@@ -18,6 +18,9 @@ export const ORDER_VIEW_ORDER: OrderListView[] = [
 /** The Shipped view's filter, shared with the Shipped table. */
 export const SHIPPED_QUERY = {
   fulfillment_status: [
+    // A bought-but-unshipped order is `fulfilled`; listing it here keeps it
+    // findable (and its label voidable).
+    "fulfilled",
     "shipped",
     "partially_shipped",
     "partially_delivered",
@@ -39,7 +42,14 @@ export const getViewQuery = (
   switch (view) {
     case "ready-to-ship":
       return {
-        fulfillment_status: ["not_fulfilled", "partially_fulfilled"],
+        // `canceled`: every fulfillment was canceled (a voided label), so the
+        // order is back to being ready to ship. The order's own `status` is
+        // filtered separately below.
+        fulfillment_status: [
+          "not_fulfilled",
+          "partially_fulfilled",
+          "canceled",
+        ],
         payment_status: ["captured", "partially_captured"],
         status: { $nin: ["canceled"] },
         ...excludeHeld,

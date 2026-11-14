@@ -37,6 +37,19 @@ export const DEFAULT_FIELDS = `${DEFAULT_PROPERTIES.join(
  * default/first-level fields, which doesn't reliably include a `metadata`
  * json column, so it's requested explicitly here).
  */
+/**
+ * Fulfillment fields the row actions menu reads: Void label needs the label
+ * (`data.easypost_shipment_id`) and shipped/delivered state, the Cancel guard
+ * needs `canceled_at`.
+ */
+export const ROW_ACTION_FULFILLMENT_FIELDS = [
+  "+fulfillments.id",
+  "+fulfillments.data",
+  "+fulfillments.shipped_at",
+  "+fulfillments.delivered_at",
+  "+fulfillments.canceled_at",
+]
+
 export const READY_TO_SHIP_RELATIONS = [
   ...DEFAULT_RELATIONS,
   "*items",
@@ -53,7 +66,7 @@ export const READY_TO_SHIP_RELATIONS = [
   "+sales_channel.metadata",
   "+tags.id",
   "+tags.value",
-  "+fulfillments.id",
+  ...ROW_ACTION_FULFILLMENT_FIELDS,
 ]
 
 export const READY_TO_SHIP_FIELDS = `${DEFAULT_PROPERTIES.join(

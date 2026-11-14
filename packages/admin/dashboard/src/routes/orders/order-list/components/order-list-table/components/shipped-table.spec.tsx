@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { cleanup, render, screen, within } from "@testing-library/react"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
@@ -13,20 +13,54 @@ vi.mock("react-i18next", () => ({
 // the Vite config and isn't available under a plain component test. These
 // cell components don't exercise data fetching, so the hook is mocked out
 // purely to keep module evaluation side-effect free.
-vi.mock("../../../../../../hooks/api/orders", () => ({
-  useOrders: () => ({
-    orders: [],
-    count: 0,
-    isLoading: false,
-    isError: false,
-    error: undefined,
-  }),
+// Row actions read the shipping hooks, which pull in `lib/client` build defines.
+vi.mock("../../../../../../hooks/api/order-holds", () => ({
+  useReleaseOrder: () => ({ mutateAsync: vi.fn() }),
+  useHoldOrder: () => ({ mutateAsync: vi.fn() }),
+}))
+vi.mock("../../../../../../hooks/api/order-shipping", () => ({
+  useVoidOrderLabel: () => ({ mutateAsync: vi.fn() }),
+  useMarkOrderShipped: () => ({ mutateAsync: vi.fn() }),
+}))
+vi.mock("../../../../../../hooks/use-date", () => ({
+  useDate: () => ({ getFullDate: () => "date", getRelativeDate: () => "date" }),
 }))
 
-import { CarrierCell, getMostRecentShippedFulfillment } from "./shipped-table"
+const { mockUseOrders } = vi.hoisted(() => ({ mockUseOrders: vi.fn() }))
+vi.mock("../../../../../../hooks/api/orders", () => ({
+  useCancelOrder: () => ({ mutateAsync: vi.fn() }),
+  useOrders: (...args: unknown[]) => mockUseOrders(...args),
+}))
+
+if (!Element.prototype.scroll) {
+  Element.prototype.scroll = vi.fn()
+}
+
+import userEvent from "@testing-library/user-event"
+import { MemoryRouter } from "react-router-dom"
+import { TooltipProvider } from "@medusajs/ui"
+import { SHIPPED_QUERY } from "../../../order-views"
+import {
+  CarrierCell,
+  getMostRecentShippedFulfillment,
+  ShippedTable,
+} from "./shipped-table"
+
+const emptyResult = {
+  orders: [],
+  count: 0,
+  isLoading: false,
+  isError: false,
+  error: undefined,
+}
+
+beforeEach(() => {
+  mockUseOrders.mockReturnValue(emptyResult)
+})
 
 afterEach(() => {
   cleanup()
+  mockUseOrders.mockReset()
 })
 
 describe("getMostRecentShippedFulfillment", () => {
@@ -97,5 +131,54 @@ describe("CarrierCell", () => {
 
     expect(container.textContent).not.toBe("")
     expect(screen.queryByText("Easypost")).toBeNull()
+  })
+})
+
+describe("ShippedTable", () => {
+  const renderTable = () =>
+    render(
+      <MemoryRouter>
+        <TooltipProvider>
+          <ShippedTable />
+        </TooltipProvider>
+      </MemoryRouter>
+    )
+
+  it("queries the shared SHIPPED_QUERY, which includes fulfilled", () => {
+    renderTable()
+    const [params] = mockUseOrders.mock.calls[0]
+    expect(params).toMatchObject(SHIPPED_QUERY)
+    expect(params.fulfillment_status).toContain("fulfilled")
+  })
+
+  it("renders a bought-but-unshipped order without shipped_at, with Void label", async () => {
+    mockUseOrders.mockReturnValue({
+      ...emptyResult,
+      count: 1,
+      orders: [
+        {
+          id: "order_1",
+          display_id: 9,
+          fulfillment_status: "fulfilled",
+          currency_code: "usd",
+          total: 100,
+          customer: null,
+          fulfillments: [
+            {
+              id: "ful_1",
+              provider_id: "fp_easypost",
+              data: { easypost_shipment_id: "shp_1" },
+              shipped_at: null,
+              canceled_at: null,
+            },
+          ],
+        },
+      ],
+    })
+    renderTable()
+    expect(screen.getByText("#9")).toBeTruthy()
+    const row = screen.getByText("#9").closest("tr") as HTMLElement
+    await userEvent.click(within(row).getByRole("button"))
+    expect(await screen.findByText("orders.shipping.voidLabel")).toBeTruthy()
   })
 })

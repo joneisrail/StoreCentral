@@ -4,6 +4,7 @@ import {
   useHeldOrderIds,
   useHoldTag,
 } from "../../../../../../hooks/api/order-holds"
+import { ROW_ACTION_FULFILLMENT_FIELDS } from "../../../const"
 import { getViewQuery } from "../../../order-views"
 import { ACTIVE_ROW_ACTIONS_COLUMN } from "./row-actions-menu"
 import { ViewOrderTable } from "./view-order-table"
@@ -27,7 +28,7 @@ export const AwaitingPaymentTable = () => {
         holdTagId: tagId,
       })}
       prefix="awp"
-      extraFields="+fulfillments.id"
+      extraFields={ROW_ACTION_FULFILLMENT_FIELDS.join(",")}
       extraColumns={AWAITING_PAYMENT_COLUMNS}
       noRecordsMessage={t("orders.awaitingPayment.noRecordsMessage")}
       lookupLoading={tagLoading || heldLoading}

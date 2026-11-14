@@ -26,6 +26,7 @@ import { useDataTable } from "../../../../../../hooks/use-data-table"
 import { formatProvider } from "../../../../../../lib/format-provider"
 import { SHIPPED_FIELDS } from "../../../const"
 import { SHIPPED_QUERY } from "../../../order-views"
+import { SHIPPED_ROW_ACTIONS_COLUMN } from "./row-actions-menu"
 
 const PAGE_SIZE = 20
 const QUERY_PREFIX = "shp"
@@ -145,6 +146,7 @@ const useShippedTableColumns = () => {
           />
         ),
       }),
+      SHIPPED_ROW_ACTIONS_COLUMN,
     ],
     [t]
   )
@@ -153,9 +155,9 @@ const useShippedTableColumns = () => {
 /**
  * The "Shipped" order list view, inspired by Veeqo's fulfillment list UX -
  * not a Veeqo integration. Shows orders that are
- * `shipped`/`partially_shipped`/`partially_delivered`/`delivered`. Unlike
- * Ready to Ship, there's nothing left to action from this view, so it's
- * read-only: no action column, no Fulfill button.
+ * `fulfilled` (label bought, not yet shipped) or
+ * `shipped`/`partially_shipped`/`partially_delivered`/`delivered`. The only
+ * action is Void label, for a bought-but-unshipped label.
  */
 export const ShippedTable = () => {
   const { t } = useTranslation()
