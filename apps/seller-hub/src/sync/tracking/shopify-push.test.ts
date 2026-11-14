@@ -91,23 +91,69 @@ test("notifyCustomer false when noNotification", async () => {
   expect((graphql.mock.calls[1]![1] as any).fulfillment.notifyCustomer).toBe(false)
 })
 
+const sentLines = (graphql: { mock: { calls: unknown[][] } }) =>
+  (graphql.mock.calls[1]![1] as any).fulfillment.lineItemsByFulfillmentOrder.flatMap(
+    (g: any) => g.fulfillmentOrderLineItems
+  )
+
+const push1 = (push: ReturnType<typeof setup>["push"], o: TrackingOrder, items: { lineItemId: string; quantity: number }[]) =>
+  push({ order: o, fulfillment: fulfillment(items), externalOrderId: "1", noNotification: false })
+
 test("partial fulfillment sends only matching SKUs and min quantities", async () => {
-  const { graphql, push } = setup([lookup([openFo()]), create()])
-  // ships 1 of 2 of SKU-A only (case/whitespace differences in the Shopify sku)
   const foWeird = fo("gid://shopify/FulfillmentOrder/1", "IN_PROGRESS", [
     { id: "L10", sku: " sku-a ", remainingQuantity: 2 },
     { id: "L11", sku: "SKU-B", remainingQuantity: 1 },
   ])
-  graphql.mockReset()
-  graphql.mockResolvedValueOnce(lookup([foWeird])).mockResolvedValueOnce(create())
+  const { graphql, push } = setup([lookup([foWeird]), create()])
   await run(push, fulfillment([{ lineItemId: "li_a", quantity: 5 }]))
-  const vars = graphql.mock.calls[1]![1] as any
-  expect(vars.fulfillment.lineItemsByFulfillmentOrder).toEqual([
-    {
-      fulfillmentOrderId: "gid://shopify/FulfillmentOrder/1",
-      fulfillmentOrderLineItems: [{ id: "L10", quantity: 2 }],
-    },
+  expect(sentLines(graphql)).toEqual([{ id: "L10", quantity: 2 }])
+})
+
+test("ships fewer than remaining: Medusa ships 1 while Shopify has 2 remaining => line quantity 1", async () => {
+  const { graphql, push } = setup([lookup([openFo()]), create()])
+  await run(push, fulfillment([{ lineItemId: "li_a", quantity: 1 }]))
+  expect(sentLines(graphql)).toEqual([{ id: "gid://shopify/FulfillmentOrderLineItem/10", quantity: 1 }])
+})
+
+test("single line qty 3, 1 shipped => quantity 1 not 3 (not whole-order)", async () => {
+  const o: TrackingOrder = { ...order(), items: [{ id: "li_a", sku: "SKU-A", quantity: 3 }] }
+  const f3 = fo("gid://shopify/FulfillmentOrder/1", "OPEN", [{ id: "L10", sku: "SKU-A", remainingQuantity: 3 }])
+  const { graphql, push } = setup([lookup([f3]), create()])
+  await push1(push, o, [{ lineItemId: "li_a", quantity: 1 }])
+  expect(sentLines(graphql)).toEqual([{ id: "L10", quantity: 1 }])
+})
+
+test("split shipment with 1 of each of two lines => exactly those quantities", async () => {
+  const o: TrackingOrder = {
+    ...order(),
+    items: [
+      { id: "li_a", sku: "SKU-A", quantity: 2 },
+      { id: "li_b", sku: "SKU-B", quantity: 2 },
+    ],
+  }
+  const f2 = fo("gid://shopify/FulfillmentOrder/1", "OPEN", [
+    { id: "L10", sku: "SKU-A", remainingQuantity: 2 },
+    { id: "L11", sku: "SKU-B", remainingQuantity: 2 },
   ])
+  const { graphql, push } = setup([lookup([f2]), create()])
+  await push1(push, o, [
+    { lineItemId: "li_a", quantity: 1 },
+    { lineItemId: "li_b", quantity: 1 },
+  ])
+  expect(sentLines(graphql)).toEqual([
+    { id: "L10", quantity: 1 },
+    { id: "L11", quantity: 1 },
+  ])
+})
+
+test("no SKU match and not whole order => PermanentSyncError", async () => {
+  const { graphql, push } = setup([lookup([openFo()])])
+  const o = order()
+  o.items[0]!.sku = "NOPE"
+  const err = await push1(push, o, [{ lineItemId: "li_a", quantity: 1 }]).catch((e) => e)
+  expect(err).toBeInstanceOf(PermanentSyncError)
+  expect(err.message).not.toContain(NUMBER)
+  expect(graphql).toHaveBeenCalledTimes(1)
 })
 
 test("falls back to all remaining lines when the fulfillment covers the whole order", async () => {
@@ -138,19 +184,16 @@ test("falls back to all remaining lines when the fulfillment covers the whole or
   ])
 })
 
-test("falls back to all remaining lines when no SKU matches", async () => {
+test("whole order covered with quantities => fallback to all remaining lines even when no SKU matches", async () => {
   const { graphql, push } = setup([lookup([openFo()]), create()])
   const o = order()
   o.items[0]!.sku = "NOPE"
-  await push({
-    order: o,
-    fulfillment: fulfillment([{ lineItemId: "li_a", quantity: 1 }]),
-    externalOrderId: "1",
-    noNotification: false,
-  })
-  const lines = (graphql.mock.calls[1]![1] as any).fulfillment.lineItemsByFulfillmentOrder[0]
-    .fulfillmentOrderLineItems
-  expect(lines).toHaveLength(2)
+  o.items[1]!.sku = null
+  await push1(push, o, [
+    { lineItemId: "li_a", quantity: 2 },
+    { lineItemId: "li_b", quantity: 1 },
+  ])
+  expect(sentLines(graphql)).toHaveLength(2)
 })
 
 test("already-fulfilled order (no open fulfillment orders) returns skipped without a mutation", async () => {
@@ -243,4 +286,53 @@ test("tracking number, url and company never appear in thrown error messages or 
   }
   const logged = JSON.stringify(logs.map((l) => l.mock.calls))
   for (const secret of [NUMBER, URL_, COMPANY]) expect(logged).not.toContain(secret)
+})
+
+test("missing fulfillmentCreate payload or fulfillment id is a transient error", async () => {
+  for (const payload of [{ fulfillmentCreate: null }, { fulfillmentCreate: { fulfillment: null, userErrors: [] } }]) {
+    const { push } = setup([lookup([openFo()]), payload])
+    const err = await run(push, fulfillment([{ lineItemId: "li_a", quantity: 2 }])).catch((e) => e)
+    expect(err).toBeInstanceOf(Error)
+    expect(err).not.toBeInstanceOf(PermanentSyncError)
+  }
+})
+
+test("blank tracking number is a permanent error without calling Shopify", async () => {
+  const { graphql, push } = setup([])
+  const err = await run(
+    push,
+    fulfillment([{ lineItemId: "li_a", quantity: 2 }], { labels: [{ trackingNumber: "  ", trackingUrl: null }] })
+  ).catch((e) => e)
+  expect(err).toBeInstanceOf(PermanentSyncError)
+  expect(graphql).not.toHaveBeenCalled()
+})
+
+test("stale-state / quantity userErrors are transient", async () => {
+  for (const message of [
+    "Fulfillment order is not in a fulfillable state",
+    "Invalid quantity for line item",
+    "Already fulfilled",
+    "Line item cannot be fulfilled",
+  ]) {
+    const { push } = setup([lookup([openFo()]), create([{ message }])])
+    const err = await run(push, fulfillment([{ lineItemId: "li_a", quantity: 2 }])).catch((e) => e)
+    expect(err).not.toBeInstanceOf(PermanentSyncError)
+    expect(err.message).not.toContain(message)
+  }
+})
+
+test("a truncated page of fulfillment orders or lines is a transient error", async () => {
+  const more = { hasNextPage: true }
+  const truncatedOrders = lookup([openFo()]) as any
+  truncatedOrders.order.fulfillmentOrders.pageInfo = more
+  const truncatedLines = lookup([
+    { ...openFo(), lineItems: { nodes: openFo().lineItems.nodes, pageInfo: more } },
+  ])
+  for (const r of [truncatedOrders, truncatedLines]) {
+    const { graphql, push } = setup([r])
+    const err = await run(push, fulfillment([{ lineItemId: "li_a", quantity: 2 }])).catch((e) => e)
+    expect(err).toBeInstanceOf(Error)
+    expect(err).not.toBeInstanceOf(PermanentSyncError)
+    expect(graphql).toHaveBeenCalledTimes(1)
+  }
 })

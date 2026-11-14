@@ -14,10 +14,14 @@ const LOOKUP_QUERY = `query TrackingFulfillmentOrders($id: ID!) {
   order(id: $id) {
     fulfillments { trackingInfo { number } }
     fulfillmentOrders(first: 20) {
+      pageInfo { hasNextPage }
       nodes {
         id
         status
-        lineItems(first: 50) { nodes { id sku remainingQuantity } }
+        lineItems(first: 50) {
+          pageInfo { hasNextPage }
+          nodes { id sku remainingQuantity }
+        }
       }
     }
   }
@@ -31,19 +35,25 @@ const FULFILL_MUTATION = `mutation TrackingFulfillmentCreate($fulfillment: Fulfi
 }`
 
 /** userError messages that mean "try again later" rather than "bad input". */
-const TRANSIENT_USER_ERROR = /throttl|internal error|try again|timed? ?out|temporar/i
+const TRANSIENT_USER_ERROR = /throttl|internal error|try again|timed? ?out|temporar|not in a fulfillable state|quantity|already fulfilled|cannot be fulfilled/i
 
 type FoLine = { id: string; sku: string | null; remainingQuantity: number }
 type LookupResult = {
   order: {
     fulfillments: { trackingInfo: { number: string | null }[] }[] | null
     fulfillmentOrders: {
-      nodes: { id: string; status: string; lineItems: { nodes: FoLine[] } }[]
+      pageInfo?: { hasNextPage?: boolean }
+      nodes: {
+        id: string
+        status: string
+        lineItems: { pageInfo?: { hasNextPage?: boolean }; nodes: FoLine[] }
+      }[]
     }
   } | null
 }
 type CreateResult = {
   fulfillmentCreate: {
+    fulfillment?: { id?: string } | null
     userErrors: { field?: string[] | null; message?: string }[]
   } | null
 }
@@ -73,6 +83,7 @@ export const createShopifyTrackingPush =
     const label = fulfillment.labels[0]
     if (!label) return "skipped"
     const trackingNumber = label.trackingNumber.trim()
+    if (!trackingNumber) throw new PermanentSyncError("Shopify tracking number is blank")
 
     const found = await client.graphql<LookupResult>(LOOKUP_QUERY, { id: orderGid })
     const shopOrder = found?.order
@@ -83,6 +94,14 @@ export const createShopifyTrackingPush =
       (f.trackingInfo ?? []).some((t) => (t.number ?? "").trim() === trackingNumber)
     )
     if (already) return "skipped"
+
+    const fos = shopOrder.fulfillmentOrders
+    if (
+      fos.pageInfo?.hasNextPage ||
+      fos.nodes.some((n) => n.lineItems.pageInfo?.hasNextPage)
+    ) {
+      throw new Error("Shopify fulfillment orders exceed the page limit")
+    }
 
     const openOrders = shopOrder.fulfillmentOrders.nodes.filter((n) =>
       OPEN_STATUSES.has(n.status)
@@ -111,9 +130,13 @@ export const createShopifyTrackingPush =
       if (!sku) continue
       wanted.set(sku, (wanted.get(sku) ?? 0) + fi.quantity)
     }
-    const shippedIds = new Set(fulfillment.items.map((i) => i.lineItemId))
+    const shippedQty = new Map<string, number>()
+    for (const fi of fulfillment.items) {
+      shippedQty.set(fi.lineItemId, (shippedQty.get(fi.lineItemId) ?? 0) + fi.quantity)
+    }
     const coversWholeOrder =
-      order.items.length > 0 && order.items.every((i) => shippedIds.has(i.id))
+      order.items.length > 0 &&
+      order.items.every((i) => (shippedQty.get(i.id) ?? 0) >= i.quantity)
 
     let selection: Selection = new Map()
     if (!coversWholeOrder) {
@@ -130,8 +153,11 @@ export const createShopifyTrackingPush =
         if (lines.length > 0) selection.set(fo.id, lines)
       }
     }
-    if (coversWholeOrder || selection.size === 0) selection = allRemaining()
-    if (selection.size === 0) return "skipped"
+    if (coversWholeOrder) selection = allRemaining()
+    if (selection.size === 0) {
+      // Never silently drop tracking: record the failure for follow-up.
+      throw new PermanentSyncError("no matching Shopify lines")
+    }
 
     const trackingInfo: { company?: string; number: string; url?: string } = {
       number: trackingNumber,
@@ -150,13 +176,18 @@ export const createShopifyTrackingPush =
       },
     })
 
-    const userErrors = result?.fulfillmentCreate?.userErrors ?? []
+    const payload = result?.fulfillmentCreate
+    if (!payload) throw new Error("Shopify fulfillmentCreate returned no result")
+    const userErrors = payload.userErrors ?? []
     if (userErrors.length > 0) {
       // Generic messages only: Shopify's text may echo the tracking data.
       if (userErrors.some((e) => TRANSIENT_USER_ERROR.test(e.message ?? ""))) {
         throw new Error("Shopify fulfillmentCreate temporarily failed")
       }
       throw new PermanentSyncError("Shopify rejected fulfillmentCreate")
+    }
+    if (!payload.fulfillment?.id) {
+      throw new Error("Shopify fulfillmentCreate returned no fulfillment")
     }
     return "pushed"
   }
