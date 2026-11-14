@@ -158,7 +158,7 @@ test("legacy start uses the unsuffixed tracking queue name", async () => {
   expect(queues.map((q) => q.name)).toContain("woocommerce-tracking-sync")
 })
 
-test("the tracking worker runs processTrackingJob with the injected push, defaulting to a skipping no-op", async () => {
+test("the tracking worker runs processTrackingJob with the injected push, ", async () => {
   const push = vi.fn(async () => "pushed" as const)
   const { deps, workers } = setup({ accountId: "acct-9", trackingPush: push })
   await startWooCommerce(deps)
@@ -170,4 +170,31 @@ test("the tracking worker runs processTrackingJob with the injected push, defaul
     { fulfillmentId: "f", orderId: "o", noNotification: false },
     expect.objectContaining({ integrationAccountId: "acct-9", marketplace: "woocommerce", push })
   )
+})
+
+test("without an injected push the tracking worker gets the WooCommerce push bound to the client", async () => {
+  const urls: string[] = []
+  const fetchImpl = vi.fn(async (url: string) => {
+    urls.push(url)
+    return new Response(JSON.stringify(url.includes("/notes") ? [] : { status: "completed" }), { status: 200 })
+  })
+  const { deps, workers } = setup({ accountId: "acct-9", fetchImpl: fetchImpl as any })
+  await startWooCommerce(deps)
+  await workers["woocommerce-tracking-sync-acct-9"].processor({
+    name: "shipment.created",
+    data: { fulfillmentId: "f", orderId: "o", noNotification: false },
+  })
+  const passed = mocks.processTracking.mock.calls[0][1].push
+  fetchImpl.mockClear()
+  urls.length = 0
+  await passed({
+    order: { id: "o", metadata: {}, items: [], fulfillments: [] },
+    fulfillment: {
+      id: "f", canceledAt: null, items: [], carrier: null,
+      labels: [{ trackingNumber: "T1", trackingUrl: null }],
+    },
+    externalOrderId: "55",
+    noNotification: false,
+  })
+  expect(urls[0]).toBe("https://s.example/wp-json/wc/v3/orders/55")
 })

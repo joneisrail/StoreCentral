@@ -1,5 +1,6 @@
 import { PermanentSyncError } from "../../queue/queues.js"
 import type { ShopifyClient } from "../../shopify/client.js"
+import { coversWholeOrder } from "./coverage.js"
 import type { TrackingPush } from "./types.js"
 
 /*
@@ -130,16 +131,10 @@ export const createShopifyTrackingPush =
       if (!sku) continue
       wanted.set(sku, (wanted.get(sku) ?? 0) + fi.quantity)
     }
-    const shippedQty = new Map<string, number>()
-    for (const fi of fulfillment.items) {
-      shippedQty.set(fi.lineItemId, (shippedQty.get(fi.lineItemId) ?? 0) + fi.quantity)
-    }
-    const coversWholeOrder =
-      order.items.length > 0 &&
-      order.items.every((i) => (shippedQty.get(i.id) ?? 0) >= i.quantity)
+    const wholeOrder = coversWholeOrder(order.items, fulfillment.items)
 
     let selection: Selection = new Map()
-    if (!coversWholeOrder) {
+    if (!wholeOrder) {
       for (const fo of openOrders) {
         const lines: { id: string; quantity: number }[] = []
         for (const l of remainingLines(fo)) {
@@ -153,7 +148,7 @@ export const createShopifyTrackingPush =
         if (lines.length > 0) selection.set(fo.id, lines)
       }
     }
-    if (coversWholeOrder) selection = allRemaining()
+    if (wholeOrder) selection = allRemaining()
     if (selection.size === 0) {
       // Never silently drop tracking: record the failure for follow-up.
       throw new PermanentSyncError("no matching Shopify lines")
