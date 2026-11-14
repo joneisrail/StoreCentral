@@ -2,7 +2,7 @@ import { HttpTypes } from "@medusajs/types"
 import { Button, Checkbox, Tooltip, toast, usePrompt } from "@medusajs/ui"
 import { keepPreviousData } from "@tanstack/react-query"
 import { createColumnHelper, RowSelectionState } from "@tanstack/react-table"
-import { useCallback, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { useSearchParams } from "react-router-dom"
 
@@ -1029,6 +1029,33 @@ export const ReadyToShipTable = () => {
     return loadedOrders.filter((order) => overdueOrderIds.has(order.id))
   }, [showOverdueOnly, loadedOrders, overdueOrderIds])
 
+  // Ids that are loaded, visible (post overdue filter) and not currently
+  // held. Selection is pruned to this set, and the bulk action re-intersects
+  // against it, so a row held / hidden / unloaded after being selected is
+  // never fulfilled. (The server also refuses held orders.)
+  const actionableIds = useMemo(() => {
+    const held = new Set(heldIds)
+    return new Set(
+      visibleOrders.filter((o) => !held.has(o.id)).map((o) => o.id)
+    )
+  }, [visibleOrders, heldIds])
+  const actionableIdsRef = useRef(actionableIds)
+  actionableIdsRef.current = actionableIds
+
+  useEffect(() => {
+    // Not while (re)loading: nothing is known to be gone yet.
+    if (isLoading || lookupLoading) {
+      return
+    }
+    setRowSelection((prev) => {
+      const kept = Object.keys(prev).filter((id) => actionableIds.has(id))
+      if (kept.length === Object.keys(prev).length) {
+        return prev
+      }
+      return Object.fromEntries(kept.map((id) => [id, prev[id]]))
+    })
+  }, [actionableIds, isLoading, lookupLoading])
+
   const { mutateAsync: bulkFulfillOrders } = useBulkFulfillOrders()
 
   const { table } = useDataTable({
@@ -1106,7 +1133,13 @@ export const ReadyToShipTable = () => {
               setIsBulkFulfilling(true)
 
               try {
-                const orderIds = Object.keys(selection)
+                const orderIds = Object.keys(selection).filter((id) =>
+                  actionableIdsRef.current.has(id)
+                )
+
+                if (orderIds.length === 0) {
+                  return
+                }
 
                 const confirmed = await prompt({
                   title: t("general.areYouSure"),
@@ -1122,8 +1155,10 @@ export const ReadyToShipTable = () => {
                   return
                 }
 
+                // The prompt is async: re-check against the latest rows so
+                // an order held while it was open is not sent.
                 const { fulfillments, skippedOrderIds } = buildBulkFulfillments(
-                  orderIds,
+                  orderIds.filter((id) => actionableIdsRef.current.has(id)),
                   rowLocationOverride,
                   rowRates,
                   defaultLocationId,

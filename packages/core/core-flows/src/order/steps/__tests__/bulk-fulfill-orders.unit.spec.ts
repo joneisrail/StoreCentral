@@ -44,6 +44,7 @@ type ItemFixture = {
 type OrderFixture = {
   id: string
   status?: string
+  tags?: { id: string; value: string }[]
   items: ItemFixture[]
   shipping_methods?: { shipping_option_id?: string }[]
 }
@@ -197,6 +198,46 @@ describe("bulkFulfillOrdersStep", () => {
   beforeEach(() => {
     createOrderFulfillmentWorkflow.mockReset()
     resolveEasyPostFulfillmentProvider.mockReset()
+  })
+
+  it("fails an order tagged exactly 'On hold' without buying a label, and still fulfills the rest", async () => {
+    const run = jest.fn().mockResolvedValue({})
+    createOrderFulfillmentWorkflow.mockReturnValue({ run })
+
+    const { container, calls } = buildContainer({
+      orders: {
+        order_held: fulfillableOrder("order_held", {
+          tags: [{ id: "tag_1", value: "On hold" }],
+        }),
+        order_lookalike: fulfillableOrder("order_lookalike", {
+          tags: [{ id: "tag_2", value: "On hold later" }],
+        }),
+        order_ok: fulfillableOrder("order_ok"),
+      },
+      buyRate: async () => ({ id: "shp_1" }),
+      createLabelBatch: async () => ({ labelUrl: "batch.pdf" }),
+    })
+
+    const result = await runStep(container, {
+      fulfillments: ["order_held", "order_lookalike", "order_ok"].map((id) => ({
+        order_id: id,
+        location_id: "sloc_1",
+        shipment_id: `s_${id}`,
+        rate_id: `r_${id}`,
+      })),
+    })
+
+    expect(result.failed).toEqual([
+      {
+        order_id: "order_held",
+        error: expect.stringContaining("Order is on hold"),
+      },
+    ])
+    expect(result.succeeded).toEqual(["order_lookalike", "order_ok"])
+    expect(calls.buyRate.map((c) => c[0])).toEqual([
+      "s_order_lookalike",
+      "s_order_ok",
+    ])
   })
 
   it("forwards no_notification per order only when it was given", async () => {

@@ -101,6 +101,8 @@ export type BulkFulfillOrdersStepOutput = {
   label_pdf_url?: string
 }
 
+const HOLD_TAG_VALUE = "On hold"
+
 type FulfillableItem = { id: string; quantity: BigNumberInput }
 
 /**
@@ -178,6 +180,13 @@ async function validateOrderIsFulfillable(
 
   if (!order) {
     throw notFulfillable(orderId, "the order was not found")
+  }
+
+  // Mirrors the admin hold flow (hold-order workflow): the tag whose value is
+  // exactly "On hold" marks a held order. Enforced here so a stale client
+  // selection can never fulfill a held order.
+  if ((order.tags ?? []).some((tag) => tag?.value === HOLD_TAG_VALUE)) {
+    throw notFulfillable(orderId, "Order is on hold")
   }
 
   if (order.status === "canceled") {

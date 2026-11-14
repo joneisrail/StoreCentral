@@ -1881,3 +1881,120 @@ describe("ReadyToShipTable alerts, channel, due, delivery, email and tags", () =
     })
   })
 })
+
+describe("ReadyToShipTable stale selection is never fulfilled", () => {
+  const setOrders = (orders: unknown[]) =>
+    mockUseOrders.mockReturnValue({
+      orders,
+      count: orders.length,
+      isLoading: false,
+      isError: false,
+      error: undefined,
+    })
+
+  const rerenderTable = (rerender: (ui: React.ReactElement) => void) =>
+    rerender(
+      <MemoryRouter>
+        <TooltipProvider>
+          <ReadyToShipTable />
+        </TooltipProvider>
+      </MemoryRouter>
+    )
+
+  it("does not send an order that was held (dropped from the loaded orders) after it was selected", async () => {
+    setOrders([makeReadyToShipOrder("order_1"), makeReadyToShipOrder("order_2")])
+    setOrderRate("order_1", "shp_1", "rate_1")
+    setOrderRate("order_2", "shp_2", "rate_2")
+    mockBulkFulfillOrders.mockResolvedValue({ succeeded: [], failed: [] })
+
+    const user = userEvent.setup()
+    const { rerender } = renderReadyToShipTable()
+
+    await user.click((await screen.findAllByRole("checkbox"))[1])
+    await user.click((await screen.findAllByRole("checkbox"))[2])
+
+    // order_1 is put on hold from its row menu; the list refetches without it.
+    setOrders([makeReadyToShipOrder("order_2")])
+    rerenderTable(rerender)
+
+    await user.click(
+      await screen.findByRole("button", { name: /fulfillSelected/ })
+    )
+
+    await waitFor(() => {
+      expect(mockBulkFulfillOrders).toHaveBeenCalledTimes(1)
+    })
+    expect(
+      mockBulkFulfillOrders.mock.calls[0][0].fulfillments.map(
+        (f: any) => f.order_id
+      )
+    ).toEqual(["order_2"])
+  })
+
+  it("does not send a selected order whose id is in the held set even before the list refetches", async () => {
+    setOrders([makeReadyToShipOrder("order_1"), makeReadyToShipOrder("order_2")])
+    setOrderRate("order_1", "shp_1", "rate_1")
+    setOrderRate("order_2", "shp_2", "rate_2")
+    mockBulkFulfillOrders.mockResolvedValue({ succeeded: [], failed: [] })
+
+    const user = userEvent.setup()
+    const { rerender } = renderReadyToShipTable()
+
+    await user.click((await screen.findAllByRole("checkbox"))[1])
+    await user.click((await screen.findAllByRole("checkbox"))[2])
+
+    setHoldLookups({ held: { ids: ["order_1"] } })
+    rerenderTable(rerender)
+
+    await user.click(
+      await screen.findByRole("button", { name: /fulfillSelected/ })
+    )
+
+    await waitFor(() => {
+      expect(mockBulkFulfillOrders).toHaveBeenCalledTimes(1)
+    })
+    expect(
+      mockBulkFulfillOrders.mock.calls[0][0].fulfillments.map(
+        (f: any) => f.order_id
+      )
+    ).toEqual(["order_2"])
+  })
+
+  it("does not send a selected order hidden by the overdue-only filter", async () => {
+    const base = (id: string, created_at: string) => ({
+      ...makeReadyToShipOrder(id),
+      payment_status: "captured",
+      sales_channel: { name: "Amazon", metadata: { handling_hours: 24 } },
+      tags: [],
+      created_at,
+    })
+    setOrders([
+      base("order_1", "2999-01-01T00:00:00.000Z"),
+      base("order_2", "2020-01-01T00:00:00.000Z"),
+    ])
+    setOrderRate("order_1", "shp_1", "rate_1")
+    setOrderRate("order_2", "shp_2", "rate_2")
+    mockBulkFulfillOrders.mockResolvedValue({ succeeded: [], failed: [] })
+
+    const user = userEvent.setup()
+    renderReadyToShipTable()
+
+    await user.click((await screen.findAllByRole("checkbox"))[1])
+    await user.click((await screen.findAllByRole("checkbox"))[2])
+
+    await user.click(await screen.findByRole("button", { name: /overdueBanner/ }))
+
+    await user.click(
+      await screen.findByRole("button", { name: /fulfillSelected/ })
+    )
+
+    await waitFor(() => {
+      expect(mockBulkFulfillOrders).toHaveBeenCalledTimes(1)
+    })
+    expect(
+      mockBulkFulfillOrders.mock.calls[0][0].fulfillments.map(
+        (f: any) => f.order_id
+      )
+    ).toEqual(["order_2"])
+  })
+})
