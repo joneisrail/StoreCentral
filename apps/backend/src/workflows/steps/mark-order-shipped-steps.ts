@@ -1,4 +1,8 @@
-import { ContainerRegistrationKeys, MathBN, MedusaError } from "@medusajs/framework/utils"
+import {
+  ContainerRegistrationKeys,
+  MathBN,
+  MedusaError,
+} from "@medusajs/framework/utils"
 import { createStep, StepResponse } from "@medusajs/framework/workflows-sdk"
 import {
   cancelOrderFulfillmentWorkflow,
@@ -14,9 +18,16 @@ export const MANUAL_PROVIDER_ID = "manual_manual"
 
 export type ShipItem = { id: string; quantity: number }
 export type MarkShippedState = { order_id: string; items: ShipItem[] }
-export type MarkShippedPlacement = { location_id: string; shipping_option_id: string }
+export type MarkShippedPlacement = {
+  location_id: string
+  shipping_option_id: string
+}
 
-const notAllowed = (message: string) => new MedusaError(MedusaError.Types.NOT_ALLOWED, message)
+const PROFILE_MISMATCH_MESSAGE =
+  "No manual shipping option matches this order's shipping profile; create one in Settings > Locations & Shipping"
+
+const notAllowed = (message: string) =>
+  new MedusaError(MedusaError.Types.NOT_ALLOWED, message)
 
 // Reads the order and rejects every state that cannot be marked shipped. Fails
 // closed when the fulfillments relation could not be read. Messages never
@@ -46,27 +57,45 @@ export const validateMarkOrderShippedStep = createStep(
     })
     const order = data[0] as any
     if (!order) {
-      throw new MedusaError(MedusaError.Types.NOT_FOUND, `Order ${input.order_id} was not found`)
+      throw new MedusaError(
+        MedusaError.Types.NOT_FOUND,
+        `Order ${input.order_id} was not found`
+      )
     }
     if (order.status === "canceled") {
       throw notAllowed("A canceled order cannot be marked shipped")
     }
     if ((order.tags ?? []).some((t: any) => t?.value === HOLD_TAG_VALUE)) {
-      throw notAllowed("The order is on hold; release it before marking it shipped")
+      throw notAllowed(
+        "The order is on hold; release it before marking it shipped"
+      )
     }
     if (!Array.isArray(order.fulfillments)) {
-      throw notAllowed("The order's fulfillments could not be read, so it cannot be marked shipped")
+      throw notAllowed(
+        "The order's fulfillments could not be read, so it cannot be marked shipped"
+      )
     }
-    if (["shipped", "delivered"].includes(deriveFulfillmentStatus(order.fulfillments))) {
+    if (
+      ["shipped", "delivered"].includes(
+        deriveFulfillmentStatus(order.fulfillments)
+      )
+    ) {
       throw notAllowed("This order has already shipped")
     }
-    if (order.fulfillments.some((f: any) => !f?.canceled_at && f?.data?.easypost_shipment_id)) {
+    if (
+      order.fulfillments.some(
+        (f: any) => !f?.canceled_at && f?.data?.easypost_shipment_id
+      )
+    ) {
       throw notAllowed("Void the shipping label first")
     }
     const items: ShipItem[] = (order.items ?? [])
       .map((item: any) => ({
         id: item.id as string,
-        remaining: MathBN.sub(item.quantity, item.detail?.fulfilled_quantity ?? 0),
+        remaining: MathBN.sub(
+          item.quantity,
+          item.detail?.fulfilled_quantity ?? 0
+        ),
       }))
       .filter(({ remaining }: any) => MathBN.gt(remaining, 0))
       .map(({ id, remaining }: any) => ({ id, quantity: Number(remaining) }))
@@ -77,7 +106,8 @@ export const validateMarkOrderShippedStep = createStep(
   }
 )
 
-const locationOf = (option: any): string | undefined => option?.service_zone?.fulfillment_set?.location?.id
+const locationOf = (option: any): string | undefined =>
+  option?.service_zone?.fulfillment_set?.location?.id
 
 // Decides where the fulfillment is created. Shipping option: the order's own
 // shipping method when it has one (its profile matches the items by
@@ -89,23 +119,44 @@ export const resolveMarkShippedPlacementStep = createStep(
   "resolve-mark-shipped-placement",
   async (input: { order_id: string; location_id?: string }, { container }) => {
     const query = container.resolve(ContainerRegistrationKeys.QUERY)
-    const fields = ["id", "service_zone.fulfillment_set.location.id"]
+    const fields = [
+      "id",
+      "shipping_profile_id",
+      "service_zone.fulfillment_set.location.id",
+    ]
 
     const { data: orders } = await query.graph({
       entity: "order",
-      fields: ["id", "shipping_methods.shipping_option_id"],
+      fields: [
+        "id",
+        "shipping_methods.shipping_option_id",
+        "items.requires_shipping",
+        "items.variant.product.shipping_profile.id",
+      ],
       filters: { id: input.order_id },
     })
-    const methodOptionId = (orders[0] as any)?.shipping_methods?.[0]?.shipping_option_id as string | undefined
+    const methodOptionId = (orders[0] as any)?.shipping_methods?.[0]
+      ?.shipping_option_id as string | undefined
 
-    const { data: stores } = await query.graph({ entity: "store", fields: ["id", "metadata"] })
-    const storeDefault = (stores[0] as any)?.metadata?.default_ship_from_location_id
+    const { data: stores } = await query.graph({
+      entity: "store",
+      fields: ["id", "metadata"],
+    })
+    const storeDefault = (stores[0] as any)?.metadata
+      ?.default_ship_from_location_id
     const requested =
-      input.location_id ?? (typeof storeDefault === "string" && storeDefault ? storeDefault : undefined)
+      input.location_id ??
+      (typeof storeDefault === "string" && storeDefault
+        ? storeDefault
+        : undefined)
 
     let option: any
     if (methodOptionId) {
-      const { data } = await query.graph({ entity: "shipping_option", fields, filters: { id: methodOptionId } })
+      const { data } = await query.graph({
+        entity: "shipping_option",
+        fields,
+        filters: { id: methodOptionId },
+      })
       option = data[0]
     }
     if (!option) {
@@ -114,8 +165,25 @@ export const resolveMarkShippedPlacementStep = createStep(
         fields,
         filters: { provider_id: MANUAL_PROVIDER_ID },
       })
-      const manual = data as any[]
-      option = (requested && manual.find((o) => locationOf(o) === requested)) || manual[0]
+      // Custom items (no variant/product) impose no profile. Every shipped item's
+      // profile must be the option's profile.
+      const profiles = new Set<string>(
+        ((orders[0] as any)?.items ?? [])
+          .filter((i: any) => i?.requires_shipping !== false)
+          .map((i: any) => i?.variant?.product?.shipping_profile?.id)
+          .filter(Boolean)
+      )
+      const manual = (data as any[]).filter(
+        (o) =>
+          !profiles.size ||
+          (profiles.size === 1 && profiles.has(o.shipping_profile_id))
+      )
+      if (!manual.length && (data as any[]).length) {
+        throw notAllowed(PROFILE_MISMATCH_MESSAGE)
+      }
+      option =
+        (requested && manual.find((o) => locationOf(o) === requested)) ||
+        manual[0]
     }
     if (!option) {
       throw notAllowed(
@@ -128,7 +196,10 @@ export const resolveMarkShippedPlacementStep = createStep(
         "No Ship From location is set; choose one in Settings > Fulfillment or pass a location"
       )
     }
-    return new StepResponse<MarkShippedPlacement>({ location_id, shipping_option_id: option.id })
+    return new StepResponse<MarkShippedPlacement>({
+      location_id,
+      shipping_option_id: option.id,
+    })
   }
 )
 
@@ -158,19 +229,33 @@ export const markOrderShippedStep = createStep(
     const metadata: Record<string, unknown> = { carrier: input.carrier }
     if (input.shipped_at) metadata.shipped_at = input.shipped_at
 
-    const { result: fulfillment } = await createOrderFulfillmentWorkflow(container).run({
-      input: {
-        order_id: input.order_id,
-        items: input.items,
-        location_id: input.location_id,
-        shipping_option_id: input.shipping_option_id,
-        provider_id: MANUAL_PROVIDER_ID,
-        provider_data_override: { carrier: input.carrier },
-        metadata,
-        no_notification: input.no_notification,
-        created_by: input.user_id,
-      },
-    })
+    let fulfillment: any
+    try {
+      ;({ result: fulfillment } = await createOrderFulfillmentWorkflow(
+        container
+      ).run({
+        input: {
+          order_id: input.order_id,
+          items: input.items,
+          location_id: input.location_id,
+          shipping_option_id: input.shipping_option_id,
+          provider_id: MANUAL_PROVIDER_ID,
+          provider_data_override: { carrier: input.carrier },
+          metadata,
+          no_notification: input.no_notification,
+          created_by: input.user_id,
+        },
+      }))
+    } catch (e) {
+      if (
+        /Shipping profile .* does not match/.test(
+          e instanceof Error ? e.message : ""
+        )
+      ) {
+        throw notAllowed(PROFILE_MISMATCH_MESSAGE)
+      }
+      throw e
+    }
 
     try {
       await createOrderShipmentWorkflow(container).run({
@@ -192,13 +277,30 @@ export const markOrderShippedStep = createStep(
     } catch (e) {
       try {
         await cancelOrderFulfillmentWorkflow(container).run({
-          input: { order_id: input.order_id, fulfillment_id: fulfillment.id, no_notification: true },
+          input: {
+            order_id: input.order_id,
+            fulfillment_id: fulfillment.id,
+            no_notification: true,
+          },
         })
       } catch {
-        // Best effort: the original failure is the one worth reporting.
+        // Best effort: the original failure is the one worth reporting. Only ids
+        // are logged: no tracking data, carrier or error body.
+        try {
+          container
+            .resolve(ContainerRegistrationKeys.LOGGER)
+            .warn(
+              `mark-order-shipped: could not cancel fulfillment ${fulfillment.id} of order ${input.order_id} after a failed shipment`
+            )
+        } catch {
+          // No logger available.
+        }
       }
       throw e
     }
-    return new StepResponse({ order_id: input.order_id, fulfillment_id: fulfillment.id as string })
+    return new StepResponse({
+      order_id: input.order_id,
+      fulfillment_id: fulfillment.id as string,
+    })
   }
 )

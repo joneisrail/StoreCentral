@@ -1,8 +1,29 @@
 const mockFulfill = jest.fn()
 const mockShip = jest.fn()
 const mockCancel = jest.fn()
+const mockAcquire = jest.fn()
+const mockRelease = jest.fn()
+const mockLockCompensate = jest.fn()
+const mockWarn = jest.fn()
 
 jest.mock("@medusajs/medusa/core-flows", () => ({
+  acquireLockStep: jest
+    .requireActual("@medusajs/framework/workflows-sdk")
+    .createStep(
+      "acquire-lock-step",
+      async (d: any) => {
+        mockAcquire(d)
+        return new (jest.requireActual("@medusajs/framework/workflows-sdk").StepResponse)(undefined, { k: d.key })
+      },
+      async () => {
+        mockLockCompensate()
+      }
+    ),
+  releaseLockStep: jest
+    .requireActual("@medusajs/framework/workflows-sdk")
+    .createStep("release-lock-step", async (d: any) => {
+      mockRelease(d)
+    }),
   createOrderFulfillmentWorkflow: () => ({ run: (i: any) => mockFulfill(i) }),
   createOrderShipmentWorkflow: () => ({ run: (i: any) => mockShip(i) }),
   cancelOrderFulfillmentWorkflow: () => ({ run: (i: any) => mockCancel(i) }),
@@ -33,6 +54,7 @@ const makeContainer = (f: Fixture) => {
     },
   }
   container.register("query", { resolve: () => query } as any)
+  container.register("logger", { resolve: () => ({ warn: mockWarn }) } as any)
   return container
 }
 
@@ -176,10 +198,74 @@ describe("markOrderShippedWorkflow", () => {
     })
   })
 
-  it("still rethrows the original error when the compensation itself fails", async () => {
+  it("still rethrows the original error when the compensation fails, and logs only ids", async () => {
     mockShip.mockRejectedValue(new Error("shipment exploded"))
-    mockCancel.mockRejectedValue(new Error("cancel failed"))
+    mockCancel.mockRejectedValue(new Error("cancel failed secret-123"))
     await expect(run(makeContainer({ order: order(), options }))).rejects.toMatchObject({ message: "shipment exploded" })
+    expect(mockWarn).toHaveBeenCalledTimes(1)
+    const logged = String(mockWarn.mock.calls[0][0])
+    expect(logged).toContain("order_1")
+    expect(logged).toContain("ful_1")
+    expect(logged).not.toMatch(/1Z999|UPS|secret-123|cancel failed/)
+  })
+
+  it("holds a per-order lock for the whole run and releases it", async () => {
+    await run(makeContainer({ order: order(), options }))
+    expect(mockAcquire).toHaveBeenCalledWith(expect.objectContaining({ key: "order_1" }))
+    expect(mockRelease).toHaveBeenCalledWith({ key: "order_1" })
+  })
+
+  it("releases the lock through compensation when the run fails", async () => {
+    await expect(run(makeContainer({ order: order({ status: "canceled" }), options }))).rejects.toBeDefined()
+    expect(mockLockCompensate).toHaveBeenCalledTimes(1)
+    expect(mockRelease).not.toHaveBeenCalled()
+  })
+
+  describe("shipping profile", () => {
+    const withProfiles = (...profiles: (string | undefined)[]) =>
+      order({
+        shipping_methods: [],
+        items: profiles.map((p, i) => ({
+          ...item(`it_${i}`, 1),
+          requires_shipping: true,
+          variant: p ? { product: { shipping_profile: { id: p } } } : null,
+        })),
+      })
+    const manualOptions = [
+      { id: "so_a", shipping_profile_id: "sp_a", service_zone: { fulfillment_set: { location: { id: "sloc_1" } } } },
+      { id: "so_b", shipping_profile_id: "sp_b", service_zone: { fulfillment_set: { location: { id: "sloc_1" } } } },
+    ]
+
+    it("picks the manual option that matches the items' profile", async () => {
+      await run(makeContainer({ order: withProfiles("sp_b", "sp_b"), manualOptions }))
+      expect(mockFulfill.mock.calls[0][0].input.shipping_option_id).toBe("so_b")
+    })
+
+    it("rejects with a clear message when no manual option matches", async () => {
+      await expect(run(makeContainer({ order: withProfiles("sp_c"), manualOptions }))).rejects.toMatchObject({
+        type: MedusaError.Types.NOT_ALLOWED,
+        message: expect.stringMatching(/No manual shipping option matches this order's shipping profile/),
+      })
+      await expect(run(makeContainer({ order: withProfiles("sp_a", "sp_b"), manualOptions }))).rejects.toMatchObject({
+        type: MedusaError.Types.NOT_ALLOWED,
+      })
+      expect(mockFulfill).not.toHaveBeenCalled()
+    })
+
+    it("custom items without a variant impose no profile", async () => {
+      await run(makeContainer({ order: withProfiles(undefined), manualOptions }))
+      expect(mockFulfill.mock.calls[0][0].input.shipping_option_id).toBe("so_a")
+    })
+
+    it("maps core's profile mismatch error to the same clear message", async () => {
+      mockFulfill.mockRejectedValue(
+        new MedusaError(MedusaError.Types.INVALID_DATA, "Shipping profile sp_x does not match the shipping profile of the order item it_1")
+      )
+      await expect(run(makeContainer({ order: order(), options }))).rejects.toMatchObject({
+        type: MedusaError.Types.NOT_ALLOWED,
+        message: expect.stringMatching(/No manual shipping option matches this order's shipping profile/),
+      })
+    })
   })
 
   it("does not cancel anything when the fulfillment itself fails", async () => {

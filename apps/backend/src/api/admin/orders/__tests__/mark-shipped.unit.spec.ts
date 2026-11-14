@@ -71,4 +71,12 @@ describe("POST /admin/orders/:id/mark-shipped", () => {
       type: MedusaError.Types.NOT_ALLOWED,
     })
   })
+
+  it("turns a lock-acquisition failure into a clear 409", async () => {
+    mockRun.mockRejectedValue(new Error('Failed to acquire lock for key "order_1"'))
+    await expect(markShipped(makeReq({ carrier: "UPS", tracking_number: "1Z" }), makeRes())).rejects.toMatchObject({
+      type: MedusaError.Types.CONFLICT,
+      message: expect.stringMatching(/already being marked shipped/),
+    })
+  })
 })

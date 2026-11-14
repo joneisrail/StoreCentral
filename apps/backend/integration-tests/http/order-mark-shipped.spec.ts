@@ -207,6 +207,93 @@ medusaIntegrationTestRunner({
         expect(missing.status).toBe(404)
       })
 
+      it("ships an order whose own shipping option is EasyPost-backed without buying a label", async () => {
+        const fake = installFakeEasyPost(container)
+        const seeder = await createFulfillableOrder()
+        const fulfillmentModule = container.resolve(Modules.FULFILLMENT)
+        await fulfillmentModule.updateShippingOptions(seeder.shippingOption.id, {
+          provider_id: "easypost_easypost",
+          data: { id: "USPS:GroundAdvantage", carrier: "USPS", service: "GroundAdvantage" },
+        })
+        const checkoutShipment = fake.quote("shp_checkout_ms")
+        const orderModule = container.resolve(Modules.ORDER)
+        await orderModule.updateOrderShippingMethods([
+          {
+            id: seeder.order.shipping_methods[0].id,
+            data: {
+              easypost_shipment_id: checkoutShipment.id,
+              easypost_rate_id: checkoutShipment.rates[0].id,
+              easypost_carrier: "USPS",
+              easypost_service: "GroundAdvantage",
+            },
+          },
+        ])
+        const eventBus = container.resolve(Modules.EVENT_BUS)
+        const emitSpy = jest.spyOn(eventBus, "emit")
+
+        const res = await markShipped(seeder.order.id, { carrier: "DHL", tracking_number: "DHL123" })
+        expect(res.status).toBe(200)
+
+        const after = (
+          await api.get(
+            `/admin/orders/${seeder.order.id}?fields=id,fulfillment_status,*fulfillments,*fulfillments.labels`,
+            adminHeaders
+          )
+        ).data.order
+        expect(after.fulfillment_status).toBe("shipped")
+        const fulfillment = after.fulfillments[0]
+        expect(fulfillment.provider_id).toBe("manual_manual")
+        expect(fulfillment.data.carrier).toBe("DHL")
+        expect(fulfillment.metadata.carrier).toBe("DHL")
+        expect(fulfillment.data.easypost_shipment_id).toBeUndefined()
+        expect(fulfillment.labels[0].tracking_number).toBe("DHL123")
+        const events = emitSpy.mock.calls.map((c: any[]) => (Array.isArray(c[0]) ? c[0] : [c[0]])).flat() as any[]
+        expect(events).toContainEqual(expect.objectContaining({ name: "shipment.created" }))
+        emitSpy.mockRestore()
+
+        expect(fake.client.buyShipment).not.toHaveBeenCalled()
+        expect(fake.client.createShipment).not.toHaveBeenCalled()
+        expect(fake.client.refundShipment).not.toHaveBeenCalled()
+        expect(fake.shipments.get(checkoutShipment.id)!.purchased).toBe(false)
+      })
+
+      it("matches the manual option to the items' shipping profile when the order has no shipping method", async () => {
+        const seeder = await createFulfillableOrder()
+        const orderModule = container.resolve(Modules.ORDER)
+        await orderModule.deleteOrderShippingMethods(seeder.order.shipping_methods.map((m) => m.id))
+
+        // The only manual option is for a different profile than the item's.
+        const otherProfile = (
+          await api.post(`/admin/shipping-profiles`, { name: `other-profile-${counter++}`, type: "default" }, adminHeaders)
+        ).data.shipping_profile
+        const fulfillmentModule = container.resolve(Modules.FULFILLMENT)
+        await fulfillmentModule.updateShippingOptions(seeder.shippingOption.id, {
+          shipping_profile_id: otherProfile.id,
+        })
+        const rejected = await markShipped(seeder.order.id)
+        expect(rejected.status).toBe(400)
+        expect(rejected.data.message).toMatch(/No manual shipping option matches this order's shipping profile/)
+
+        await fulfillmentModule.updateShippingOptions(seeder.shippingOption.id, {
+          shipping_profile_id: seeder.shippingProfile.id,
+        })
+        const ok = await markShipped(seeder.order.id)
+        expect(ok.status).toBe(200)
+        expect((await getOrder(seeder.order.id)).fulfillment_status).toBe("shipped")
+      })
+
+      it("lets exactly one of two concurrent calls for the same order succeed", async () => {
+        const seeder = await createFulfillableOrder()
+        const results = await Promise.all([markShipped(seeder.order.id), markShipped(seeder.order.id)])
+        const statuses = results.map((r) => r.status).sort()
+        expect(statuses.filter((s) => s === 200)).toHaveLength(1)
+        expect(statuses.filter((s) => s !== 200)).toHaveLength(1)
+        const failed = results.find((r) => r.status !== 200)
+        expect(failed.status).toBe(409)
+        expect(failed.data.message).toMatch(/conflicted with another request/)
+        expect((await getOrder(seeder.order.id)).fulfillments.filter((f) => !f.canceled_at)).toHaveLength(1)
+      })
+
       it("validates the body", async () => {
         const seeder = await createFulfillableOrder()
         expect((await markShipped(seeder.order.id, { tracking_number: "" })).status).toBe(400)
