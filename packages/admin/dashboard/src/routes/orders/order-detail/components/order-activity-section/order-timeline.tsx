@@ -47,6 +47,8 @@ type OrderTimelineProps = {
 /**
  * Order Changes that are not related to RMA flows
  */
+const EMPTY_CLAIMS: AdminClaim[] = []
+
 const NON_RMA_CHANGE_TYPES = ["transfer", "update_order"]
 
 export const OrderTimeline = ({ order }: OrderTimelineProps) => {
@@ -199,7 +201,7 @@ const useActivityItems = (
     fields: "+received_at,*items",
   })
 
-  const { claims = [] } = useClaims({
+  const { claims = EMPTY_CLAIMS } = useClaims({
     order_id: order.id,
     fields: "*additional_items",
   })

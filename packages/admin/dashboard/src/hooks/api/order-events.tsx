@@ -16,6 +16,8 @@ export type OrderEvent = {
   created_at: string
 }
 
+const EMPTY_EVENTS: OrderEvent[] = []
+
 type OrderEventsResponse = { events: OrderEvent[] }
 
 export const useOrderEvents = (orderId: string | undefined) => {
@@ -29,5 +31,5 @@ export const useOrderEvents = (orderId: string | undefined) => {
     enabled: !!orderId,
   })
 
-  return { events: data?.events ?? [], isLoading, isError }
+  return { events: data?.events ?? EMPTY_EVENTS, isLoading, isError }
 }

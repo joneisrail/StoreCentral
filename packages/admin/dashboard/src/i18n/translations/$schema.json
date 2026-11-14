@@ -7153,15 +7153,6 @@
                     "marked_shipped": {
                       "type": "string"
                     },
-                    "canceled": {
-                      "type": "string"
-                    },
-                    "shipped": {
-                      "type": "string"
-                    },
-                    "delivered": {
-                      "type": "string"
-                    },
                     "reason": {
                       "type": "string"
                     },
@@ -7208,9 +7199,6 @@
                     "released",
                     "label_voided",
                     "marked_shipped",
-                    "canceled",
-                    "shipped",
-                    "delivered",
                     "reason",
                     "previousReason",
                     "via",

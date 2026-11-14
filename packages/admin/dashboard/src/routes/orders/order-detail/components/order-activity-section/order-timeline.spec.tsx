@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react"
+import { cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { TooltipProvider } from "@medusajs/ui"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -71,7 +71,7 @@ const ev = (over: Record<string, unknown>) => ({
   ...over,
 })
 
-const setup = (events: unknown[], isError = false) => {
+const setup = (events: unknown[], isError = false, o: unknown = order) => {
   mockOrder.mockReturnValue({
     order: {
       created_at: "2026-01-01T00:00:00.000Z",
@@ -82,7 +82,7 @@ const setup = (events: unknown[], isError = false) => {
   mockEvents.mockReturnValue({ events, isLoading: false, isError })
   return render(
     <TooltipProvider>
-      <OrderTimeline order={order} />
+      <OrderTimeline order={o as never} />
     </TooltipProvider>
   )
 }
@@ -98,18 +98,18 @@ describe("OrderTimeline change history", () => {
     const { container } = setup([
       ev({
         id: "a",
-        type: "order.shipped",
+        type: "order.held",
         created_at: "2026-01-03T00:00:00.000Z",
       }),
       ev({
         id: "b",
-        type: "order.delivered",
+        type: "order.released",
         created_at: "2026-01-02T00:00:00.000Z",
       }),
     ])
     const text = container.textContent ?? ""
-    const iShipped = text.indexOf("orders.activity.events.order.shipped")
-    const iDelivered = text.indexOf("orders.activity.events.order.delivered")
+    const iShipped = text.indexOf("orders.activity.events.order.held")
+    const iDelivered = text.indexOf("orders.activity.events.order.released")
     const iPlaced = text.indexOf("orders.activity.events.placed.title")
     expect(iShipped).toBeGreaterThan(-1)
     expect(iShipped).toBeLessThan(iDelivered)
@@ -147,13 +147,94 @@ describe("OrderTimeline change history", () => {
     expect(screen.getByText(/UPS.*·.*1Z999/)).toBeTruthy()
   })
 
-  it("shows canceled events", () => {
-    setup([
-      ev({ type: "order.canceled", actor: { id: "unknown", name: null } }),
-    ])
+  it("does not duplicate rows core already shows", () => {
+    const coreOrder = {
+      id: "order_1",
+      version: 1,
+      items: [],
+      payment_collections: [],
+      canceled_at: "2026-01-05T00:00:00.000Z",
+      fulfillments: [
+        {
+          id: "ful_1",
+          items: [],
+          created_at: "2026-01-02T00:00:00.000Z",
+          shipped_at: "2026-01-03T00:00:00.000Z",
+          delivered_at: "2026-01-04T00:00:00.000Z",
+        },
+      ],
+    } as never
+    setup(
+      [
+        ev({ id: "1", type: "order.canceled", actor: "system" }),
+        ev({ id: "2", type: "order.shipped", actor: "system" }),
+        ev({ id: "3", type: "order.delivered", actor: "system" }),
+      ],
+      false,
+      coreOrder
+    )
+    fireEvent.click(screen.getByText(/showMoreActivities/))
     expect(
-      screen.getByText("orders.activity.events.order.canceled")
-    ).toBeTruthy()
+      screen.getAllByText("orders.activity.events.canceled.title")
+    ).toHaveLength(1)
+    expect(
+      screen.getAllByText("orders.activity.events.fulfillment.shipped")
+    ).toHaveLength(1)
+    expect(
+      screen.getAllByText("orders.activity.events.fulfillment.delivered")
+    ).toHaveLength(1)
+    expect(
+      screen.queryByText("orders.activity.events.order.canceled")
+    ).toBeNull()
+    expect(
+      screen.queryByText("orders.activity.events.order.shipped")
+    ).toBeNull()
+    expect(
+      screen.queryByText("orders.activity.events.order.delivered")
+    ).toBeNull()
+  })
+
+  it("keeps collapsing and shows the note on error with many items", () => {
+    setup(
+      [
+        ev({
+          id: "1",
+          type: "order.held",
+          created_at: "2026-01-02T00:00:00.000Z",
+        }),
+        ev({
+          id: "2",
+          type: "order.released",
+          created_at: "2026-01-03T00:00:00.000Z",
+        }),
+        ev({
+          id: "3",
+          type: "order.label_voided",
+          created_at: "2026-01-04T00:00:00.000Z",
+        }),
+      ],
+      true
+    )
+    expect(screen.getByText(/showMoreActivities/)).toBeTruthy()
+    expect(screen.getByText("orders.activity.eventsUnavailable")).toBeTruthy()
+  })
+
+  it("renders existing items unchanged while events load", () => {
+    mockOrder.mockReturnValue({
+      order: {
+        created_at: "2026-01-01T00:00:00.000Z",
+        total: 10,
+        currency_code: "usd",
+      },
+    })
+    mockEvents.mockReturnValue({ events: [], isLoading: true, isError: false })
+    render(
+      <TooltipProvider>
+        <OrderTimeline order={order} />
+      </TooltipProvider>
+    )
+    expect(screen.getByText("orders.activity.events.placed.title")).toBeTruthy()
+    expect(screen.queryByText("orders.activity.eventsUnavailable")).toBeNull()
   })
 
   it("shows the actor name, System and Unknown", () => {

@@ -31,12 +31,6 @@ const getTitle = (type: string, t: TFunction): string | null => {
       return t("orders.activity.events.order.label_voided")
     case "order.marked_shipped":
       return t("orders.activity.events.order.marked_shipped")
-    case "order.canceled":
-      return t("orders.activity.events.order.canceled")
-    case "order.shipped":
-      return t("orders.activity.events.order.shipped")
-    case "order.delivered":
-      return t("orders.activity.events.order.delivered")
     default:
       return null
   }
@@ -96,6 +90,9 @@ const getDetail = (event: OrderEvent, t: TFunction): string | null => {
 }
 
 /**
+ * order.canceled, order.shipped and order.delivered are not rendered: core
+ * already shows those rows from `canceled_at` and the fulfillments.
+ *
  * Maps an order event to a timeline item. All dynamic values are rendered as
  * React text (escaped), never as HTML.
  */
