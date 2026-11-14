@@ -10,6 +10,7 @@ import { supplierOfferMiddlewares } from './admin/supplier-offers/middlewares'
 import { supplierMiddlewares } from './admin/suppliers/middlewares'
 import { marketplaceConnectionMiddlewares } from './admin/marketplace-connections/middlewares'
 import { orderHoldMiddlewares } from './admin/orders/middlewares'
+import { orderSearchMiddlewares } from './admin/order-search/middlewares'
 import { guardSalesChannelDelete } from './admin/sales-channels/guard'
 import { reviewMiddlewares } from './store/reviews/middlewares'
 
@@ -44,6 +45,7 @@ export default defineMiddlewares({
     ...profitReportMiddlewares,
     ...marketplaceConnectionMiddlewares,
     ...orderHoldMiddlewares,
+    ...orderSearchMiddlewares,
     {
       method: ['DELETE'],
       matcher: '/admin/sales-channels/:id',
