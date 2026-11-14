@@ -225,17 +225,28 @@ describe("FulfillmentSettingsPage", () => {
       expect(mockStoreUpdate).not.toHaveBeenCalled()
     })
 
-    it("rejects a negative value with an inline error and saves nothing", async () => {
+    it.each(["-5", "0"])(
+      "rejects %s with an inline error and saves nothing",
+      async (value) => {
+        renderPage()
+
+        const input = await screen.findByLabelText(
+          /High-value order alert threshold/i
+        )
+        fireEvent.change(input, { target: { value } })
+        fireEvent.blur(input)
+
+        expect(await screen.findByText(/greater than zero/i)).toBeInTheDocument()
+        expect(mockStoreUpdate).not.toHaveBeenCalled()
+      }
+    )
+
+    it("describes the threshold as strictly above", async () => {
       renderPage()
 
-      const input = await screen.findByLabelText(
-        /High-value order alert threshold/i
-      )
-      fireEvent.change(input, { target: { value: "-5" } })
-      fireEvent.blur(input)
-
-      expect(await screen.findByText(/zero or more/i)).toBeInTheDocument()
-      expect(mockStoreUpdate).not.toHaveBeenCalled()
+      expect(
+        await screen.findByText(/Orders above this total are flagged/i)
+      ).toBeInTheDocument()
     })
   })
 })

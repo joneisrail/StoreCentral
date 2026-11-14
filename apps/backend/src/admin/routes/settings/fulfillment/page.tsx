@@ -120,8 +120,8 @@ const FulfillmentSettingsPage = () => {
 
     const threshold = Number(rawValue)
 
-    if (!Number.isFinite(threshold) || threshold < 0) {
-      setThresholdError("Enter a number that is zero or more.")
+    if (!Number.isFinite(threshold) || threshold <= 0) {
+      setThresholdError("Enter a number greater than zero.")
       return
     }
 
@@ -173,7 +173,7 @@ const FulfillmentSettingsPage = () => {
       <div>
         <Heading level="h2">High-value order alerts</Heading>
         <Text size="small">
-          Orders at or above this total are flagged as high value. Leave blank
+          Orders above this total are flagged as high value. Leave blank
           to use the default of 500.
         </Text>
 
@@ -185,7 +185,8 @@ const FulfillmentSettingsPage = () => {
             <Input
               id="high-value-threshold"
               type="number"
-              min={0}
+              min={0.01}
+              step="any"
               key={String(highValueThreshold ?? "")}
               defaultValue={highValueThreshold ?? ""}
               aria-invalid={thresholdError ? true : undefined}
