@@ -1322,7 +1322,7 @@
     },
     "shipping": {
       "voidLabel": "Void label",
-      "voidWarning": "The carrier will be asked for a refund. The order returns to Ready to Ship.",
+      "voidWarning": "The carrier will be asked for a refund and the label is cancelled. The order goes back to its queue (Ready to Ship once paid).",
       "voidSuccess": "Label voided. Refund requested from the carrier.",
       "markShipped": "Mark shipped",
       "markShippedTitle": "Mark order {{id}} shipped",

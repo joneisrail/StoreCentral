@@ -11,11 +11,24 @@ type MarkShippedModalProps = {
   onOpenChange: (open: boolean) => void
 }
 
-const todayValue = () => {
-  const d = new Date()
+const dateValue = (d: Date) => {
   const pad = (n: number) => String(n).padStart(2, "0")
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 }
+
+const todayValue = () => dateValue(new Date())
+
+// One day of slack for timezones; anything later is a future ship date.
+const maxDateValue = () => {
+  const d = new Date()
+  d.setDate(d.getDate() + 1)
+  return dateValue(d)
+}
+
+const isValidShipDate = (value: string) =>
+  /^\d{4}-\d{2}-\d{2}$/.test(value) &&
+  !Number.isNaN(new Date(`${value}T12:00:00`).getTime()) &&
+  value <= maxDateValue()
 
 /**
  * Records a shipment made outside the app (the user's own carrier and
@@ -40,6 +53,7 @@ export const MarkShippedModal = ({
   const canSubmit =
     carrier.trim().length > 0 &&
     trackingNumber.trim().length > 0 &&
+    isValidShipDate(shipDate) &&
     !isSubmitting
 
   const reset = () => {
@@ -155,6 +169,8 @@ export const MarkShippedModal = ({
               <Input
                 id="ms-date"
                 type="date"
+                max={maxDateValue()}
+                aria-invalid={!isValidShipDate(shipDate)}
                 value={shipDate}
                 onChange={(e) => setShipDate(e.target.value)}
               />

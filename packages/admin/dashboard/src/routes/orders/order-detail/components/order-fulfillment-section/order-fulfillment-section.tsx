@@ -1,4 +1,4 @@
-import { ArrowUturnLeft, Buildings, XCircle } from "@medusajs/icons"
+import { Buildings, XCircle } from "@medusajs/icons"
 import { AdminOrder, AdminOrderLineItem } from "@medusajs/types"
 import {
   Button,
@@ -25,8 +25,6 @@ import {
   useCancelOrderFulfillment,
   useMarkOrderFulfillmentAsDelivered,
 } from "../../../../../hooks/api/orders"
-import { useVoidOrderLabel } from "../../../../../hooks/api/order-shipping"
-import { hasVoidableLabel } from "../../../order-list/components/order-list-table/components/void-label"
 import { useStockLocation } from "../../../../../hooks/api/stock-locations"
 import { formatProvider } from "../../../../../lib/format-provider"
 import { getLocaleAmount } from "../../../../../lib/money-amount-helpers"
@@ -250,8 +248,6 @@ const Fulfillment = ({
   }
 
   const { mutateAsync } = useCancelOrderFulfillment(order.id, fulfillment.id)
-  const { mutateAsync: voidLabel } = useVoidOrderLabel()
-  const canVoidLabel = hasVoidableLabel([fulfillment as any])
   const { mutateAsync: markAsDelivered } = useMarkOrderFulfillmentAsDelivered(
     order.id,
     fulfillment.id
@@ -326,26 +322,6 @@ const Fulfillment = ({
     }
   }
 
-  const handleVoidLabel = async () => {
-    const res = await prompt({
-      title: t("general.areYouSure"),
-      description: t("orders.shipping.voidWarning"),
-      confirmText: t("actions.continue"),
-      cancelText: t("actions.cancel"),
-    })
-
-    if (!res) {
-      return
-    }
-
-    try {
-      await voidLabel({ id: order.id })
-      toast.success(t("orders.shipping.voidSuccess"))
-    } catch (e) {
-      toast.error((e as Error).message)
-    }
-  }
-
   const isValidUrl = (url?: string) => {
     if (!url || url.length === 0 || url === "#") {
       return false
@@ -381,15 +357,6 @@ const Fulfillment = ({
             groups={[
               {
                 actions: [
-                  ...(canVoidLabel
-                    ? [
-                        {
-                          label: t("orders.shipping.voidLabel"),
-                          icon: <ArrowUturnLeft />,
-                          onClick: handleVoidLabel,
-                        },
-                      ]
-                    : []),
                   {
                     label: t("actions.cancel"),
                     icon: <XCircle />,

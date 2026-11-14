@@ -7,16 +7,18 @@ export type RowActionsFulfillment = {
 }
 
 /**
- * A label can be voided while some live (non-canceled) fulfillment carries
- * a bought EasyPost label and has neither shipped nor been delivered.
+ * Mirrors the backend's whole-order void rule: nothing may be voided once any
+ * live (non-canceled) fulfillment has shipped or been delivered; otherwise a
+ * void is possible when a live fulfillment carries a bought EasyPost label.
  */
 export const hasVoidableLabel = (
   fulfillments?: RowActionsFulfillment[] | null
-): boolean =>
-  (fulfillments ?? []).some(
-    (f) =>
-      !f.canceled_at &&
-      !f.shipped_at &&
-      !f.delivered_at &&
-      !!f.data?.easypost_shipment_id
-  )
+): boolean => {
+  const live = (fulfillments ?? []).filter((f) => !f.canceled_at)
+
+  if (live.some((f) => f.shipped_at || f.delivered_at)) {
+    return false
+  }
+
+  return live.some((f) => !!f.data?.easypost_shipment_id)
+}

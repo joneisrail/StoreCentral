@@ -152,6 +152,20 @@ describe("MarkShippedModal", () => {
     expect(payload.shipped_at).toMatch(/Z$/)
   })
 
+  it("keeps Confirm disabled for an invalid or far-future ship date", async () => {
+    setup()
+    await fill("UPS", "1Z")
+    const date = screen.getByLabelText("orders.shipping.shipDate")
+    expect(confirm().disabled).toBe(false)
+    await userEvent.clear(date)
+    expect(confirm().disabled).toBe(true)
+    await userEvent.type(date, "2999-01-01")
+    expect(confirm().disabled).toBe(true)
+    await userEvent.clear(date)
+    await userEvent.type(date, "2020-03-04")
+    expect(confirm().disabled).toBe(false)
+  })
+
   it("shows the server message and stays open on failure", async () => {
     mutateAsync.mockRejectedValue(new Error("Order is on hold"))
     const { onOpenChange } = setup()
@@ -163,7 +177,7 @@ describe("MarkShippedModal", () => {
     expect(onOpenChange).not.toHaveBeenCalledWith(false)
   })
 
-  it("does not double submit", async () => {
+  it("ignores a second confirm while the first submit is pending", async () => {
     let resolve: (v: unknown) => void = () => {}
     mutateAsync.mockReturnValue(new Promise((r) => (resolve = r)))
     setup()

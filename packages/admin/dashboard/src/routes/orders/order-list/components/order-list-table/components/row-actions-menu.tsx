@@ -98,7 +98,7 @@ export const RowActionsMenu = ({
   const handleVoid = async () => {
     const ok = await prompt({
       title: t("general.areYouSure"),
-      description: t("orders.shipping.voidWarning", { id }),
+      description: t("orders.shipping.voidWarning"),
       confirmText: t("actions.continue"),
       cancelText: t("actions.cancel"),
     })
