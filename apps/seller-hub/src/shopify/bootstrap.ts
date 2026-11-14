@@ -2,10 +2,8 @@ import type { Redis as IORedis } from "ioredis"
 import type { Pool } from "pg"
 import type { MedusaAdminClient } from "../medusa/admin-client.js"
 import { createSyncQueue, createSyncWorker } from "../queue/queues.js"
-import {
-  processTrackingJob,
-  pushTrackingNotYetImplemented,
-} from "../sync/tracking/processor.js"
+import { processTrackingJob } from "../sync/tracking/processor.js"
+import { createShopifyTrackingPush } from "../sync/tracking/shopify-push.js"
 import type { TrackingJobData, TrackingPush } from "../sync/tracking/types.js"
 import {
   reconcileShopify,
@@ -44,7 +42,7 @@ export type StartShopifyDeps = {
   createWorker?: typeof createSyncWorker
   fetchImpl?: typeof fetch
   sleep?: (ms: number) => Promise<void>
-  /** Pushes shipment tracking to the channel; defaults to a no-op until implemented. */
+  /** Pushes shipment tracking to the channel; defaults to the Shopify fulfillment push. */
   trackingPush?: TrackingPush
   /** When set, orders are attributed to this sales channel without a name lookup. */
   salesChannelId?: string | null
@@ -234,7 +232,7 @@ export const startShopify = async (
         medusaClient,
         integrationAccountId,
         marketplace: "shopify",
-        push: deps.trackingPush ?? pushTrackingNotYetImplemented("shopify"),
+        push: deps.trackingPush ?? createShopifyTrackingPush(shopifyClient),
       })
       console.log(`[seller-hub] shopify-tracking-sync: ${result.status}`)
     }

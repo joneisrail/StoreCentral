@@ -170,7 +170,27 @@ test("legacy start uses the unsuffixed tracking queue name", async () => {
   expect(queues.map((q) => q.name)).toContain("shopify-tracking-sync")
 })
 
-test("the tracking worker runs processTrackingJob with the injected push, defaulting to a skipping no-op", async () => {
+test("the tracking worker defaults to the real Shopify push (not the no-op)", async () => {
+  const { deps, workers } = setup({ accountId: "acct-9" })
+  await startShopify(deps)
+  await workers["shopify-tracking-sync-acct-9"].processor({
+    name: "shipment.created",
+    data: { fulfillmentId: "f", orderId: "o", noNotification: false },
+  })
+  const passed = mocks.processTracking.mock.calls[0]![1].push
+  expect(typeof passed).toBe("function")
+  // The no-op logs and skips; the real push rejects an unusable order id first.
+  await expect(
+    passed({
+      order: { id: "o", metadata: {}, items: [], fulfillments: [] },
+      fulfillment: { id: "f", canceledAt: null, items: [], labels: [{ trackingNumber: "1", trackingUrl: null }], carrier: null },
+      externalOrderId: "not-an-id",
+      noNotification: false,
+    })
+  ).rejects.toThrow()
+})
+
+test("the tracking worker runs processTrackingJob with the injected push", async () => {
   const push = vi.fn(async () => "pushed" as const)
   const { deps, workers } = setup({ accountId: "acct-9", trackingPush: push })
   await startShopify(deps)
