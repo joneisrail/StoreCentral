@@ -125,11 +125,17 @@ const buildContainer = ({
   container.register(
     ContainerRegistrationKeys.QUERY,
     asFunction(() => ({
-      graph: async ({ entity, filters }: any) => {
+      graph: async ({ entity, filters, fields }: any) => {
         switch (entity) {
           case "order": {
             const order = orders[filters.id]
-            return { data: order ? [order] : [] }
+            // Like the real query: tags only come back when requested.
+            const { tags, ...rest } = order ?? ({} as OrderFixture)
+            return {
+              data: order
+                ? [fields.includes("tags.value") ? order : rest]
+                : [],
+            }
           }
           case "shipping_option":
             return {

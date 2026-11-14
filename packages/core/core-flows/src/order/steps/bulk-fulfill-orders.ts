@@ -166,6 +166,7 @@ async function validateOrderIsFulfillable(
     fields: [
       "id",
       "status",
+      "tags.value",
       "items.id",
       "items.title",
       "items.quantity",

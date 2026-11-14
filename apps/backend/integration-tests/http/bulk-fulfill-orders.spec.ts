@@ -241,6 +241,52 @@ medusaIntegrationTestRunner({
         expect(afterB.fulfillments ?? []).toHaveLength(0)
       })
 
+      it("fails a held order without buying a label and still fulfills the rest of the batch", async () => {
+        const fake = mockEasyPost()
+        fake.quote("shp_ok")
+        fake.quote("shp_held")
+
+        const seederOk = await createFulfillableOrder()
+        const seederHeld = await createFulfillableOrder()
+
+        const hold = await api.post(
+          `/admin/orders/${seederHeld.order.id}/hold`,
+          { reason: "Check address" },
+          adminHeaders
+        )
+        expect(hold.status).toEqual(200)
+
+        const response = await api.post(
+          "/admin/orders/fulfillments/batch",
+          {
+            fulfillments: [
+              {
+                order_id: seederHeld.order.id,
+                location_id: seederHeld.stockLocation.id,
+                shipment_id: "shp_held",
+                rate_id: "rate_held",
+              },
+              {
+                order_id: seederOk.order.id,
+                location_id: seederOk.stockLocation.id,
+                shipment_id: "shp_ok",
+                rate_id: "rate_ok",
+              },
+            ],
+          },
+          adminHeaders
+        )
+
+        expect(response.status).toEqual(200)
+        expect(response.data.succeeded).toEqual([seederOk.order.id])
+        expect(response.data.failed).toHaveLength(1)
+        expect(response.data.failed[0].order_id).toEqual(seederHeld.order.id)
+        expect(response.data.failed[0].error).toMatch(/on hold/i)
+        expect(response.data.failed[0].easypost_shipment_id).toBeUndefined()
+        expect(fake.client.buyShipment).toHaveBeenCalledTimes(1)
+        expect(fake.shipments.get("shp_held")!.purchased).toBe(false)
+      })
+
       it("never buys a label when the chosen Ship From location doesn't stock the order's items", async () => {
         const fake = mockEasyPost()
         fake.quote("shp_unstocked")
