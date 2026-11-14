@@ -14,7 +14,7 @@ import {
 } from "./order-query-keys"
 import { ordersQueryKeys } from "./orders"
 
-const HELD_IDS_LIMIT = 500
+const HELD_IDS_LIMIT = 200
 
 export const useHoldTag = (): {
   tagId: string | null
@@ -35,7 +35,7 @@ export const useHoldTag = (): {
  * Ids of the held (tagged, non-canceled) orders, used to exclude them from
  * the Ready to Ship / Awaiting Payment views.
  *
- * Only the first `HELD_IDS_LIMIT` (500) ids are fetched. If the tag matches
+ * Only the first `HELD_IDS_LIMIT` (200, keeping the id query string around 8 KB, under Node's header limit) ids are fetched. If the tag matches
  * more orders than that the exclusion would be incomplete, so `isError` is
  * reported (and callers must not list or count those views) rather than
  * silently showing held orders.

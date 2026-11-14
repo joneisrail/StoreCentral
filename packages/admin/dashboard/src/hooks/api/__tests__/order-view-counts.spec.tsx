@@ -52,7 +52,7 @@ describe("useOrderViewCounts", () => {
       if (q.status === "canceled") {
         throw new Error("boom")
       }
-      if (q.tag_id === "tag_1" && q.limit === 500) {
+      if (q.tag_id === "tag_1" && q.limit === 200) {
         return { orders: [{ id: "o1" }], count: 1 }
       }
       if (q.tag_id === "tag_1") {
@@ -118,7 +118,7 @@ describe("exclusion lookup failures", () => {
       order_tags: [{ id: "tag_1", value: "On hold" }],
     })
     mockList.mockImplementation(async (q: any) => {
-      if (q.tag_id === "tag_1" && q.limit === 500) {
+      if (q.tag_id === "tag_1" && q.limit === 200) {
         throw new Error("held boom")
       }
       return { orders: [], count: 2 }
@@ -144,11 +144,11 @@ describe("useHeldOrderIds", () => {
     expect(result.current.ids).toEqual([])
   })
 
-  it("reports isError when more orders are held than the 500 fetched ids", async () => {
+  it("reports isError when more orders are held than the 200 fetched ids", async () => {
     mockTagList.mockResolvedValue({
       order_tags: [{ id: "tag_1", value: "On hold" }],
     })
-    mockList.mockResolvedValue({ orders: [{ id: "o1" }], count: 501 })
+    mockList.mockResolvedValue({ orders: [{ id: "o1" }], count: 201 })
 
     const { result } = renderHook(() => useHeldOrderIds(), { wrapper })
 
