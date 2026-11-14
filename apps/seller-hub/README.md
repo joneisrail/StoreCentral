@@ -169,6 +169,53 @@ stock management for each linked product.
   into Medusa (webhook or drift check), during which Medusa's stock has not yet
   been decremented.
 
+## Shipment tracking (`shipment.created`)
+
+When a shipment is created in Medusa, the backend's `seller-hub-sync`
+subscriber forwards `shipment.created` (`{ id, order_id, no_notification }`) to
+`POST /webhooks/medusa`. seller-hub enqueues one tracking job per live
+Shopify/WooCommerce connection (job id `tracking-<fulfillment>-<connection>`).
+Each connection's worker loads the order from Medusa and pushes only if the
+order's account metadata (`shopify_account_id`, `woocommerce_account_id`)
+names that connection; every other connection settles the job as skipped
+without calling anything. A cancelled fulfillment, or one with no tracking
+number, pushes nothing. Pushes are idempotent: the `sync_job` row per
+connection and fulfillment makes a replayed webhook a no-op, and the push
+itself checks the channel (an existing Shopify fulfillment with that tracking
+number, an existing WooCommerce `Tracking number: <n>` note) before writing.
+
+- **Shopify** creates a fulfillment (with carrier, tracking number and URL) on
+  the order's open fulfillment orders; a partial shipment fulfils only the
+  matching SKUs and quantities. `no_notification` suppresses the customer
+  email.
+- **WooCommerce** adds an order note (customer-visible unless
+  `no_notification`) and, when the shipment covers the whole order, sets the
+  order to `completed`. `no_notification` only suppresses the note email:
+  completing the order also fires WooCommerce's own "Order completed" customer
+  email. Two partial shipments that together cover the order never complete
+  the WooCommerce order, because each shipment is judged on its own.
+- **Amazon** shipment confirmation (`src/sp-api/confirm-shipment.ts`, SP-API
+  `POST /orders/v0/orders/{id}/shipmentConfirmation`) is built but OFF: there
+  is no Amazon runtime yet, so Amazon tracking jobs are never enqueued and an
+  Amazon-owned order is ignored. Its field names are unverified against
+  Amazon; check them before enabling it once Amazon is live.
+- **Shopify app scopes.** The custom app must be able to read fulfillment
+  orders and create fulfillments: grant `read_merchant_managed_fulfillment_orders`
+  and `write_merchant_managed_fulfillment_orders` (or the
+  `*_assigned_fulfillment_orders` / `*_third_party_fulfillment_orders` variants
+  if the shop's orders are assigned to the app or to a third-party location),
+  in addition to the order scopes above.
+
+Limits of this slice:
+
+- Orders imported before the multi-connection release carry no account
+  metadata and are not pushed.
+- There is no catch-up: if seller-hub is down when a shipment is created, that
+  push is dropped and is not retried later.
+- Retries use the queue's normal retry policy; a permanent failure (for
+  example a rejected tracking number) is recorded on the `sync_job` row with a
+  generic message and is not retried.
+
 ## Managing connections from the admin
 
 Several Shopify and WooCommerce stores (and one or more Amazon accounts) can be
