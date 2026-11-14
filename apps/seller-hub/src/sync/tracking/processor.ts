@@ -21,18 +21,6 @@ export type TrackingProcessorDeps = {
 
 export type TrackingJobResult = { status: "pushed" | "skipped" | "recovered" }
 
-/**
- * Default `push` until a marketplace implementation is wired in: reports
- * "skipped" so the job settles without contacting the channel. Logs the
- * marketplace only.
- */
-export const pushTrackingNotYetImplemented =
-  (marketplace: string): TrackingPush =>
-  async () => {
-    console.log(`[tracking] no tracking push implemented for ${marketplace}; skipping`)
-    return "skipped"
-  }
-
 type Claim =
   | { kind: "claimed"; syncJobId: string; attempts: number }
   | { kind: "already_succeeded" }
