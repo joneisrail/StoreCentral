@@ -1,5 +1,5 @@
 import { PermanentSyncError } from "../../queue/queues.js"
-import type { WooCommerceClient } from "../../woocommerce/client.js"
+import { WooCommerceHttpError, type WooCommerceClient } from "../../woocommerce/client.js"
 import { coversWholeOrder } from "./coverage.js"
 import type { TrackingPush } from "./types.js"
 
@@ -14,9 +14,10 @@ type WooNote = { note?: string }
 const clean = (value: string): string =>
   value.replace(/[<>\r\n]+/g, " ").replace(/\s+/g, " ").trim()
 
-/** The client reports status only in its message ("... with status 404"). */
 const isNotFound = (err: unknown): boolean =>
-  err instanceof PermanentSyncError && /with status 404$/.test(err.message)
+  err instanceof WooCommerceHttpError && err.status === 404
+
+const escapeRegExp = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 
 /**
  * Pushes a Medusa shipment's tracking to WooCommerce as an order note
@@ -46,13 +47,17 @@ export const createWooCommerceTrackingPush =
     const status = wooOrder?.status ?? ""
     if (DEAD_STATUSES.has(status)) return "skipped"
 
+    // Exactly the phrase this code writes, not any note that mentions the number.
+    const notePattern = new RegExp(
+      `Tracking number: ${escapeRegExp(trackingNumber)}(?![A-Za-z0-9])`
+    )
     // Idempotency: a retry after a lost success record must not duplicate.
     let noteExists = false
     for (let page = 1; page <= MAX_NOTE_PAGES && !noteExists; page++) {
       const res = await client.request<WooNote[]>("GET", `/orders/${id}/notes`, {
         query: { per_page: 100, page },
       })
-      noteExists = (res.data ?? []).some((n) => (n.note ?? "").includes(trackingNumber))
+      noteExists = (res.data ?? []).some((n) => notePattern.test(n.note ?? ""))
       if (page >= res.totalPages) break
     }
 

@@ -1,6 +1,6 @@
 import { expect, test, vi } from "vitest"
 import { PermanentSyncError } from "../queue/queues.js"
-import { WooCommerceClient } from "./client.js"
+import { WooCommerceClient, WooCommerceHttpError } from "./client.js"
 
 const ok = (body: unknown, headers: Record<string, string> = {}) => ({
   ok: true,
@@ -75,6 +75,8 @@ test.each([401, 403, 404])(
     expect(err.message).not.toContain("ck_key123")
     expect(err.message).not.toContain("cs_secret456")
     expect(err.message).toContain(String(status))
+    expect(err).toBeInstanceOf(WooCommerceHttpError)
+    expect(err.status).toBe(status)
   }
 )
 

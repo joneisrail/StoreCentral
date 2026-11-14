@@ -1,6 +1,6 @@
 import { afterEach, expect, test, vi } from "vitest"
 import { PermanentSyncError } from "../../queue/queues.js"
-import type { WooCommerceClient } from "../../woocommerce/client.js"
+import { WooCommerceHttpError, type WooCommerceClient } from "../../woocommerce/client.js"
 import { createWooCommerceTrackingPush } from "./woocommerce-push.js"
 import type { TrackingOrder } from "./types.js"
 
@@ -102,7 +102,7 @@ test("customer_note false when noNotification", async () => {
 })
 
 test("existing note containing the tracking number is not duplicated", async () => {
-  const { calls, push } = setup({ notes: [{ note: `Shipped. ${NUMBER}` }] })
+  const { calls, push } = setup({ notes: [{ note: `Shipped via X. Tracking number: ${NUMBER}` }] })
   expect(await run(push)).toBe("pushed")
   expect(calls.some((c) => c.method === "POST")).toBe(false)
   expect(writes(calls)).toEqual([
@@ -111,7 +111,7 @@ test("existing note containing the tracking number is not duplicated", async () 
 })
 
 test("already completed order with existing note => skipped and no writes", async () => {
-  const { calls, push } = setup({ status: "completed", notes: [{ note: NUMBER }] })
+  const { calls, push } = setup({ status: "completed", notes: [{ note: `Tracking number: ${NUMBER}` }] })
   expect(await run(push)).toBe("skipped")
   expect(writes(calls)).toEqual([])
 })
@@ -136,7 +136,7 @@ test("404 on the order => skipped", async () => {
   const { calls, push } = setup({
     failOn: (m, p) =>
       m === "GET" && p === "/orders/123"
-        ? new PermanentSyncError("WooCommerce request failed with status 404")
+        ? new WooCommerceHttpError("WooCommerce request failed with status 404", 404)
         : undefined,
   })
   expect(await run(push)).toBe("skipped")
@@ -145,7 +145,7 @@ test("404 on the order => skipped", async () => {
 
 test("other 4xx on the order stays permanent", async () => {
   const { push } = setup({
-    failOn: () => new PermanentSyncError("WooCommerce request failed with status 401"),
+    failOn: () => new WooCommerceHttpError("WooCommerce request failed with status 401", 401),
   })
   await expect(run(push)).rejects.toBeInstanceOf(PermanentSyncError)
 })
@@ -157,7 +157,7 @@ test("partial shipment adds the note but does not complete the order", async () 
 })
 
 test("partial shipment with the note already present is skipped", async () => {
-  const { calls, push } = setup({ notes: [{ note: NUMBER }] })
+  const { calls, push } = setup({ notes: [{ note: `Tracking number: ${NUMBER}` }] })
   expect(await run(push, fulfillment([{ lineItemId: "li_a", quantity: 2 }]))).toBe("skipped")
   expect(writes(calls)).toEqual([])
 })
@@ -240,4 +240,26 @@ test("secrets/tracking never appear in thrown messages or logs", async () => {
     errs.map((e) => String((e as Error).message)).join("|") +
     JSON.stringify(logs.map((l) => l.mock.calls))
   for (const secret of [NUMBER, URL_, COMPANY]) expect(text).not.toContain(secret)
+})
+
+test("a note that merely mentions the number does not count as the tracking note", async () => {
+  const { calls, push } = setup({ notes: [{ note: `Customer called about ${NUMBER}` }] })
+  expect(await run(push)).toBe("pushed")
+  expect(calls.some((c) => c.method === "POST" && c.path === "/orders/123/notes")).toBe(true)
+})
+
+test("a note for a longer number sharing this prefix does not count", async () => {
+  const { calls, push } = setup({ notes: [{ note: `Tracking number: ${NUMBER}99` }] })
+  expect(await run(push)).toBe("pushed")
+  expect(calls.some((c) => c.method === "POST" && c.path === "/orders/123/notes")).toBe(true)
+})
+
+test("a non-WooCommerceHttpError PermanentSyncError with 404 wording is not treated as not-found", async () => {
+  const { push } = setup({
+    failOn: (m, p) =>
+      m === "GET" && p === "/orders/123"
+        ? new PermanentSyncError("WooCommerce request failed with status 404")
+        : undefined,
+  })
+  await expect(run(push)).rejects.toBeInstanceOf(PermanentSyncError)
 })

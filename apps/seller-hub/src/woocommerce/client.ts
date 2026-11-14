@@ -15,6 +15,17 @@ const MAX_ATTEMPTS = 5
 const DEFAULT_THROTTLE_WAIT_MS = 1000
 const MAX_THROTTLE_WAIT_MS = 30_000
 
+/** A permanent (4xx) WooCommerce HTTP failure; `status` is machine-readable. */
+export class WooCommerceHttpError extends PermanentSyncError {
+  constructor(
+    message: string,
+    readonly status: number
+  ) {
+    super(message)
+    // `name` stays "PermanentSyncError": the worker keys on it to stop retries.
+  }
+}
+
 const defaultSleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms))
 
@@ -85,7 +96,7 @@ export class WooCommerceClient {
       if (response.status !== 429) {
         const detail = `WooCommerce request failed with status ${response.status}`
         if (response.status >= 400 && response.status < 500) {
-          throw new PermanentSyncError(detail)
+          throw new WooCommerceHttpError(detail, response.status)
         }
         throw new Error(detail)
       }

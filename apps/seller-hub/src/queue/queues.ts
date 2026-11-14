@@ -51,7 +51,8 @@ export class PermanentSyncError extends Error {
   constructor(message: string) {
     super(message)
     this.name = "PermanentSyncError"
-    Object.setPrototypeOf(this, PermanentSyncError.prototype)
+    // new.target keeps subclasses (e.g. WooCommerceHttpError) recognisable.
+    Object.setPrototypeOf(this, new.target.prototype)
   }
 }
 
