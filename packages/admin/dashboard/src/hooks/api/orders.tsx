@@ -226,6 +226,8 @@ export const useCreateOrderFulfillment = (
         queryKey: ordersQueryKeys.all,
       })
 
+      queryClient.invalidateQueries({ queryKey: [ORDER_VIEW_COUNTS_QUERY_KEY] })
+
       queryClient.invalidateQueries({
         queryKey: ordersQueryKeys.preview(orderId),
       })
@@ -323,6 +325,8 @@ export const useBulkFulfillOrders = (
         queryKey: ordersQueryKeys.all,
       })
 
+      queryClient.invalidateQueries({ queryKey: [ORDER_VIEW_COUNTS_QUERY_KEY] })
+
       queryClient.invalidateQueries({
         queryKey: reservationItemsQueryKeys.lists(),
       })
@@ -354,6 +358,8 @@ export const useCancelOrderFulfillment = (
       queryClient.invalidateQueries({
         queryKey: ordersQueryKeys.all,
       })
+
+      queryClient.invalidateQueries({ queryKey: [ORDER_VIEW_COUNTS_QUERY_KEY] })
 
       queryClient.invalidateQueries({
         queryKey: ordersQueryKeys.preview(orderId),
@@ -390,6 +396,8 @@ export const useCreateOrderShipment = (
         queryKey: ordersQueryKeys.all,
       })
 
+      queryClient.invalidateQueries({ queryKey: [ORDER_VIEW_COUNTS_QUERY_KEY] })
+
       queryClient.invalidateQueries({
         queryKey: ordersQueryKeys.preview(orderId),
       })
@@ -416,6 +424,8 @@ export const useMarkOrderFulfillmentAsDelivered = (
       queryClient.invalidateQueries({
         queryKey: ordersQueryKeys.all,
       })
+
+      queryClient.invalidateQueries({ queryKey: [ORDER_VIEW_COUNTS_QUERY_KEY] })
 
       queryClient.invalidateQueries({
         queryKey: ordersQueryKeys.preview(orderId),
