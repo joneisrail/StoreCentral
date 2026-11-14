@@ -16,8 +16,6 @@ import { ordersQueryKeys } from "./orders"
 
 const HELD_IDS_LIMIT = 500
 
-export { HOLD_TAG_VALUE, ORDER_VIEW_COUNTS_QUERY_KEY, orderHeldIdsQueryKeys }
-
 export const useHoldTag = (): {
   tagId: string | null
   isLoading: boolean

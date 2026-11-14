@@ -171,7 +171,9 @@ describe("OrderListTable view/tab wiring", () => {
 
     expect(screen.getByText(READY_TO_SHIP_MESSAGE)).toBeTruthy()
 
-    await user.click(screen.getByRole("tab", { name: /orders\.list\.tabs\.all/ }))
+    await user.click(
+      screen.getByRole("tab", { name: /orders\.list\.tabs\.all/ })
+    )
 
     expect(router.state.location.search).toBe("")
     expect(screen.getByText(ALL_MESSAGE)).toBeTruthy()

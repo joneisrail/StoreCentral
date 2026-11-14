@@ -25,7 +25,10 @@ import {
   useBulkFulfillOrders,
   useOrders,
 } from "../../../../../../hooks/api/orders"
-import { useHeldOrderIds, useHoldTag } from "../../../../../../hooks/api/order-holds"
+import {
+  useHeldOrderIds,
+  useHoldTag,
+} from "../../../../../../hooks/api/order-holds"
 import { useStore } from "../../../../../../hooks/api/store"
 import { useDataTable } from "../../../../../../hooks/use-data-table"
 import { getStylizedAmount } from "../../../../../../lib/money-amount-helpers"
@@ -417,7 +420,10 @@ const useReadyToShipTableColumns = (
   rowLocationOverride: Record<string, string>,
   setRowLocationOverride: (orderId: string, locationId: string) => void,
   rowRates: Record<string, { shipmentId: string; rateId: string }>,
-  setRowRate: (orderId: string, rate: { shipmentId: string; rateId: string }) => void,
+  setRowRate: (
+    orderId: string,
+    rate: { shipmentId: string; rateId: string }
+  ) => void,
   rowSendEmail: Record<string, boolean>,
   setRowSendEmail: (orderId: string, sendEmail: boolean) => void,
   highValueThreshold: number
@@ -854,9 +860,9 @@ export const ReadyToShipTable = () => {
   // Read by the `shipping_rate` column's cell to re-quote carrier rates
   // against the chosen package (falling back to the order's computed
   // parcel for a row with no confirmed package yet).
-  const [rowPackages, setRowPackages] = useState<Record<string, PackageSelection>>(
-    {}
-  )
+  const [rowPackages, setRowPackages] = useState<
+    Record<string, PackageSelection>
+  >({})
 
   // A "latest" ref so `setRowPackage` below can read the row's *previous*
   // package without needing `rowPackages` itself in its own dependency
@@ -918,7 +924,10 @@ export const ReadyToShipTable = () => {
 
   const setRowLocationOverride = useCallback(
     (orderId: string, locationId: string) => {
-      setRowLocationOverrideState((prev) => ({ ...prev, [orderId]: locationId }))
+      setRowLocationOverrideState((prev) => ({
+        ...prev,
+        [orderId]: locationId,
+      }))
       clearRowRate(orderId)
     },
     [clearRowRate]
@@ -955,11 +964,7 @@ export const ReadyToShipTable = () => {
   // fetch until the hold tag and held ids resolve, and errors if either
   // lookup failed (or the held set was truncated) rather than list held
   // orders.
-  const {
-    tagId,
-    isLoading: tagLoading,
-    isError: tagError,
-  } = useHoldTag()
+  const { tagId, isLoading: tagLoading, isError: tagError } = useHoldTag()
   const {
     ids: heldIds,
     isLoading: heldLoading,

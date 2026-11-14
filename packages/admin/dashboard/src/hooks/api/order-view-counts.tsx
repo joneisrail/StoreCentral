@@ -5,11 +5,8 @@ import {
   ORDER_VIEW_ORDER,
   OrderListView,
 } from "../../routes/orders/order-list/order-views"
-import {
-  ORDER_VIEW_COUNTS_QUERY_KEY,
-  useHeldOrderIds,
-  useHoldTag,
-} from "./order-holds"
+import { ORDER_VIEW_COUNTS_QUERY_KEY } from "./order-query-keys"
+import { useHeldOrderIds, useHoldTag } from "./order-holds"
 
 const COUNTS_STALE_TIME = 30_000
 
