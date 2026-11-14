@@ -60,6 +60,5 @@ export const useOrderViewCounts = () => {
   return {
     counts,
     isLoading: !ready || results.some((r) => r.isLoading),
-    refetch: () => Promise.all(results.map((r) => r.refetch())),
   }
 }
