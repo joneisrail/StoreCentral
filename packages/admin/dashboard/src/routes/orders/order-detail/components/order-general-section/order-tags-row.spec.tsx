@@ -53,8 +53,12 @@ describe("OrderTagsRow reserved On hold tag", () => {
       />
     )
 
-    expect(screen.getByText("On hold").parentElement?.querySelector("button")).toBeNull()
-    expect(screen.getByText("gift").parentElement?.querySelector("button")).not.toBeNull()
+    expect(
+      screen.getByText("On hold").parentElement?.querySelector("button")
+    ).toBeNull()
+    expect(
+      screen.getByText("gift").parentElement?.querySelector("button")
+    ).not.toBeNull()
 
     const { getOptions } = mockUseComboboxData.mock.calls[0][0]
     expect(

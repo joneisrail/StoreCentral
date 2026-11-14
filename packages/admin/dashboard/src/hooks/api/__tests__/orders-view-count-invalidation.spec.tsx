@@ -53,7 +53,8 @@ describe("fulfillment mutations refresh the tab counts", () => {
     [
       "useBulkFulfillOrders",
       () => useBulkFulfillOrders(),
-      () => sdkMock.bulkFulfill.mockResolvedValue({ succeeded: [], failed: [] }),
+      () =>
+        sdkMock.bulkFulfill.mockResolvedValue({ succeeded: [], failed: [] }),
     ],
     [
       "useCreateOrderFulfillment",
@@ -77,17 +78,20 @@ describe("fulfillment mutations refresh the tab counts", () => {
     ],
   ]
 
-  it.each(cases)("%s invalidates the view counts", async (_n, hook, arrange) => {
-    arrange()
-    const spy = vi.spyOn(queryClient, "invalidateQueries")
-    const { result } = renderHook(hook, { wrapper })
+  it.each(cases)(
+    "%s invalidates the view counts",
+    async (_n, hook, arrange) => {
+      arrange()
+      const spy = vi.spyOn(queryClient, "invalidateQueries")
+      const { result } = renderHook(hook, { wrapper })
 
-    await act(async () => {
-      await result.current.mutateAsync({ fulfillments: [], items: [] } as any)
-    })
+      await act(async () => {
+        await result.current.mutateAsync({ fulfillments: [], items: [] } as any)
+      })
 
-    expect(invalidatedKeys(spy)).toContain(
-      JSON.stringify([ORDER_VIEW_COUNTS_QUERY_KEY])
-    )
-  })
+      expect(invalidatedKeys(spy)).toContain(
+        JSON.stringify([ORDER_VIEW_COUNTS_QUERY_KEY])
+      )
+    }
+  )
 })

@@ -8,6 +8,7 @@ import {
 } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { TooltipProvider } from "@medusajs/ui"
+import type { ReactElement } from "react"
 import { MemoryRouter, Route, Routes } from "react-router-dom"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -1892,7 +1893,7 @@ describe("ReadyToShipTable stale selection is never fulfilled", () => {
       error: undefined,
     })
 
-  const rerenderTable = (rerender: (ui: React.ReactElement) => void) =>
+  const rerenderTable = (rerender: (ui: ReactElement) => void) =>
     rerender(
       <MemoryRouter>
         <TooltipProvider>
@@ -1902,7 +1903,10 @@ describe("ReadyToShipTable stale selection is never fulfilled", () => {
     )
 
   it("does not send an order that was held (dropped from the loaded orders) after it was selected", async () => {
-    setOrders([makeReadyToShipOrder("order_1"), makeReadyToShipOrder("order_2")])
+    setOrders([
+      makeReadyToShipOrder("order_1"),
+      makeReadyToShipOrder("order_2"),
+    ])
     setOrderRate("order_1", "shp_1", "rate_1")
     setOrderRate("order_2", "shp_2", "rate_2")
     mockBulkFulfillOrders.mockResolvedValue({ succeeded: [], failed: [] })
@@ -1932,7 +1936,10 @@ describe("ReadyToShipTable stale selection is never fulfilled", () => {
   })
 
   it("does not send a selected order whose id is in the held set even before the list refetches", async () => {
-    setOrders([makeReadyToShipOrder("order_1"), makeReadyToShipOrder("order_2")])
+    setOrders([
+      makeReadyToShipOrder("order_1"),
+      makeReadyToShipOrder("order_2"),
+    ])
     setOrderRate("order_1", "shp_1", "rate_1")
     setOrderRate("order_2", "shp_2", "rate_2")
     mockBulkFulfillOrders.mockResolvedValue({ succeeded: [], failed: [] })
@@ -1982,7 +1989,9 @@ describe("ReadyToShipTable stale selection is never fulfilled", () => {
     await user.click((await screen.findAllByRole("checkbox"))[1])
     await user.click((await screen.findAllByRole("checkbox"))[2])
 
-    await user.click(await screen.findByRole("button", { name: /overdueBanner/ }))
+    await user.click(
+      await screen.findByRole("button", { name: /overdueBanner/ })
+    )
 
     await user.click(
       await screen.findByRole("button", { name: /fulfillSelected/ })

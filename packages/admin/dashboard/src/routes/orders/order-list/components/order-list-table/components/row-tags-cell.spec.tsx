@@ -73,6 +73,8 @@ describe("RowTagsCell", () => {
     expect(chip.querySelector("button")).toBeNull()
     expect(chip.closest("button")).toBeNull()
     expect(chip.getAttribute("data-reserved-tag")).toBe("true")
-    expect(screen.getByText("gift").getAttribute("data-reserved-tag")).toBeNull()
+    expect(
+      screen.getByText("gift").getAttribute("data-reserved-tag")
+    ).toBeNull()
   })
 })

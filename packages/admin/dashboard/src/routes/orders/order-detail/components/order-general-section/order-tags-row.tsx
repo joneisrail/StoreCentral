@@ -123,13 +123,13 @@ export const OrderTagsRow = ({ order }: OrderTagsRowProps) => {
         >
           <span className="truncate">{tag.value}</span>
           {tag.value !== HOLD_TAG_VALUE && (
-          <button
-            type="button"
-            onClick={() => handleRemoveTag(tag.id)}
-            className="shrink-0 text-ui-fg-subtle outline-none transition-fg"
-          >
-            <XMarkMini />
-          </button>
+            <button
+              type="button"
+              onClick={() => handleRemoveTag(tag.id)}
+              className="shrink-0 text-ui-fg-subtle outline-none transition-fg"
+            >
+              <XMarkMini />
+            </button>
           )}
         </Badge>
       ))}
