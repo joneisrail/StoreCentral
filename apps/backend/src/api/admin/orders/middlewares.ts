@@ -12,7 +12,22 @@ export type ReleaseOrderSchema = z.infer<typeof ReleaseOrderSchema>
 export const VoidOrderLabelSchema = z.strictObject({})
 export type VoidOrderLabelSchema = z.infer<typeof VoidOrderLabelSchema>
 
+export const MarkShippedSchema = z.strictObject({
+  carrier: z.string().trim().min(1).max(100),
+  tracking_number: z.string().trim().min(1).max(100),
+  tracking_url: z.url().optional(),
+  shipped_at: z.iso.datetime().optional(),
+  no_notification: z.boolean().optional(),
+  location_id: z.string().optional(),
+})
+export type MarkShippedSchema = z.infer<typeof MarkShippedSchema>
+
 export const orderHoldMiddlewares: MiddlewareRoute[] = [
+  {
+    matcher: "/admin/orders/:id/mark-shipped",
+    method: "POST",
+    middlewares: [validateAndTransformBody(MarkShippedSchema)],
+  },
   {
     matcher: "/admin/orders/:id/void-label",
     method: "POST",
