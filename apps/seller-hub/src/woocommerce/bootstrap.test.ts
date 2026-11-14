@@ -4,10 +4,15 @@ import { beforeEach, expect, test, vi } from "vitest"
 import { startWooCommerce, RECONCILE_WOOCOMMERCE_JOB, type StartWooCommerceDeps } from "./bootstrap.js"
 
 const mocks = vi.hoisted(() => ({
+  processTracking: vi.fn(),
   link: vi.fn(),
   processOrder: vi.fn(),
 }))
 
+vi.mock("../sync/tracking/processor.js", async (orig) => ({
+  ...(await orig<typeof import("../sync/tracking/processor.js")>()),
+  processTrackingJob: mocks.processTracking,
+}))
 vi.mock("./account.js", () => ({
   resolveWooCommerceAccount: vi.fn(async () => ({ id: "acct-1", locationId: "loc" })),
 }))
@@ -45,6 +50,7 @@ const setup = (extra: Partial<StartWooCommerceDeps> = {}) => {
 }
 
 beforeEach(() => {
+  mocks.processTracking.mockReset().mockResolvedValue({ status: "skipped" })
   vi.spyOn(console, "log").mockImplementation(() => {})
   mocks.link.mockReset().mockResolvedValue(linkResult)
   mocks.processOrder.mockReset().mockResolvedValue({ status: "created" })
@@ -55,9 +61,9 @@ test("stop closes every worker and queue, removes the repeatable job, and is ide
   const rt = await startWooCommerce(deps)
   await rt.stop()
   await rt.stop()
-  expect(Object.keys(workers)).toHaveLength(3)
+  expect(Object.keys(workers)).toHaveLength(4)
   for (const w of Object.values(workers)) expect(w.close).toHaveBeenCalledTimes(1)
-  expect(queues).toHaveLength(3)
+  expect(queues).toHaveLength(4)
   for (const q of queues) expect(q.close).toHaveBeenCalledTimes(1)
   const inv = queues.find((q) => q.name === "woocommerce-inventory-sync")
   expect(inv.removeRepeatable).toHaveBeenCalledTimes(1)
@@ -109,6 +115,7 @@ test("queue names include the account id", async () => {
     "woocommerce-inventory-sync-acc-9",
     "woocommerce-order-sync-acc-9",
     "woocommerce-price-sync-acc-9",
+    "woocommerce-tracking-sync-acc-9",
   ])
   expect(Object.keys(workers).sort()).toEqual(queues.map((q) => q.name).sort())
 })
@@ -129,5 +136,38 @@ test("legacy start without accountId keeps the old queue names", async () => {
     "woocommerce-inventory-sync",
     "woocommerce-order-sync",
     "woocommerce-price-sync",
+    "woocommerce-tracking-sync",
   ])
+})
+
+test("tracking queue and worker are created per connection with the account-suffixed name and closed on stop", async () => {
+  const { deps, queues, workers } = setup({ accountId: "acct-9" })
+  const rt = await startWooCommerce(deps)
+  expect(queues.map((q) => q.name)).toContain("woocommerce-tracking-sync-acct-9")
+  expect(workers["woocommerce-tracking-sync-acct-9"]).toBeDefined()
+  expect(rt.webhook.trackingQueue).toBe(queues.find((q) => q.name === "woocommerce-tracking-sync-acct-9"))
+  expect(rt.webhook.integrationAccountId).toBe("acct-9")
+  await rt.stop()
+  expect(workers["woocommerce-tracking-sync-acct-9"].close).toHaveBeenCalledTimes(1)
+  expect(queues.find((q) => q.name === "woocommerce-tracking-sync-acct-9").close).toHaveBeenCalledTimes(1)
+})
+
+test("legacy start uses the unsuffixed tracking queue name", async () => {
+  const { deps, queues } = setup()
+  await startWooCommerce(deps)
+  expect(queues.map((q) => q.name)).toContain("woocommerce-tracking-sync")
+})
+
+test("the tracking worker runs processTrackingJob with the injected push, defaulting to a skipping no-op", async () => {
+  const push = vi.fn(async () => "pushed" as const)
+  const { deps, workers } = setup({ accountId: "acct-9", trackingPush: push })
+  await startWooCommerce(deps)
+  await workers["woocommerce-tracking-sync-acct-9"].processor({
+    name: "shipment.created",
+    data: { fulfillmentId: "f", orderId: "o", noNotification: false },
+  })
+  expect(mocks.processTracking).toHaveBeenCalledWith(
+    { fulfillmentId: "f", orderId: "o", noNotification: false },
+    expect.objectContaining({ integrationAccountId: "acct-9", marketplace: "woocommerce", push })
+  )
 })

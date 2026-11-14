@@ -3,6 +3,11 @@ import type { Pool } from "pg"
 import type { MedusaAdminClient } from "../medusa/admin-client.js"
 import { createSyncQueue, createSyncWorker } from "../queue/queues.js"
 import {
+  processTrackingJob,
+  pushTrackingNotYetImplemented,
+} from "../sync/tracking/processor.js"
+import type { TrackingJobData, TrackingPush } from "../sync/tracking/types.js"
+import {
   reconcileWooCommerce,
   RECONCILE_WOOCOMMERCE_JOB,
 } from "../sync/reconcile-woocommerce.js"
@@ -42,6 +47,8 @@ export type StartWooCommerceDeps = {
   createWorker?: typeof createSyncWorker
   fetchImpl?: typeof fetch
   sleep?: (ms: number) => Promise<void>
+  /** Pushes shipment tracking to the channel; defaults to a no-op until implemented. */
+  trackingPush?: TrackingPush
   /** When set, orders are attributed to this sales channel without a name lookup. */
   salesChannelId?: string | null
   /**
@@ -135,8 +142,9 @@ export const startWooCommerce = async (
   const orderQueue = createQueue(`woocommerce-order-sync${suffix}`, redisConnection)
   const inventoryQueue = createQueue(`woocommerce-inventory-sync${suffix}`, redisConnection)
   const priceQueue = createQueue(`woocommerce-price-sync${suffix}`, redisConnection)
+  const trackingQueue = createQueue(`woocommerce-tracking-sync${suffix}`, redisConnection)
 
-  const queues = [orderQueue, inventoryQueue, priceQueue]
+  const queues = [orderQueue, inventoryQueue, priceQueue, trackingQueue]
   const workers: Array<{ close: () => Promise<void> }> = []
 
   let cachedSalesChannelId: string | null = null
@@ -219,6 +227,20 @@ export const startWooCommerce = async (
       })
     }
   ))
+  workers.push(createWorker<TrackingJobData>(
+    `woocommerce-tracking-sync${suffix}`,
+    redisConnection,
+    async (job: JobLike<TrackingJobData>) => {
+      const result = await processTrackingJob(job.data, {
+        pool,
+        medusaClient,
+        integrationAccountId,
+        marketplace: "woocommerce",
+        push: deps.trackingPush ?? pushTrackingNotYetImplemented("woocommerce"),
+      })
+      console.log(`[seller-hub] woocommerce-tracking-sync: ${result.status}`)
+    }
+  ))
   console.log("[seller-hub] WooCommerce queues and workers started")
 
   // Added directly (not via scheduleReconciliation, which also adds the Amazon
@@ -261,6 +283,8 @@ export const startWooCommerce = async (
       orderQueue,
       inventoryQueue,
       priceQueue,
+      trackingQueue,
+      integrationAccountId,
     },
     linked,
     relink: () => runLink(),

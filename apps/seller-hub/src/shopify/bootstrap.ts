@@ -3,6 +3,11 @@ import type { Pool } from "pg"
 import type { MedusaAdminClient } from "../medusa/admin-client.js"
 import { createSyncQueue, createSyncWorker } from "../queue/queues.js"
 import {
+  processTrackingJob,
+  pushTrackingNotYetImplemented,
+} from "../sync/tracking/processor.js"
+import type { TrackingJobData, TrackingPush } from "../sync/tracking/types.js"
+import {
   reconcileShopify,
 } from "../sync/reconcile.js"
 import {
@@ -39,6 +44,8 @@ export type StartShopifyDeps = {
   createWorker?: typeof createSyncWorker
   fetchImpl?: typeof fetch
   sleep?: (ms: number) => Promise<void>
+  /** Pushes shipment tracking to the channel; defaults to a no-op until implemented. */
+  trackingPush?: TrackingPush
   /** When set, orders are attributed to this sales channel without a name lookup. */
   salesChannelId?: string | null
   /**
@@ -131,8 +138,9 @@ export const startShopify = async (
   const orderQueue = createQueue(`shopify-order-sync${suffix}`, redisConnection)
   const inventoryQueue = createQueue(`shopify-inventory-sync${suffix}`, redisConnection)
   const priceQueue = createQueue(`shopify-price-sync${suffix}`, redisConnection)
+  const trackingQueue = createQueue(`shopify-tracking-sync${suffix}`, redisConnection)
 
-  const queues = [orderQueue, inventoryQueue, priceQueue]
+  const queues = [orderQueue, inventoryQueue, priceQueue, trackingQueue]
   const workers: Array<{ close: () => Promise<void> }> = []
 
   let cachedSalesChannelId: string | null = null
@@ -217,6 +225,20 @@ export const startShopify = async (
       })
     }
   ))
+  workers.push(createWorker<TrackingJobData>(
+    `shopify-tracking-sync${suffix}`,
+    redisConnection,
+    async (job: JobLike<TrackingJobData>) => {
+      const result = await processTrackingJob(job.data, {
+        pool,
+        medusaClient,
+        integrationAccountId,
+        marketplace: "shopify",
+        push: deps.trackingPush ?? pushTrackingNotYetImplemented("shopify"),
+      })
+      console.log(`[seller-hub] shopify-tracking-sync: ${result.status}`)
+    }
+  ))
   console.log("[seller-hub] Shopify queues and workers started")
 
   // Added directly (not via scheduleReconciliation's `shopify` option, which
@@ -260,6 +282,8 @@ export const startShopify = async (
       orderQueue,
       inventoryQueue,
       priceQueue,
+      trackingQueue,
+      integrationAccountId,
     },
     linked,
     relink: () => runLink(),

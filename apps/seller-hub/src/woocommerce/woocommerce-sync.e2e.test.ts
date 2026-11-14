@@ -531,6 +531,7 @@ test("the WooCommerce reconcile is scheduled on the WooCommerce inventory queue 
     "woocommerce-inventory-sync",
     "woocommerce-order-sync",
     "woocommerce-price-sync",
+    "woocommerce-tracking-sync",
   ])
 
   await processors.get("woocommerce-inventory-sync")!({

@@ -208,7 +208,9 @@ const SECRET = "whsec_test"
 const signBody = (body: string) =>
   crypto.createHmac("sha256", SECRET).update(body).digest("base64")
 
-const makeShopify = () => ({
+const makeShopify = (integrationAccountId = "acct-shop") => ({
+  integrationAccountId,
+  trackingQueue: { add: vi.fn() } as unknown as Queue,
   webhookSecret: SECRET,
   orderQueue: { add: vi.fn() } as unknown as Queue,
   inventoryQueue: { add: vi.fn() } as unknown as Queue,
@@ -377,7 +379,9 @@ test("a rejecting Shopify queue does not stop the Amazon enqueue or change the 2
 
 // ---- WooCommerce webhook route + Medusa fan-out ----
 
-const makeWoo = () => ({
+const makeWoo = (integrationAccountId = "acct-woo") => ({
+  integrationAccountId,
+  trackingQueue: { add: vi.fn() } as unknown as Queue,
   webhookSecret: SECRET,
   orderQueue: { add: vi.fn() } as unknown as Queue,
   inventoryQueue: { add: vi.fn() } as unknown as Queue,
@@ -957,4 +961,86 @@ test("a throwing registry.known is treated as not live (503, not 404)", async ()
   expect(JSON.stringify(errSpy.mock.calls)).not.toContain("secret-detail")
   server.close()
   errSpy.mockRestore()
+})
+
+// ---- shipment.created tracking fan-out ----
+
+const sendMedusa = (url: string, body: unknown) =>
+  fetch(`${url}/webhooks/medusa`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  })
+
+const shipment = (data: Record<string, unknown> = {}) => ({
+  event: "shipment.created",
+  data: { id: "ful_1", order_id: "order_1", no_notification: false, ...data },
+})
+
+test("shipment.created enqueues one job per live connection with jobId tracking-<fulfillment>-<account>", async () => {
+  const shopify = makeShopify("s1")
+  const woo = makeWoo("w1")
+  const { server, amazon, url } = startWooServer(woo, shopify)
+  const res = await sendMedusa(url, shipment({ no_notification: true }))
+  expect(res.status).toBe(200)
+  const job = { fulfillmentId: "ful_1", orderId: "order_1", noNotification: true }
+  const opts = (account: string) => ({
+    jobId: `tracking-ful_1-${account}`,
+    removeOnComplete: true,
+    removeOnFail: true,
+  })
+  expect(shopify.trackingQueue.add).toHaveBeenCalledWith("shipment.created", job, opts("s1"))
+  expect(woo.trackingQueue.add).toHaveBeenCalledWith("shipment.created", job, opts("w1"))
+  expect(amazon.inventoryQueue.add).not.toHaveBeenCalled()
+  expect(amazon.priceQueue.add).not.toHaveBeenCalled()
+  server.close()
+})
+
+test("shipment.created defaults noNotification to false when absent or not true", async () => {
+  const shopify = makeShopify("s1")
+  const { server, url } = startServer(shopify)
+  await sendMedusa(url, { event: "shipment.created", data: { id: "ful_2", order_id: "o" } })
+  expect(shopify.trackingQueue.add).toHaveBeenCalledWith(
+    "shipment.created",
+    { fulfillmentId: "ful_2", orderId: "o", noNotification: false },
+    expect.any(Object)
+  )
+  server.close()
+})
+
+test("shipment.created enqueue failure on one connection does not affect the others or the 200, and logs no message", async () => {
+  const err = vi.spyOn(console, "error").mockImplementation(() => {})
+  const shopify = makeShopify("s1")
+  const woo = makeWoo("w1")
+  ;(shopify.trackingQueue.add as any).mockRejectedValue(new Error("redis down secret-host"))
+  const { server, url } = startWooServer(woo, shopify)
+  const res = await sendMedusa(url, shipment())
+  expect(res.status).toBe(200)
+  expect(woo.trackingQueue.add).toHaveBeenCalledTimes(1)
+  const logged = JSON.stringify(err.mock.calls)
+  expect(logged).toContain("shipment.created")
+  expect(logged).toContain("Error")
+  expect(logged).not.toContain("secret-host")
+  err.mockRestore()
+  server.close()
+})
+
+test("shipment.created without data.order_id (or data.id) is 400 and enqueues nothing", async () => {
+  const shopify = makeShopify()
+  const { server, url } = startServer(shopify)
+  expect((await sendMedusa(url, shipment({ order_id: undefined }))).status).toBe(400)
+  expect((await sendMedusa(url, shipment({ order_id: "" }))).status).toBe(400)
+  expect((await sendMedusa(url, shipment({ order_id: 5 }))).status).toBe(400)
+  expect((await sendMedusa(url, shipment({ id: "" }))).status).toBe(400)
+  expect(shopify.trackingQueue.add).not.toHaveBeenCalled()
+  server.close()
+})
+
+test("other events never touch the tracking queues", async () => {
+  const shopify = makeShopify()
+  const { server, url } = startServer(shopify)
+  expect((await sendMedusa(url, { event: "inventory-level.updated", data: { id: "i" } })).status).toBe(200)
+  expect((await sendMedusa(url, { event: "order.placed", data: { id: "o" } })).status).toBe(200)
+  expect(shopify.trackingQueue.add).not.toHaveBeenCalled()
+  server.close()
 })

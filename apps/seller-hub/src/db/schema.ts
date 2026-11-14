@@ -43,7 +43,7 @@ ALTER TABLE seller_hub.channel_listing ADD COLUMN IF NOT EXISTS last_synced_pric
 CREATE TABLE IF NOT EXISTS seller_hub.sync_job (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   integration_account_id UUID NOT NULL REFERENCES seller_hub.integration_account(id),
-  sync_type TEXT NOT NULL,                -- 'product'|'inventory'|'price'|'order'
+  sync_type TEXT NOT NULL,                -- 'product'|'inventory'|'price'|'order'|'tracking'
   external_id TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'pending', -- 'pending'|'processing'|'succeeded'|'failed'
   attempts INT NOT NULL DEFAULT 0,

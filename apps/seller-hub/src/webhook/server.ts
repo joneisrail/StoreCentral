@@ -1,6 +1,7 @@
 import http from "node:http"
 import type { Queue } from "bullmq"
 import { verifyShopifyHmac } from "../shopify/webhook.js"
+import type { TrackingJobData } from "../sync/tracking/types.js"
 import { verifyWooSignature } from "../woocommerce/webhook.js"
 
 export type ShopifyWebhookDeps = {
@@ -8,6 +9,10 @@ export type ShopifyWebhookDeps = {
   orderQueue: Queue
   inventoryQueue: Queue
   priceQueue: Queue
+  /** Receives `shipment.created` tracking jobs; the connection's worker pushes only its own orders. */
+  trackingQueue: Queue
+  /** The connection's integration_account id (suffix of the tracking job id). */
+  integrationAccountId: string
 }
 
 export type WooCommerceWebhookDeps = {
@@ -15,6 +20,10 @@ export type WooCommerceWebhookDeps = {
   orderQueue: Queue
   inventoryQueue: Queue
   priceQueue: Queue
+  /** Receives `shipment.created` tracking jobs; the connection's worker pushes only its own orders. */
+  trackingQueue: Queue
+  /** The connection's integration_account id (suffix of the tracking job id). */
+  integrationAccountId: string
 }
 
 export type WebhookMarketplace = "shopify" | "woocommerce"
@@ -106,7 +115,42 @@ const parseWebhookPath = (
 
 type MedusaWebhookBody = {
   event: string
-  data: { id: string }
+  data: { id: string; order_id?: unknown; no_notification?: unknown }
+}
+
+const SHIPMENT_CREATED_EVENT = "shipment.created"
+
+const toTrackingJob = (body: MedusaWebhookBody): TrackingJobData => ({
+  fulfillmentId: body.data.id,
+  orderId: body.data.order_id as string,
+  noNotification: body.data.no_notification === true,
+})
+
+/**
+ * `shipment.created` goes to EVERY live Shopify/WooCommerce connection's
+ * tracking queue; each worker loads the order and only the owning connection
+ * pushes. Never calls Medusa. Per-connection failures are isolated and logged
+ * (event + class name only).
+ */
+const routeShipmentCreated = async (
+  body: MedusaWebhookBody,
+  targets: Array<ShopifyWebhookDeps | WooCommerceWebhookDeps>
+): Promise<void> => {
+  const job = toTrackingJob(body)
+  for (const target of targets) {
+    try {
+      await target.trackingQueue.add(body.event, job, {
+        // BullMQ rejects integer-only ids, hence the prefix.
+        jobId: `tracking-${job.fulfillmentId}-${target.integrationAccountId}`,
+        removeOnComplete: true,
+        removeOnFail: true,
+      })
+    } catch (err) {
+      console.error(
+        `[webhook] failed to enqueue tracking job for event "${body.event}" (${errName(err)})`
+      )
+    }
+  }
 }
 
 /**
@@ -289,6 +333,21 @@ const handleRequestBody = async (
   }
   if (typeof webhookBody.data?.id !== "string" || !webhookBody.data.id) {
     respondBadRequest(res, "Missing required field: data.id")
+    return
+  }
+  if (
+    webhookBody.event === SHIPMENT_CREATED_EVENT &&
+    (typeof webhookBody.data.order_id !== "string" || !webhookBody.data.order_id)
+  ) {
+    respondBadRequest(res, "Missing required field: data.order_id")
+    return
+  }
+
+  if (webhookBody.event === SHIPMENT_CREATED_EVENT) {
+    await routeShipmentCreated(webhookBody, [...queues.shopify, ...queues.woocommerce])
+    res.writeHead(200, { "Content-Type": "application/json" }).end(
+      JSON.stringify({ received: true })
+    )
     return
   }
 

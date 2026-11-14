@@ -1,3 +1,5 @@
+import type { TrackingOrder } from "../sync/tracking/types.js"
+
 export type DraftOrderLineItemInput = {
   variant_id: string
   quantity: number
@@ -237,6 +239,86 @@ export class MedusaAdminClient {
       order: { id: string; is_draft_order: boolean }
     }
     return { id: body.order.id, isDraftOrder: body.order.is_draft_order }
+  }
+
+  /**
+   * Loads what the channel tracking push needs from one order via
+   * `GET /admin/orders/:id` (items with SKU, fulfillments with their items,
+   * labels and carrier). `null` on a 404. Tracking number/url come from the
+   * fulfillment labels; the carrier from `data.carrier`, then `metadata.carrier`
+   * (manual mark-shipped), then the EasyPost provider's `data.easypost_carrier`.
+   */
+  async getOrderForTracking(orderId: string): Promise<TrackingOrder | null> {
+    const fields = [
+      "id",
+      "metadata",
+      "items.id",
+      "items.variant_sku",
+      "items.quantity",
+      "fulfillments.id",
+      "fulfillments.canceled_at",
+      "fulfillments.data",
+      "fulfillments.metadata",
+      "fulfillments.items.line_item_id",
+      "fulfillments.items.quantity",
+      "fulfillments.labels.tracking_number",
+      "fulfillments.labels.tracking_url",
+    ].join(",")
+    const path = `/admin/orders/${encodeURIComponent(orderId)}?fields=${fields}`
+    const response = await this.authedFetchRaw(path)
+    if (response.status === 404) {
+      return null
+    }
+    await this.throwIfNotOk(response, path, {})
+    const body = (await response.json()) as {
+      order: {
+        id: string
+        metadata?: Record<string, unknown> | null
+        items?: { id: string; variant_sku?: string | null; quantity: number }[] | null
+        fulfillments?:
+          | {
+              id: string
+              canceled_at?: string | null
+              data?: Record<string, unknown> | null
+              metadata?: Record<string, unknown> | null
+              items?: { line_item_id: string; quantity: number }[] | null
+              labels?:
+                | { tracking_number?: string | null; tracking_url?: string | null }[]
+                | null
+            }[]
+          | null
+      }
+    }
+    const o = body.order
+    const str = (v: unknown): string | null =>
+      typeof v === "string" && v.length > 0 ? v : null
+    return {
+      id: o.id,
+      metadata: o.metadata ?? {},
+      items: (o.items ?? []).map((i) => ({
+        id: i.id,
+        sku: i.variant_sku ?? null,
+        quantity: i.quantity,
+      })),
+      fulfillments: (o.fulfillments ?? []).map((f) => ({
+        id: f.id,
+        canceledAt: f.canceled_at ?? null,
+        items: (f.items ?? []).map((i) => ({
+          lineItemId: i.line_item_id,
+          quantity: i.quantity,
+        })),
+        labels: (f.labels ?? [])
+          .filter((l) => str(l.tracking_number) !== null)
+          .map((l) => ({
+            trackingNumber: l.tracking_number as string,
+            trackingUrl: str(l.tracking_url),
+          })),
+        carrier:
+          str(f.data?.carrier) ??
+          str(f.metadata?.carrier) ??
+          str(f.data?.easypost_carrier),
+      })),
+    }
   }
 
   /**

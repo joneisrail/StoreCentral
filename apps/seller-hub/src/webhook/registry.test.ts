@@ -36,6 +36,20 @@ test("all returns every live connector's webhook deps of that marketplace", () =
   expect(reg.all("shopify").map(secret)).toEqual(["a", "b"])
 })
 
+test("all exposes each live connection's tracking queue and account id", () => {
+  const withTracking = (id: string) =>
+    ({
+      id,
+      marketplace: "shopify",
+      legacy: false,
+      runtime: { webhook: { webhookSecret: id, trackingQueue: { name: `t-${id}` }, integrationAccountId: id } },
+    }) as unknown as LiveConnector
+  const reg = createWebhookRegistry(manager([withTracking("a"), withTracking("b")]))
+  expect(
+    reg.all("shopify").map((d) => [(d as any).integrationAccountId, (d as any).trackingQueue.name])
+  ).toEqual([["a", "t-a"], ["b", "t-b"]])
+})
+
 test("known is passed through to the registry", () => {
   const known = vi.fn(() => true)
   expect(createWebhookRegistry(manager([]), known).known).toBe(known)

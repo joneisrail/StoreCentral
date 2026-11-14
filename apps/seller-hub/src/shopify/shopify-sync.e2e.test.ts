@@ -527,6 +527,7 @@ test("the Shopify reconcile is scheduled on the Shopify inventory queue only and
     "shopify-inventory-sync",
     "shopify-order-sync",
     "shopify-price-sync",
+    "shopify-tracking-sync",
   ])
 
   // reconcile job: runs the drift check (stock changed -> corrective push job)
