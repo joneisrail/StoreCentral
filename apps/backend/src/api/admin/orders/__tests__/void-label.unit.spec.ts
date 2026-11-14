@@ -30,13 +30,13 @@ describe("void-label route", () => {
   })
 
   it("returns 200 with the workflow result", async () => {
-    const result = { order_id: "order_1", voided: [{ fulfillment_id: "ful_1", refund_status: null }] }
+    const result = { order_id: "order_1", voided: [{ fulfillment_id: "ful_1",  }] }
     mockRun.mockResolvedValue({ result })
     const res = makeRes()
     await voidLabel(req(), res)
     expect(res.statusCode).toBe(200)
     expect(res.payload).toEqual(result)
-    expect(mockRun).toHaveBeenCalledWith({ input: { order_id: "order_1", user_id: "user_1" } })
+    expect(mockRun).toHaveBeenCalledWith({ input: { order_id: "order_1" } })
   })
 
   it("propagates NOT_FOUND and NOT_ALLOWED to the framework error handler", async () => {

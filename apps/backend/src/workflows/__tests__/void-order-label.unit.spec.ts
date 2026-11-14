@@ -17,7 +17,7 @@ const makeContainer = (order: any | undefined) => {
 const T = "2026-01-01T00:00:00Z"
 const label = (id: string, extra: any = {}) => ({ id, data: { easypost_shipment_id: `shp_${id}` }, ...extra })
 const orderWith = (fulfillments: any) => ({ id: "order_1", fulfillments })
-const run = (container: any) => voidOrderLabelWorkflow(container).run({ input: { order_id: "order_1", user_id: "u1" } })
+const run = (container: any) => voidOrderLabelWorkflow(container).run({ input: { order_id: "order_1" } })
 
 beforeEach(() => {
   jest.resetAllMocks()
@@ -25,12 +25,12 @@ beforeEach(() => {
 })
 
 describe("voidOrderLabelWorkflow", () => {
-  it("voids a label fulfillment and returns its refund status", async () => {
+  it("voids a label fulfillment and returns its id", async () => {
     const { result } = await run(makeContainer(orderWith([label("ful_1")])))
     expect(mockCancel).toHaveBeenCalledWith({
       input: { order_id: "order_1", fulfillment_id: "ful_1", no_notification: true },
     })
-    expect(result).toEqual({ order_id: "order_1", voided: [{ fulfillment_id: "ful_1", refund_status: null }] })
+    expect(result).toEqual({ order_id: "order_1", voided: [{ fulfillment_id: "ful_1" }] })
   })
 
   it("voids every unshipped label fulfillment and skips canceled or label-less ones", async () => {
@@ -89,5 +89,13 @@ describe("voidOrderLabelWorkflow", () => {
       message: expect.stringContaining("carrier says no"),
     })
     expect(mockCancel).toHaveBeenCalledTimes(1)
+  })
+
+  it("names already-voided fulfillments when a later refund fails", async () => {
+    mockCancel.mockResolvedValueOnce({}).mockRejectedValueOnce(new Error("carrier says no"))
+    await expect(run(makeContainer(orderWith([label("ful_1"), label("ful_2")])))).rejects.toMatchObject({
+      type: MedusaError.Types.NOT_ALLOWED,
+      message: "Fulfillment(s) ful_1 were already voided; the refund for ful_2 failed: carrier says no",
+    })
   })
 })

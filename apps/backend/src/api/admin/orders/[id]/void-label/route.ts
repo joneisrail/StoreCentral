@@ -6,7 +6,7 @@ import type { VoidOrderLabelSchema } from "../../middlewares"
 // by the workflow and mapped to 400/404 by the framework.
 export async function POST(req: AuthenticatedMedusaRequest<VoidOrderLabelSchema>, res: MedusaResponse) {
   const { result } = await voidOrderLabelWorkflow(req.scope).run({
-    input: { order_id: req.params.id, user_id: req.auth_context?.actor_id },
+    input: { order_id: req.params.id },
   })
   res.status(200).json(result)
 }

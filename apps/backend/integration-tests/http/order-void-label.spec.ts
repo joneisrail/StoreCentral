@@ -93,7 +93,7 @@ medusaIntegrationTestRunner({
         const res = await api.post(`/admin/orders/${order.id}/void-label`, {}, adminHeaders)
         expect(res.status).toBe(200)
         expect(res.data.order_id).toBe(order.id)
-        expect(res.data.voided).toEqual([{ fulfillment_id: fulfillment.id, refund_status: null }])
+        expect(res.data.voided).toEqual([{ fulfillment_id: fulfillment.id }])
         expect(fake.client.refundShipment).toHaveBeenCalledWith("shp_void_1")
 
         const after = (

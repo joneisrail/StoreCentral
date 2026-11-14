@@ -3,7 +3,7 @@ import { createStep, StepResponse } from "@medusajs/framework/workflows-sdk"
 import { cancelOrderFulfillmentWorkflow } from "@medusajs/medusa/core-flows"
 
 export type VoidableLabelState = { order_id: string; fulfillment_ids: string[] }
-export type VoidedLabel = { fulfillment_id: string; refund_status: string | null }
+export type VoidedLabel = { fulfillment_id: string }
 
 // Reads the order and decides which label fulfillments can be voided. Rejects
 // the whole request when any live fulfillment already shipped or was
@@ -57,10 +57,10 @@ export const validateVoidOrderLabelStep = createStep(
 // Cancels each voidable fulfillment in turn; core's cancel workflow asks the
 // EasyPost provider to refund the label and restores inventory. There is
 // deliberately no compensation across fulfillments: a refund request cannot be
-// undone, so if one fails we stop and the fulfillments already voided in this
-// request stay voided.
-// Core's cancelFulfillmentWorkflow discards the provider's refund result and
-// does not persist it on the fulfillment, so refund_status is always null here.
+// undone, so if one fails we stop, the fulfillments already voided in this
+// request stay voided, and their ids are named in the error.
+// Core discards the provider's refund result, so no refund status is reported;
+// EasyPost reports the refund state later through its own webhook.
 export const voidOrderLabelFulfillmentsStep = createStep(
   "void-order-label-fulfillments",
   async (input: VoidableLabelState, { container }) => {
@@ -72,12 +72,15 @@ export const voidOrderLabelFulfillmentsStep = createStep(
         })
       } catch (e) {
         const message = e instanceof Error && e.message ? e.message : "unknown error"
+        const done = voided.length
+          ? `Fulfillment(s) ${voided.map((v) => v.fulfillment_id).join(", ")} were already voided; `
+          : ""
         throw new MedusaError(
           MedusaError.Types.NOT_ALLOWED,
-          `The carrier did not accept the label refund: ${message}`
+          `${done}the refund for ${fulfillmentId} failed: ${message}`
         )
       }
-      voided.push({ fulfillment_id: fulfillmentId, refund_status: null })
+      voided.push({ fulfillment_id: fulfillmentId })
     }
     return new StepResponse(voided)
   }

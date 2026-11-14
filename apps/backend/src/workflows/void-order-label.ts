@@ -1,7 +1,7 @@
 import { createWorkflow, transform, WorkflowResponse } from "@medusajs/framework/workflows-sdk"
 import { validateVoidOrderLabelStep, voidOrderLabelFulfillmentsStep } from "./steps/void-order-label-steps"
 
-export type VoidOrderLabelWorkflowInput = { order_id: string; user_id?: string }
+export type VoidOrderLabelWorkflowInput = { order_id: string }
 
 export const voidOrderLabelWorkflow = createWorkflow(
   "void-order-label",
