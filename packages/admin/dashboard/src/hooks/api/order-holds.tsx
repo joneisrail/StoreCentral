@@ -6,17 +6,17 @@ import {
 } from "@tanstack/react-query"
 import { sdk } from "../../lib/client"
 import { queryClient } from "../../lib/query-client"
-import { queryKeysFactory } from "../../lib/query-key-factory"
 import { orderTagsQueryKeys, useOrderTags } from "./order-tags"
+import {
+  HOLD_TAG_VALUE,
+  ORDER_VIEW_COUNTS_QUERY_KEY,
+  orderHeldIdsQueryKeys,
+} from "./order-query-keys"
 import { ordersQueryKeys } from "./orders"
 
-export const HOLD_TAG_VALUE = "On hold"
 const HELD_IDS_LIMIT = 500
 
-export const orderHeldIdsQueryKeys = queryKeysFactory("order-held-ids")
-// Defined here (not in the counts hook) so the mutations below can
-// invalidate it without a circular import.
-export const ORDER_VIEW_COUNTS_QUERY_KEY = "order-view-counts" as const
+export { HOLD_TAG_VALUE, ORDER_VIEW_COUNTS_QUERY_KEY, orderHeldIdsQueryKeys }
 
 export const useHoldTag = (): {
   tagId: string | null

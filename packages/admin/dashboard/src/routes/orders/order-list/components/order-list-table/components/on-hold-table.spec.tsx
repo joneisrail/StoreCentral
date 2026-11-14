@@ -142,10 +142,12 @@ describe("OnHoldTable", () => {
       isLoading: false,
       isError: false,
     })
-    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    renderTable()
 
-    expect(() => renderTable()).toThrow()
-
-    spy.mockRestore()
+    expect(screen.getByText("orders.list.holdLookupError")).toBeTruthy()
+    expect(
+      screen.getByRole("button", { name: "orders.list.holdLookupRetry" })
+    ).toBeTruthy()
+    expect(mockUseOrders.mock.calls.at(-1)![1].enabled).toBe(false)
   })
 })

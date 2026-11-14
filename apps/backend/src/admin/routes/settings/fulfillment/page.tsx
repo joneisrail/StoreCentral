@@ -99,16 +99,21 @@ const FulfillmentSettingsPage = () => {
       return
     }
 
-    // A cleared input removes the key so the default (500) applies again.
+    // A cleared input must send an empty string: Medusa merges store
+    // metadata and only deletes a key whose value is "". Consumers treat ""
+    // as "use the default (500)".
     if (rawValue.trim() === "") {
       setThresholdError(null)
 
-      if (store.metadata?.high_value_threshold === undefined) {
+      const current = store.metadata?.high_value_threshold
+
+      if (current === undefined || current === null || current === "") {
         return
       }
 
-      const { high_value_threshold: _removed, ...rest } = store.metadata ?? {}
-      await sdk.admin.store.update(store.id, { metadata: rest })
+      await sdk.admin.store.update(store.id, {
+        metadata: { ...store.metadata, high_value_threshold: "" },
+      })
       refetchStore()
       return
     }
@@ -121,6 +126,16 @@ const FulfillmentSettingsPage = () => {
     }
 
     setThresholdError(null)
+
+    // Unchanged value: skip the write.
+    if (
+      highValueThreshold !== undefined &&
+      highValueThreshold !== "" &&
+      Number(highValueThreshold) === threshold
+    ) {
+      return
+    }
+
     await sdk.admin.store.update(store.id, {
       metadata: { ...store.metadata, high_value_threshold: threshold },
     })

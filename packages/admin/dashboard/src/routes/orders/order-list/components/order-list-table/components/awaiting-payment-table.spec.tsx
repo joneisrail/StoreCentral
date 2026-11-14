@@ -101,23 +101,27 @@ describe("AwaitingPaymentTable", () => {
     expect(mockUseOrders.mock.calls.at(-1)![1].enabled).toBe(false)
   })
 
-  it("throws when the held ids lookup failed or was truncated", () => {
+  it("shows an inline error when the held ids lookup failed or was truncated", () => {
     setLookups({}, { isError: true })
     mockUseOrders.mockReturnValue(emptyOrders)
-    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    renderTable()
 
-    expect(() => renderTable()).toThrow()
-
-    spy.mockRestore()
+    expect(screen.getByText("orders.list.holdLookupError")).toBeTruthy()
+    expect(
+      screen.getByRole("button", { name: "orders.list.holdLookupRetry" })
+    ).toBeTruthy()
+    expect(mockUseOrders.mock.calls.at(-1)![1].enabled).toBe(false)
   })
 
-  it("throws when the hold tag lookup failed", () => {
+  it("shows an inline error when the hold tag lookup failed", () => {
     setLookups({ isError: true })
     mockUseOrders.mockReturnValue(emptyOrders)
-    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    renderTable()
 
-    expect(() => renderTable()).toThrow()
-
-    spy.mockRestore()
+    expect(screen.getByText("orders.list.holdLookupError")).toBeTruthy()
+    expect(
+      screen.getByRole("button", { name: "orders.list.holdLookupRetry" })
+    ).toBeTruthy()
+    expect(mockUseOrders.mock.calls.at(-1)![1].enabled).toBe(false)
   })
 })

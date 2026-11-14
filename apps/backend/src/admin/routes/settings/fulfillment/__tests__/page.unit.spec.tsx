@@ -180,7 +180,7 @@ describe("FulfillmentSettingsPage", () => {
       )
     })
 
-    it("blank removes the threshold so the default applies", async () => {
+    it("blank sends an empty string so the merge deletes the key", async () => {
       mockStoreList.mockResolvedValue({
         stores: [
           {
@@ -202,9 +202,27 @@ describe("FulfillmentSettingsPage", () => {
 
       await waitFor(() =>
         expect(mockStoreUpdate).toHaveBeenCalledWith("store_1", {
-          metadata: { other_key: "kept" },
+          metadata: { other_key: "kept", high_value_threshold: "" },
         })
       )
+    })
+
+    it("does not save when the value is unchanged on blur", async () => {
+      mockStoreList.mockResolvedValue({
+        stores: [{ id: "store_1", metadata: { high_value_threshold: 750 } }],
+        count: 1,
+        limit: 1,
+        offset: 0,
+      })
+      renderPage()
+
+      const input = await screen.findByLabelText(
+        /High-value order alert threshold/i
+      )
+      fireEvent.blur(input)
+
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      expect(mockStoreUpdate).not.toHaveBeenCalled()
     })
 
     it("rejects a negative value with an inline error and saves nothing", async () => {

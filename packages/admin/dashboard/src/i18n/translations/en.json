@@ -1233,6 +1233,8 @@
     },
     "list": {
       "noRecordsMessage": "Your orders will show up here.",
+      "holdLookupError": "Couldn't determine which orders are on hold, so this list is hidden to avoid showing held orders. Try again.",
+      "holdLookupRetry": "Retry",
       "tabs": {
         "all": "All",
         "readyToShip": "Ready to Ship",

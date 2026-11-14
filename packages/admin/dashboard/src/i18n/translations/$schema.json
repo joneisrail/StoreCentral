@@ -4822,6 +4822,12 @@
             "noRecordsMessage": {
               "type": "string"
             },
+            "holdLookupError": {
+              "type": "string"
+            },
+            "holdLookupRetry": {
+              "type": "string"
+            },
             "tabs": {
               "type": "object",
               "properties": {
@@ -4855,7 +4861,12 @@
               "additionalProperties": false
             }
           },
-          "required": ["noRecordsMessage", "tabs"],
+          "required": [
+            "noRecordsMessage",
+            "holdLookupError",
+            "holdLookupRetry",
+            "tabs"
+          ],
           "additionalProperties": false
         },
         "awaitingPayment": {

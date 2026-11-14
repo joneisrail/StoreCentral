@@ -1378,7 +1378,9 @@ describe("ReadyToShipTable Package column across a row remount", () => {
       </MemoryRouter>
     )
     expect(
-      screen.queryByRole("button", { name: "USPS Card (6in x 4.5in x 0.016in)" })
+      screen.queryByRole("button", {
+        name: "USPS Card (6in x 4.5in x 0.016in)",
+      })
     ).toBeNull()
 
     // ...and "page back": a brand new PackagePopover instance mounts.
@@ -1396,7 +1398,9 @@ describe("ReadyToShipTable Package column across a row remount", () => {
         name: "USPS Card (6in x 4.5in x 0.016in)",
       })
     ).toBeTruthy()
-    expect(screen.queryByRole("button", { name: "Custom — 1x1x1, 1" })).toBeNull()
+    expect(
+      screen.queryByRole("button", { name: "Custom — 1x1x1, 1" })
+    ).toBeNull()
     // And it's the package the row is quoted with.
     expect(mockUseOrderCarrierRates).toHaveBeenLastCalledWith(
       "order_1",
@@ -1441,9 +1445,9 @@ describe("ReadyToShipTable rate invalidation on Ship From/Package change", () =>
     const user = userEvent.setup()
     renderReadyToShipTable()
 
-    const checkboxBefore = (await screen.findAllByRole(
-      "checkbox"
-    ))[1] as HTMLButtonElement
+    const checkboxBefore = (
+      await screen.findAllByRole("checkbox")
+    )[1] as HTMLButtonElement
     expect(checkboxBefore.disabled).toBe(false)
 
     await user.click(
@@ -1457,9 +1461,9 @@ describe("ReadyToShipTable rate invalidation on Ship From/Package change", () =>
     // therefore unchanged, so its auto-select guard correctly does *not*
     // repopulate `rowRates` here. The row stays disabled until a genuinely
     // new quote arrives, exactly the gap this fix closes.
-    const checkboxAfter = (await screen.findAllByRole(
-      "checkbox"
-    ))[1] as HTMLButtonElement
+    const checkboxAfter = (
+      await screen.findAllByRole("checkbox")
+    )[1] as HTMLButtonElement
     expect(checkboxAfter.disabled).toBe(true)
   })
 
@@ -1476,17 +1480,15 @@ describe("ReadyToShipTable rate invalidation on Ship From/Package change", () =>
     const user = userEvent.setup()
     renderReadyToShipTable()
 
-    const checkboxBefore = (await screen.findAllByRole(
-      "checkbox"
-    ))[1] as HTMLButtonElement
+    const checkboxBefore = (
+      await screen.findAllByRole("checkbox")
+    )[1] as HTMLButtonElement
     expect(checkboxBefore.disabled).toBe(false)
 
     // `makeReadyToShipOrder`'s single item has `variant: { weight: 1,
     // length: 1, width: 1, height: 1 }`, so `PackagePopover`'s trigger -
     // nothing confirmed yet - reads "Custom — 1x1x1, 1".
-    await user.click(
-      screen.getByRole("button", { name: "Custom — 1x1x1, 1" })
-    )
+    await user.click(screen.getByRole("button", { name: "Custom — 1x1x1, 1" }))
     await user.click(
       await screen.findByRole("radio", {
         name: "USPS Card (6in x 4.5in x 0.016in)",
@@ -1494,9 +1496,9 @@ describe("ReadyToShipTable rate invalidation on Ship From/Package change", () =>
     )
     await user.click(screen.getByRole("button", { name: "actions.confirm" }))
 
-    const checkboxAfter = (await screen.findAllByRole(
-      "checkbox"
-    ))[1] as HTMLButtonElement
+    const checkboxAfter = (
+      await screen.findAllByRole("checkbox")
+    )[1] as HTMLButtonElement
     expect(checkboxAfter.disabled).toBe(true)
   })
 
@@ -1517,9 +1519,7 @@ describe("ReadyToShipTable rate invalidation on Ship From/Package change", () =>
     // default), and simulate the fresh quote that follows a real re-quote
     // against it - same as the "confirms a different Package selection"
     // test above.
-    await user.click(
-      screen.getByRole("button", { name: "Custom — 1x1x1, 1" })
-    )
+    await user.click(screen.getByRole("button", { name: "Custom — 1x1x1, 1" }))
     await user.click(
       await screen.findByRole("radio", {
         name: "USPS Card (6in x 4.5in x 0.016in)",
@@ -1528,9 +1528,9 @@ describe("ReadyToShipTable rate invalidation on Ship From/Package change", () =>
     setOrderRate("order_1", "shp_card", "rate_card")
     await user.click(screen.getByRole("button", { name: "actions.confirm" }))
 
-    const checkboxAfterFirstConfirm = (await screen.findAllByRole(
-      "checkbox"
-    ))[1] as HTMLButtonElement
+    const checkboxAfterFirstConfirm = (
+      await screen.findAllByRole("checkbox")
+    )[1] as HTMLButtonElement
     expect(checkboxAfterFirstConfirm.disabled).toBe(false)
 
     // Reopen the same popover - its trigger now reads the confirmed
@@ -1545,9 +1545,9 @@ describe("ReadyToShipTable rate invalidation on Ship From/Package change", () =>
     )
     await user.click(screen.getByRole("button", { name: "actions.confirm" }))
 
-    const checkboxAfterSecondConfirm = (await screen.findAllByRole(
-      "checkbox"
-    ))[1] as HTMLButtonElement
+    const checkboxAfterSecondConfirm = (
+      await screen.findAllByRole("checkbox")
+    )[1] as HTMLButtonElement
     expect(checkboxAfterSecondConfirm.disabled).toBe(false)
   })
 
@@ -1564,9 +1564,9 @@ describe("ReadyToShipTable rate invalidation on Ship From/Package change", () =>
     const user = userEvent.setup()
     renderReadyToShipTable()
 
-    const checkboxBefore = (await screen.findAllByRole(
-      "checkbox"
-    ))[1] as HTMLButtonElement
+    const checkboxBefore = (
+      await screen.findAllByRole("checkbox")
+    )[1] as HTMLButtonElement
     expect(checkboxBefore.disabled).toBe(false)
 
     // Opens and confirms the Package popover without touching anything -
@@ -1580,14 +1580,12 @@ describe("ReadyToShipTable rate invalidation on Ship From/Package change", () =>
     // treat this as "changed" (there's no *prior explicit* selection to
     // compare against) without falling back to that same computed
     // baseline for the comparison.
-    await user.click(
-      screen.getByRole("button", { name: "Custom — 1x1x1, 1" })
-    )
+    await user.click(screen.getByRole("button", { name: "Custom — 1x1x1, 1" }))
     await user.click(screen.getByRole("button", { name: "actions.confirm" }))
 
-    const checkboxAfter = (await screen.findAllByRole(
-      "checkbox"
-    ))[1] as HTMLButtonElement
+    const checkboxAfter = (
+      await screen.findAllByRole("checkbox")
+    )[1] as HTMLButtonElement
     expect(checkboxAfter.disabled).toBe(false)
   })
 })
@@ -1633,25 +1631,29 @@ describe("ReadyToShipTable view query / held-order exclusion", () => {
     expect(options.enabled).toBe(false)
   })
 
-  it("throws to the error boundary (and does not fetch) when the held-order lookup failed", () => {
+  it("shows an inline error (and does not fetch) when the held-order lookup failed", () => {
     setHoldLookups({ held: { isError: true } })
     mockUseOrders.mockReturnValue(EMPTY_ORDERS)
-    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    renderReadyToShipTable()
 
-    expect(() => renderReadyToShipTable()).toThrow()
+    expect(screen.getByText("orders.list.holdLookupError")).toBeTruthy()
+    expect(
+      screen.getByRole("button", { name: "orders.list.holdLookupRetry" })
+    ).toBeTruthy()
     expect(mockUseOrders.mock.calls.at(-1)![1].enabled).toBe(false)
-
-    spy.mockRestore()
+    expect(mockUseOrders.mock.calls.at(-1)![1].enabled).toBe(false)
   })
 
-  it("throws when the hold tag lookup failed", () => {
+  it("shows an inline error when the hold tag lookup failed", () => {
     setHoldLookups({ tag: { isError: true } })
     mockUseOrders.mockReturnValue(EMPTY_ORDERS)
-    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    renderReadyToShipTable()
 
-    expect(() => renderReadyToShipTable()).toThrow()
-
-    spy.mockRestore()
+    expect(screen.getByText("orders.list.holdLookupError")).toBeTruthy()
+    expect(
+      screen.getByRole("button", { name: "orders.list.holdLookupRetry" })
+    ).toBeTruthy()
+    expect(mockUseOrders.mock.calls.at(-1)![1].enabled).toBe(false)
   })
 })
 

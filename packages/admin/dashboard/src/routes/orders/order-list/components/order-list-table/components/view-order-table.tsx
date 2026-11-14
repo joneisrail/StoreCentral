@@ -30,6 +30,7 @@ import {
 import { useOrders } from "../../../../../../hooks/api/orders"
 import { useDataTable } from "../../../../../../hooks/use-data-table"
 import { DEFAULT_FIELDS } from "../../../const"
+import { HoldLookupError } from "./hold-lookup-error"
 
 const PAGE_SIZE = 20
 
@@ -153,7 +154,7 @@ export const ViewOrderTable = ({
   })
 
   if (lookupError) {
-    throw new Error("Could not determine which orders are on hold")
+    return <HoldLookupError />
   }
 
   if (isError) {

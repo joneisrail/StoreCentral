@@ -52,7 +52,15 @@ export const HoldOrderPrompt = ({
   return (
     <Prompt
       open={open}
-      onOpenChange={(next) => !isSubmitting && onOpenChange(next)}
+      onOpenChange={(next) => {
+        if (isSubmitting) {
+          return
+        }
+        if (!next) {
+          setReason("")
+        }
+        onOpenChange(next)
+      }}
     >
       <Prompt.Content>
         <Prompt.Header>
@@ -80,7 +88,10 @@ export const HoldOrderPrompt = ({
             size="small"
             variant="secondary"
             disabled={isSubmitting}
-            onClick={() => onOpenChange(false)}
+            onClick={() => {
+              setReason("")
+              onOpenChange(false)
+            }}
           >
             {t("actions.cancel")}
           </Button>

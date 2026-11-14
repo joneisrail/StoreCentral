@@ -17,6 +17,7 @@ import { queryKeysFactory, TQueryKey } from "../../lib/query-key-factory"
 // imports `useOrderCarrierRates` (a value) from this file.
 import type { PackageSelection } from "../../routes/orders/order-list/components/order-list-table/components/ready-to-ship-table"
 import { inventoryItemsQueryKeys } from "./inventory"
+import { ORDER_VIEW_COUNTS_QUERY_KEY } from "./order-query-keys"
 import { reservationItemsQueryKeys } from "./reservations"
 
 const ORDERS_QUERY_KEY = "orders" as const
@@ -435,7 +436,7 @@ export const useCancelOrder = (
     onSuccess: (data: any, variables: any, context: any) => {
       // List views (tabs) and their counts change when an order is canceled.
       queryClient.invalidateQueries({ queryKey: ordersQueryKeys.lists() })
-      queryClient.invalidateQueries({ queryKey: ["order-view-counts"] })
+      queryClient.invalidateQueries({ queryKey: [ORDER_VIEW_COUNTS_QUERY_KEY] })
 
       queryClient.invalidateQueries({
         queryKey: ordersQueryKeys.detail(orderId),

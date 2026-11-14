@@ -16,11 +16,10 @@ import {
 } from "@tanstack/react-query"
 import { sdk } from "../../lib/client"
 import { queryClient } from "../../lib/query-client"
-import { queryKeysFactory } from "../../lib/query-key-factory"
+import { orderTagsQueryKeys } from "./order-query-keys"
 import { ordersQueryKeys } from "./orders"
 
-const ORDER_TAGS_QUERY_KEY = "order-tags" as const
-export const orderTagsQueryKeys = queryKeysFactory(ORDER_TAGS_QUERY_KEY)
+export { orderTagsQueryKeys }
 
 export const useOrderTags = (
   query?: AdminOrderTagListParams,

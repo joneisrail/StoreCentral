@@ -96,4 +96,23 @@ describe("HoldOrderPrompt", () => {
     expect(mutateAsync).toHaveBeenCalledTimes(1)
     resolve({})
   })
+
+  it("resets the draft reason when cancelled", async () => {
+    const onOpenChange = vi.fn()
+    const order = { id: "order_1", display_id: 7 }
+    const { rerender } = render(
+      <HoldOrderPrompt order={order} open onOpenChange={onOpenChange} />
+    )
+    await userEvent.type(screen.getByRole("textbox"), "draft text")
+    await userEvent.click(
+      screen.getByRole("button", { name: "actions.cancel" })
+    )
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+
+    rerender(
+      <HoldOrderPrompt order={order} open={false} onOpenChange={onOpenChange} />
+    )
+    rerender(<HoldOrderPrompt order={order} open onOpenChange={onOpenChange} />)
+    expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("")
+  })
 })

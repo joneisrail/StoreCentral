@@ -53,6 +53,7 @@ import { PackagePopover, PackageSelection } from "./package-popover"
 import { ShipDateCell, ShipTimeCell } from "./ship-by-cell"
 import { ShipFromSelect } from "./ship-from-select"
 import { ShippingRateSelect } from "./shipping-rate-select"
+import { HoldLookupError } from "./hold-lookup-error"
 
 // Re-exported for Task 11/13 (re-quoting carrier rates and buying the
 // fulfillment) to import the exact payload shape `rowPackages` below is
@@ -1049,7 +1050,7 @@ export const ReadyToShipTable = () => {
   })
 
   if (lookupError) {
-    throw new Error("Could not determine which orders are on hold")
+    return <HoldLookupError />
   }
 
   if (isError) {

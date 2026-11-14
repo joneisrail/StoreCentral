@@ -1,3 +1,5 @@
+import { HOLD_TAG_VALUE } from "../../../../../../hooks/api/order-query-keys"
+
 /** Reads `metadata.hold.reason`; absent or non-string values yield null. */
 export const getHoldReason = (
   metadata?: Record<string, unknown> | null
@@ -8,12 +10,10 @@ export const getHoldReason = (
   return typeof reason === "string" && reason.trim() ? reason : null
 }
 
-const HOLD_TAG_LABEL = "On hold"
-
 /** An order is held when it carries the `On hold` tag or `metadata.hold`. */
 export const isOrderHeld = (order: {
   tags?: { value?: string | null }[] | null
   metadata?: Record<string, unknown> | null
 }): boolean =>
-  !!order.tags?.some((tag) => tag?.value === HOLD_TAG_LABEL) ||
+  !!order.tags?.some((tag) => tag?.value === HOLD_TAG_VALUE) ||
   !!order.metadata?.hold
