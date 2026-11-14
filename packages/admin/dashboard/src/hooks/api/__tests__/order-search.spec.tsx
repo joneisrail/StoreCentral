@@ -50,6 +50,14 @@ describe("useOrderSearch", () => {
     expect(result.current.truncated).toBe(true)
   })
 
+  it("trims after cutting to 100 characters", async () => {
+    mockFetch.mockResolvedValue({ order_ids: [], truncated: false })
+    const q = "a".repeat(99) + " b"
+    renderHook(() => useOrderSearch({ q }), { wrapper: makeWrapper() })
+    await waitFor(() => expect(mockFetch).toHaveBeenCalled())
+    expect(mockFetch.mock.calls[0][1].query.q).toBe("a".repeat(99))
+  })
+
   it("reports errors without retrying", async () => {
     mockFetch.mockRejectedValue(new Error("boom"))
     const { result } = renderHook(() => useOrderSearch({ sku: "ABC" }), {

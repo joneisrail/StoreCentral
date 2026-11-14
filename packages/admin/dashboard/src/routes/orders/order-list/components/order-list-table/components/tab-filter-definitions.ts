@@ -7,6 +7,9 @@ import { useRegions } from "../../../../../../hooks/api/regions"
 import { useSalesChannels } from "../../../../../../hooks/api/sales-channels"
 import { useStockLocations } from "../../../../../../hooks/api/stock-locations"
 
+// No Total filter: the server compares order totals as text, so numeric ranges
+// are wrong (integration-tests/http/orders-total-filter.spec.ts).
+
 /** URL param of a filter key is `${prefix}_f_<key>` (see useTabTableQuery). */
 export const FILTER_KEY_PREFIX = "f_"
 
@@ -151,11 +154,6 @@ export const useTabFilters = (exclude: string[] = []): Filter[] => {
         key: "f_country_other",
         label: t("orders.list.filters.countryOther"),
         type: "string",
-      },
-      {
-        key: "f_total",
-        label: t("orders.list.filters.total"),
-        type: "number",
       },
       {
         key: "f_carrier",

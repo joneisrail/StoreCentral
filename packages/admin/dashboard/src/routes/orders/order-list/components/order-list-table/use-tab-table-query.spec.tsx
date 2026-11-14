@@ -161,27 +161,53 @@ describe("useTabTableQuery", () => {
     ).toBe("hold")
   })
 
-  it("maps created_at and total to operator maps", () => {
+  it("maps created_at to an operator map", () => {
     const created = encodeURIComponent(
       JSON.stringify({ $gte: "2026-01-01", $lte: "2026-02-01" })
     )
-    const total = encodeURIComponent(JSON.stringify({ $gt: "10", $lt: "50" }))
-    const { result } = setup(
-      `/?rts_f_created_at=${created}&rts_f_total=${total}`
-    )
+    const { result } = setup(`/?rts_f_created_at=${created}`)
     const query = result.current.q.toOrdersQuery({}, null)
     expect(query.created_at).toEqual({
       $gte: "2026-01-01",
       $lte: "2026-02-01",
     })
-    expect(query.total).toEqual({ $gt: 10, $lt: 50 })
+  })
+
+  it("never sends a total filter (the server compares totals as text)", () => {
+    const { result } = setup("/?rts_f_total=%7B%22%24gt%22%3A%2210%22%7D")
+    expect(result.current.q.toOrdersQuery({}, null)).not.toHaveProperty("total")
+    expect(result.current.q.filters).toEqual({})
+  })
+
+  it("keeps commas inside free-text values", () => {
+    const value = encodeURIComponent("Standard, 2-day")
+    const { result } = setup(`/?rts_f_delivery=${value}&rts_f_sku=A,B`)
+    expect(result.current.q.filters.delivery).toEqual(["Standard, 2-day"])
+    expect(result.current.q.searchParams).toEqual({
+      delivery: "Standard, 2-day",
+      sku: "A,B",
+    })
+  })
+
+  it("still splits the multi-select lists on commas", () => {
+    const { result } = setup("/?rts_f_region_id=a,b")
+    expect(result.current.q.filters.region_id).toEqual(["a", "b"])
+  })
+
+  it("reports an invalid free-text country and counts every visible chip", () => {
+    const { result } = setup("/?rts_f_country_other=USA")
+    expect(result.current.q.searchParams).toEqual({})
+    expect(result.current.q.invalidFilters).toEqual(["country_other"])
+    expect(result.current.q.hasUserCriteria).toBe(true)
+    const ok = setup("/?rts_f_country_other=us")
+    expect(ok.result.current.q.invalidFilters).toEqual([])
+    expect(ok.result.current.q.searchParams).toEqual({ country: "US" })
   })
 
   it("ignores malformed JSON filters", () => {
-    const { result } = setup("/?rts_f_created_at=%7Bnope&rts_f_total=abc")
+    const { result } = setup("/?rts_f_created_at=%7Bnope")
     const query = result.current.q.toOrdersQuery({}, null)
     expect(query).not.toHaveProperty("created_at")
-    expect(query).not.toHaveProperty("total")
   })
 
   it("clearAll removes the search and every filter of its prefix only", () => {

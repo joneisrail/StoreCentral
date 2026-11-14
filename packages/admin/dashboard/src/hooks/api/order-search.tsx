@@ -43,7 +43,7 @@ export const normalizeOrderSearchParams = (
       continue
     }
 
-    const value = raw.trim().slice(0, MAX_LENGTH)
+    const value = raw.slice(0, MAX_LENGTH).trim()
     if (!value) {
       continue
     }

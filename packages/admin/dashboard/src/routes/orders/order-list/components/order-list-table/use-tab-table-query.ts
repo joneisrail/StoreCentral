@@ -18,23 +18,33 @@ const LIST_KEYS = [
   "tag_id",
   "region_id",
 ] as const
-const JSON_KEYS = ["created_at", "total"] as const
-const SEARCH_KEYS = ["sku", "country", "carrier", "ship_from", "delivery"]
-/** Free-text twins of the select filters; they fold into the same param. */
-const OTHER_KEYS = ["country_other", "carrier_other"]
+const JSON_KEYS = ["created_at"] as const
+// There is deliberately no total filter: the server compares order totals as
+// text (see integration-tests/http/orders-total-filter.spec.ts).
+/**
+ * Keys holding a comma-separated list (multi-selects, and the single selects
+ * whose values never contain commas). Every other key is free text and is
+ * kept whole, commas included.
+ */
+const LIST_VALUE_KEYS: string[] = [
+  ...LIST_KEYS,
+  "country",
+  "carrier",
+  "ship_from",
+]
+const TEXT_KEYS = ["sku", "delivery", "country_other", "carrier_other"]
 
 const ALL_FILTER_KEYS: string[] = [
   ...LIST_KEYS,
   ...JSON_KEYS,
-  ...SEARCH_KEYS,
-  ...OTHER_KEYS,
+  "country",
+  "carrier",
+  "ship_from",
+  ...TEXT_KEYS,
 ]
 
 const DATE_OPERATORS = ["$gte", "$lte", "$gt", "$lt"]
-const NUMBER_OPERATORS = ["$gte", "$lte", "$gt", "$lt", "$eq"]
 
-const isJsonKey = (key: string) =>
-  (JSON_KEYS as readonly string[]).includes(key)
 const filterParam = (prefix: string, key: string) => `${prefix}_f_${key}`
 
 const parseOperatorMap = (
@@ -75,10 +85,6 @@ const parseOperatorMap = (
   return Object.keys(out).length ? out : undefined
 }
 
-const toNumber = (v: unknown) => {
-  const n = Number(v)
-  return Number.isFinite(n) ? n : undefined
-}
 const toDateString = (v: unknown) => {
   return typeof v === "string" ? v : undefined
 }
@@ -148,7 +154,9 @@ export const useTabTableQuery = (prefix: string) => {
       if (!raw) {
         return
       }
-      const values = isJsonKey(key) ? [raw] : raw.split(",").filter(Boolean)
+      const values = LIST_VALUE_KEYS.includes(key)
+        ? raw.split(",").filter(Boolean)
+        : [raw]
       if (values.length) {
         out[key] = values
       }
@@ -161,9 +169,9 @@ export const useTabTableQuery = (prefix: string) => {
       setParams(
         (prev) => {
           const out = new URLSearchParams(prev)
-          const value = (isJsonKey(key) ? values.slice(0, 1) : values)
-            .filter(Boolean)
-            .join(isJsonKey(key) ? "" : ",")
+          const value = LIST_VALUE_KEYS.includes(key)
+            ? values.filter(Boolean).join(",")
+            : (values[0] ?? "")
           if (value) {
             out.set(filterParam(prefix, key), value)
           } else {
@@ -226,19 +234,20 @@ export const useTabTableQuery = (prefix: string) => {
     if (createdAt) {
       out.created_at = createdAt
     }
-    const total = parseOperatorMap(
-      filters.total?.[0],
-      NUMBER_OPERATORS,
-      toNumber
-    )
-    if (total) {
-      out.total = total
-    }
     return out
   }, [filters])
 
+  // Free-text country chips that would silently search nothing.
+  const invalidFilters = useMemo(() => {
+    const other = filters.country_other?.[0]
+    return other && !/^[A-Za-z]{2}$/.test(other.trim()) ? ["country_other"] : []
+  }, [filters])
+
+  // Every visible chip counts, so Clear all never hides while one shows.
   const hasUserCriteria =
-    hasSearchCriteria || Object.keys(directCriteria).length > 0
+    hasSearchCriteria ||
+    Object.keys(directCriteria).length > 0 ||
+    Object.keys(filters).length > 0
 
   /** Changes whenever the active criteria do; tables reset their offset on it. */
   const criteriaKey = useMemo(
@@ -286,9 +295,6 @@ export const useTabTableQuery = (prefix: string) => {
       if (directCriteria.created_at && baseTabQuery.created_at === undefined) {
         query.created_at = directCriteria.created_at
       }
-      if (directCriteria.total && baseTabQuery.total === undefined) {
-        query.total = directCriteria.total
-      }
 
       if (hasSearchCriteria) {
         const tabId = baseTabQuery.id
@@ -320,6 +326,7 @@ export const useTabTableQuery = (prefix: string) => {
     clearAll,
     hasUserCriteria,
     hasSearchCriteria,
+    invalidFilters,
     criteriaKey,
     toOrdersQuery,
     searchParams,

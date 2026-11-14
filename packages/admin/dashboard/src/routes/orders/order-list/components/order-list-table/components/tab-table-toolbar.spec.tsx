@@ -119,6 +119,25 @@ describe("TabTableToolbar", () => {
     ).toBe("")
   })
 
+  it("shows an inline error for an invalid free-text country and keeps Clear all", () => {
+    renderToolbar("/?rts_f_country_other=USA")
+    expect(screen.getByText("orders.list.filters.countryInvalid")).toBeTruthy()
+    expect(screen.getByText("orders.list.clearAll")).toBeTruthy()
+  })
+
+  it("selecting a country clears the free-text country (and vice versa)", async () => {
+    const user = userEvent.setup()
+    renderToolbar("/?rts_f_country_other=de")
+    await user.click(screen.getByText("filters.addFilter"))
+    await user.click(await screen.findByText("orders.list.filters.country"))
+    await user.click(await screen.findByText("US"))
+    await waitFor(() => expect(url()).toContain("rts_f_country=US"))
+    await waitFor(() => expect(url()).not.toContain("country_other"))
+    await waitFor(() =>
+      expect(screen.queryByText("orders.list.filters.countryOther")).toBeNull()
+    )
+  })
+
   it("shows the truncation notice", () => {
     renderToolbar("/", {
       searchState: { truncated: true, isError: false, refetch: vi.fn() },

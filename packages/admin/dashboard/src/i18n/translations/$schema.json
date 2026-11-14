@@ -4855,13 +4855,13 @@
                 "fulfillmentStatus": {
                   "type": "string"
                 },
-                "total": {
-                  "type": "string"
-                },
                 "country": {
                   "type": "string"
                 },
                 "countryOther": {
+                  "type": "string"
+                },
+                "countryInvalid": {
                   "type": "string"
                 },
                 "carrier": {
@@ -4884,9 +4884,9 @@
                 "orderDate",
                 "paymentStatus",
                 "fulfillmentStatus",
-                "total",
                 "country",
                 "countryOther",
+                "countryInvalid",
                 "carrier",
                 "carrierOther",
                 "shipFrom",

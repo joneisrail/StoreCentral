@@ -1,10 +1,16 @@
 import { Button, Input, Text } from "@medusajs/ui"
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 
 import { DataTableFilter } from "../../../../../../components/table/data-table/data-table-filter"
 import type { useTabTableQuery } from "../use-tab-table-query"
 import { useTabFilters } from "./tab-filter-definitions"
+
+// A select and its free-text twin filter the same thing; picking one drops the other.
+const EXCLUSIVE_PAIRS = [
+  ["country", "country_other"],
+  ["carrier", "carrier_other"],
+]
 
 type TabTableToolbarProps = {
   /** The tab table's URL prefix (the same one given to `useTabTableQuery`). */
@@ -42,6 +48,31 @@ export const TabTableToolbar = ({
     }
   }, [clearing, query.hasUserCriteria])
 
+  // Mutual exclusion: when both twins hold a value, the one that just changed
+  // wins and the other is removed (and its chip dropped once the URL agrees).
+  const { filters: activeValues, removeFilter } = query
+  const previous = useRef(activeValues)
+  const [dropped, setDropped] = useState<string[]>([])
+  useEffect(() => {
+    const before = previous.current
+    previous.current = activeValues
+    for (const [a, b] of EXCLUSIVE_PAIRS) {
+      if (!activeValues[a] || !activeValues[b]) {
+        continue
+      }
+      const aChanged = before[a]?.join() !== activeValues[a].join()
+      const loser = aChanged ? b : a
+      removeFilter(loser)
+      setDropped((d) => [...d, loser])
+    }
+  }, [activeValues, removeFilter])
+  useEffect(() => {
+    if (dropped.length && dropped.every((k) => !activeValues[k])) {
+      setDropped([])
+      setResetCount((n) => n + 1)
+    }
+  }, [dropped, activeValues])
+
   const showClearAll = query.hasUserCriteria || query.search.trim().length > 0
 
   return (
@@ -77,6 +108,11 @@ export const TabTableToolbar = ({
           </Button>
         )}
       </div>
+      {query.invalidFilters.includes("country_other") && (
+        <Text size="small" className="text-ui-fg-error" role="alert">
+          {t("orders.list.filters.countryInvalid")}
+        </Text>
+      )}
       {searchState.isError && (
         <div role="alert" className="flex items-center gap-x-2">
           <Text size="small" className="text-ui-fg-error">
