@@ -57,4 +57,22 @@ describe("RowTagsCell", () => {
       screen.getByRole("button", { name: "orders.tags.addToOrder" })
     ).toBeTruthy()
   })
+
+  it("renders the reserved On hold tag as a read-only chip with no remove control", () => {
+    render(
+      <RowTagsCell
+        orderId="order_9"
+        tags={[
+          { id: "t1", value: "On hold" },
+          { id: "t2", value: "gift" },
+        ]}
+      />
+    )
+
+    const chip = screen.getByText("On hold")
+    expect(chip.querySelector("button")).toBeNull()
+    expect(chip.closest("button")).toBeNull()
+    expect(chip.getAttribute("data-reserved-tag")).toBe("true")
+    expect(screen.getByText("gift").getAttribute("data-reserved-tag")).toBeNull()
+  })
 })

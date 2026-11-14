@@ -9,6 +9,7 @@ import {
   useBulkTagOrders,
   useCreateOrderTag,
 } from "../../../../../hooks/api/order-tags"
+import { HOLD_TAG_VALUE } from "../../../../../hooks/api/order-query-keys"
 import { ordersQueryKeys } from "../../../../../hooks/api/orders"
 import { useComboboxData } from "../../../../../hooks/use-combobox-data"
 import { sdk } from "../../../../../lib/client"
@@ -31,10 +32,13 @@ export const OrderTagsRow = ({ order }: OrderTagsRowProps) => {
     queryKey: orderTagsQueryKeys.lists(),
     queryFn: (params) => sdk.admin.orderTags.list(params),
     getOptions: (data) =>
-      data.order_tags.map((tag) => ({
-        label: tag.value,
-        value: tag.id,
-      })),
+      data.order_tags
+        // Reserved: managed only by the hold/release flow.
+        .filter((tag) => tag.value !== HOLD_TAG_VALUE)
+        .map((tag) => ({
+          label: tag.value,
+          value: tag.id,
+        })),
   })
 
   // `useBulkTagOrders`/`useCreateOrderTag` already invalidate the orders list
@@ -95,7 +99,7 @@ export const OrderTagsRow = ({ order }: OrderTagsRowProps) => {
   const handleCreateTag = async (typedValue: string) => {
     const value = typedValue.trim()
 
-    if (!value) {
+    if (!value || value === HOLD_TAG_VALUE) {
       return
     }
 
@@ -118,6 +122,7 @@ export const OrderTagsRow = ({ order }: OrderTagsRowProps) => {
           className="flex max-w-full items-center gap-x-0.5 overflow-hidden pl-1.5 pr-1 transition-fg"
         >
           <span className="truncate">{tag.value}</span>
+          {tag.value !== HOLD_TAG_VALUE && (
           <button
             type="button"
             onClick={() => handleRemoveTag(tag.id)}
@@ -125,6 +130,7 @@ export const OrderTagsRow = ({ order }: OrderTagsRowProps) => {
           >
             <XMarkMini />
           </button>
+          )}
         </Badge>
       ))}
       <Combobox

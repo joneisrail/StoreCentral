@@ -6,6 +6,7 @@ import {
   orderTagsQueryKeys,
   useBulkTagOrders,
 } from "../../../../../../hooks/api/order-tags"
+import { HOLD_TAG_VALUE } from "../../../../../../hooks/api/order-query-keys"
 import { useComboboxData } from "../../../../../../hooks/use-combobox-data"
 import { sdk } from "../../../../../../lib/client"
 
@@ -36,10 +37,14 @@ export const BulkTagOrdersModal = ({
     queryKey: orderTagsQueryKeys.lists(),
     queryFn: (params) => sdk.admin.orderTags.list(params),
     getOptions: (data) =>
-      data.order_tags.map((tag) => ({
-        label: tag.value,
-        value: tag.id,
-      })),
+      data.order_tags
+        // "On hold" is reserved: it is managed only by the hold/release
+        // flow so the tag and the hold metadata never desync.
+        .filter((tag) => tag.value !== HOLD_TAG_VALUE)
+        .map((tag) => ({
+          label: tag.value,
+          value: tag.id,
+        })),
   })
 
   const { mutateAsync, isPending } = useBulkTagOrders({

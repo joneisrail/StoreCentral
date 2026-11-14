@@ -3,6 +3,7 @@ import { Badge, IconButton } from "@medusajs/ui"
 import { useState } from "react"
 import { useTranslation } from "react-i18next"
 
+import { HOLD_TAG_VALUE } from "../../../../../../hooks/api/order-query-keys"
 import { BulkTagOrdersModal } from "./bulk-tag-orders-modal"
 import { RowLinkGuard } from "./row-link-guard"
 
@@ -37,6 +38,7 @@ export const RowTagsCell = ({ orderId, tags }: RowTagsCellProps) => {
           color={tagColor(tag.value)}
           size="2xsmall"
           className="w-fit"
+          data-reserved-tag={tag.value === HOLD_TAG_VALUE ? "true" : undefined}
         >
           {tag.value}
         </Badge>
