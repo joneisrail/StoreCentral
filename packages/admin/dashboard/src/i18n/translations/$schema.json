@@ -4828,6 +4828,73 @@
             "holdLookupRetry": {
               "type": "string"
             },
+            "searchPlaceholder": {
+              "type": "string"
+            },
+            "searchError": {
+              "type": "string"
+            },
+            "searchRetry": {
+              "type": "string"
+            },
+            "searchTruncated": {
+              "type": "string"
+            },
+            "clearAll": {
+              "type": "string"
+            },
+            "filters": {
+              "type": "object",
+              "properties": {
+                "orderDate": {
+                  "type": "string"
+                },
+                "paymentStatus": {
+                  "type": "string"
+                },
+                "fulfillmentStatus": {
+                  "type": "string"
+                },
+                "total": {
+                  "type": "string"
+                },
+                "country": {
+                  "type": "string"
+                },
+                "countryOther": {
+                  "type": "string"
+                },
+                "carrier": {
+                  "type": "string"
+                },
+                "carrierOther": {
+                  "type": "string"
+                },
+                "shipFrom": {
+                  "type": "string"
+                },
+                "delivery": {
+                  "type": "string"
+                },
+                "sku": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "orderDate",
+                "paymentStatus",
+                "fulfillmentStatus",
+                "total",
+                "country",
+                "countryOther",
+                "carrier",
+                "carrierOther",
+                "shipFrom",
+                "delivery",
+                "sku"
+              ],
+              "additionalProperties": false
+            },
             "tabs": {
               "type": "object",
               "properties": {
@@ -4865,6 +4932,12 @@
             "noRecordsMessage",
             "holdLookupError",
             "holdLookupRetry",
+            "searchPlaceholder",
+            "searchError",
+            "searchRetry",
+            "searchTruncated",
+            "clearAll",
+            "filters",
             "tabs"
           ],
           "additionalProperties": false

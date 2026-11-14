@@ -43,12 +43,15 @@ type DataTableFilterProps = {
   filters: Filter[]
   readonly?: boolean
   prefix?: string
+  /** For callers that render their own Clear all (it can also clear search). */
+  hideClearAll?: boolean
 }
 
 export const DataTableFilter = ({
   filters,
   readonly,
   prefix,
+  hideClearAll,
 }: DataTableFilterProps) => {
   const { t } = useTranslation()
   const [searchParams] = useSearchParams()
@@ -217,7 +220,7 @@ export const DataTableFilter = ({
             </RadixPopover.Portal>
           </RadixPopover.Root>
         )}
-        {!readonly && activeFilters.length > 0 && (
+        {!readonly && !hideClearAll && activeFilters.length > 0 && (
           <ClearAllFilters filters={filters} prefix={prefix} />
         )}
       </div>
