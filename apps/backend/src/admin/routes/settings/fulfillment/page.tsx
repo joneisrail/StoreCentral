@@ -1,3 +1,4 @@
+import { useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { defineRouteConfig } from "@medusajs/admin-sdk"
 import { Container, Heading, Input, Label, Select, Text } from "@medusajs/ui"
@@ -86,6 +87,46 @@ const FulfillmentSettingsPage = () => {
     refetchChannels()
   }
 
+  const [thresholdError, setThresholdError] = useState<string | null>(null)
+
+  const highValueThreshold = store?.metadata?.high_value_threshold as
+    | number
+    | string
+    | undefined
+
+  const handleHighValueThresholdBlur = async (rawValue: string) => {
+    if (!store) {
+      return
+    }
+
+    // A cleared input removes the key so the default (500) applies again.
+    if (rawValue.trim() === "") {
+      setThresholdError(null)
+
+      if (store.metadata?.high_value_threshold === undefined) {
+        return
+      }
+
+      const { high_value_threshold: _removed, ...rest } = store.metadata ?? {}
+      await sdk.admin.store.update(store.id, { metadata: rest })
+      refetchStore()
+      return
+    }
+
+    const threshold = Number(rawValue)
+
+    if (!Number.isFinite(threshold) || threshold < 0) {
+      setThresholdError("Enter a number that is zero or more.")
+      return
+    }
+
+    setThresholdError(null)
+    await sdk.admin.store.update(store.id, {
+      metadata: { ...store.metadata, high_value_threshold: threshold },
+    })
+    refetchStore()
+  }
+
   return (
     <Container>
       <Heading level="h1">Fulfillment</Heading>
@@ -111,6 +152,38 @@ const FulfillmentSettingsPage = () => {
               ))}
             </Select.Content>
           </Select>
+        )}
+      </div>
+
+      <div>
+        <Heading level="h2">High-value order alerts</Heading>
+        <Text size="small">
+          Orders at or above this total are flagged as high value. Leave blank
+          to use the default of 500.
+        </Text>
+
+        {store && (
+          <div>
+            <Label htmlFor="high-value-threshold">
+              High-value order alert threshold
+            </Label>
+            <Input
+              id="high-value-threshold"
+              type="number"
+              min={0}
+              key={String(highValueThreshold ?? "")}
+              defaultValue={highValueThreshold ?? ""}
+              aria-invalid={thresholdError ? true : undefined}
+              onBlur={(event) =>
+                handleHighValueThresholdBlur(event.target.value)
+              }
+            />
+            {thresholdError && (
+              <Text size="small" className="text-ui-fg-error" role="alert">
+                {thresholdError}
+              </Text>
+            )}
+          </div>
         )}
       </div>
 

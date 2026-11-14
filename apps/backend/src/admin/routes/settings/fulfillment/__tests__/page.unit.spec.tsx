@@ -146,4 +146,78 @@ describe("FulfillmentSettingsPage", () => {
     await new Promise((resolve) => setTimeout(resolve, 20))
     expect(mockSalesChannelUpdate).not.toHaveBeenCalled()
   })
+
+  describe("high-value order alert threshold", () => {
+    it("shows the saved threshold and saves a new one to store metadata", async () => {
+      mockStoreList.mockResolvedValue({
+        stores: [
+          {
+            id: "store_1",
+            metadata: { default_ship_from_location_id: "sloc_a", high_value_threshold: 750 },
+          },
+        ],
+        count: 1,
+        limit: 1,
+        offset: 0,
+      })
+      renderPage()
+
+      const input = (await screen.findByLabelText(
+        /High-value order alert threshold/i
+      )) as HTMLInputElement
+      expect(input.value).toBe("750")
+
+      fireEvent.change(input, { target: { value: "900" } })
+      fireEvent.blur(input)
+
+      await waitFor(() =>
+        expect(mockStoreUpdate).toHaveBeenCalledWith("store_1", {
+          metadata: {
+            default_ship_from_location_id: "sloc_a",
+            high_value_threshold: 900,
+          },
+        })
+      )
+    })
+
+    it("blank removes the threshold so the default applies", async () => {
+      mockStoreList.mockResolvedValue({
+        stores: [
+          {
+            id: "store_1",
+            metadata: { other_key: "kept", high_value_threshold: 750 },
+          },
+        ],
+        count: 1,
+        limit: 1,
+        offset: 0,
+      })
+      renderPage()
+
+      const input = await screen.findByLabelText(
+        /High-value order alert threshold/i
+      )
+      fireEvent.change(input, { target: { value: "" } })
+      fireEvent.blur(input)
+
+      await waitFor(() =>
+        expect(mockStoreUpdate).toHaveBeenCalledWith("store_1", {
+          metadata: { other_key: "kept" },
+        })
+      )
+    })
+
+    it("rejects a negative value with an inline error and saves nothing", async () => {
+      renderPage()
+
+      const input = await screen.findByLabelText(
+        /High-value order alert threshold/i
+      )
+      fireEvent.change(input, { target: { value: "-5" } })
+      fireEvent.blur(input)
+
+      expect(await screen.findByText(/zero or more/i)).toBeInTheDocument()
+      expect(mockStoreUpdate).not.toHaveBeenCalled()
+    })
+  })
 })
