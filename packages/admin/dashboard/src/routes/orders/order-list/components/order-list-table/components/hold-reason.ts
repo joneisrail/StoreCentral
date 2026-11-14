@@ -7,3 +7,13 @@ export const getHoldReason = (
 
   return typeof reason === "string" && reason.trim() ? reason : null
 }
+
+const HOLD_TAG_LABEL = "On hold"
+
+/** An order is held when it carries the `On hold` tag or `metadata.hold`. */
+export const isOrderHeld = (order: {
+  tags?: { value?: string | null }[] | null
+  metadata?: Record<string, unknown> | null
+}): boolean =>
+  !!order.tags?.some((tag) => tag?.value === HOLD_TAG_LABEL) ||
+  !!order.metadata?.hold

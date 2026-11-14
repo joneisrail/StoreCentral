@@ -119,6 +119,12 @@ vi.mock("../../../../../../hooks/api/orders", () => ({
 // above, so both are mocked out for the same reason.
 // The Tags cell renders `BulkTagOrdersModal` (via `row-tags-cell.tsx`), which
 // pulls in `lib/client` build-time defines through `hooks/api/order-tags`.
+// The row actions menu pulls in the hold/cancel hooks (`lib/client`); it has
+// its own spec.
+vi.mock("./row-actions-menu", () => ({
+  RowActionsMenu: () => <span data-testid="row-actions" />,
+}))
+
 vi.mock("./bulk-tag-orders-modal", () => ({
   BulkTagOrdersModal: () => null,
 }))

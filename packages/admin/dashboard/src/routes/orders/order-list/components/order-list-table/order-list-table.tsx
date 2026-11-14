@@ -48,7 +48,7 @@ const AllOrdersTable = () => {
 
   const { orders, count, isError, error, isLoading } = useOrders(
     {
-      fields: DEFAULT_FIELDS,
+      fields: `${DEFAULT_FIELDS},metadata`,
       ...searchParams,
     },
     {

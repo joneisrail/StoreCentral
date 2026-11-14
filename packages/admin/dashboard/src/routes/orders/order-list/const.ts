@@ -53,6 +53,7 @@ export const READY_TO_SHIP_RELATIONS = [
   "+sales_channel.metadata",
   "+tags.id",
   "+tags.value",
+  "+fulfillments.id",
 ]
 
 export const READY_TO_SHIP_FIELDS = `${DEFAULT_PROPERTIES.join(

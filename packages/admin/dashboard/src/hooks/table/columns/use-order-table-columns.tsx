@@ -12,6 +12,10 @@ import {
   DateCell,
   DateHeader,
 } from "../../../components/table/table-cells/common/date-cell"
+import {
+  getHoldReason,
+  isOrderHeld,
+} from "../../../routes/orders/order-list/components/order-list-table/components/hold-reason"
 import { countries } from "../../../lib/data/countries"
 import { CountryCell } from "../../../components/table/table-cells/order/country-cell"
 import {
@@ -94,10 +98,24 @@ export const useOrderTableColumns = (props: UseOrderTableColumnsProps) => {
         : []),
       columnHelper.accessor("display_id", {
         header: () => <DisplayIdHeader />,
-        cell: ({ getValue }) => {
+        cell: ({ getValue, row }) => {
           const id = getValue()
+          const held = isOrderHeld(row.original)
 
-          return <DisplayIdCell displayId={id!} />
+          return (
+            <div className="flex h-full w-full items-center gap-x-2 overflow-hidden">
+              <DisplayIdCell displayId={id!} />
+              {held && (
+                <Badge
+                  size="2xsmall"
+                  color="orange"
+                  title={getHoldReason(row.original.metadata) ?? undefined}
+                >
+                  {t("orders.rowActions.onHoldBadge")}
+                </Badge>
+              )}
+            </div>
+          )
         },
       }),
       columnHelper.accessor("created_at", {

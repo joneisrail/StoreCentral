@@ -5,7 +5,10 @@ import {
   useHoldTag,
 } from "../../../../../../hooks/api/order-holds"
 import { getViewQuery } from "../../../order-views"
+import { ACTIVE_ROW_ACTIONS_COLUMN } from "./row-actions-menu"
 import { ViewOrderTable } from "./view-order-table"
+
+const AWAITING_PAYMENT_COLUMNS = [ACTIVE_ROW_ACTIONS_COLUMN]
 
 /**
  * The "Awaiting Payment" view: unpaid, non-canceled orders, excluding held
@@ -24,6 +27,8 @@ export const AwaitingPaymentTable = () => {
         holdTagId: tagId,
       })}
       prefix="awp"
+      extraFields="+fulfillments.id"
+      extraColumns={AWAITING_PAYMENT_COLUMNS}
       noRecordsMessage={t("orders.awaitingPayment.noRecordsMessage")}
       lookupLoading={tagLoading || heldLoading}
       lookupError={tagError || heldError}

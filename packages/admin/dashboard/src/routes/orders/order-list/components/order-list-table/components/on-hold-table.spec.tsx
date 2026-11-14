@@ -18,9 +18,12 @@ const { mockUseOrders, mockUseHoldTag } = vi.hoisted(() => ({
 
 vi.mock("../../../../../../hooks/api/orders", () => ({
   useOrders: (...args: any[]) => mockUseOrders(...args),
+  useCancelOrder: () => ({ mutateAsync: vi.fn() }),
 }))
 vi.mock("../../../../../../hooks/api/order-holds", () => ({
   useHoldTag: () => mockUseHoldTag(),
+  useReleaseOrder: () => ({ mutateAsync: vi.fn() }),
+  useHoldOrder: () => ({ mutateAsync: vi.fn() }),
 }))
 
 if (!Element.prototype.scroll) {
@@ -100,6 +103,13 @@ describe("OnHoldTable", () => {
     expect(options.enabled).toBe(true)
     expect(screen.getByText("orders.holdTable.reason")).toBeTruthy()
     expect(screen.getByText("Suspected fraud")).toBeTruthy()
+    // one row-actions menu trigger per row, and the fulfillments are requested
+    expect(params.fields).toContain("+fulfillments.id")
+    expect(
+      screen
+        .getAllByRole("button")
+        .filter((b) => b.getAttribute("aria-haspopup") === "menu")
+    ).toHaveLength(2)
   })
 
   it("does not fetch while the tag is loading", () => {

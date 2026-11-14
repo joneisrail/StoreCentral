@@ -433,6 +433,10 @@ export const useCancelOrder = (
   return useMutation({
     mutationFn: () => sdk.admin.order.cancel(orderId),
     onSuccess: (data: any, variables: any, context: any) => {
+      // List views (tabs) and their counts change when an order is canceled.
+      queryClient.invalidateQueries({ queryKey: ordersQueryKeys.lists() })
+      queryClient.invalidateQueries({ queryKey: ["order-view-counts"] })
+
       queryClient.invalidateQueries({
         queryKey: ordersQueryKeys.detail(orderId),
       })

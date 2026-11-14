@@ -47,6 +47,7 @@ import { DueBadge } from "./due-badge"
 import { EmailToggle } from "./email-toggle"
 import { ItemCell } from "./item-cell"
 import { OverdueBanner } from "./overdue-banner"
+import { RowActionsMenu } from "./row-actions-menu"
 import { RowTagsCell } from "./row-tags-cell"
 import { PackagePopover, PackageSelection } from "./package-popover"
 import { ShipDateCell, ShipTimeCell } from "./ship-by-cell"
@@ -749,13 +750,16 @@ const useReadyToShipTableColumns = (
       columnHelper.display({
         id: "fulfill",
         cell: ({ row }) => (
-          <FulfillConfirmPopover
-            order={row.original}
-            rowLocationOverride={rowLocationOverrideRef.current}
-            rowRates={rowRatesRef.current}
-            defaultLocationId={defaultLocationIdRef.current}
-            sendEmail={rowSendEmailRef.current[row.original.id] !== false}
-          />
+          <div className="flex items-center gap-x-1">
+            <FulfillConfirmPopover
+              order={row.original}
+              rowLocationOverride={rowLocationOverrideRef.current}
+              rowRates={rowRatesRef.current}
+              defaultLocationId={defaultLocationIdRef.current}
+              sendEmail={rowSendEmailRef.current[row.original.id] !== false}
+            />
+            <RowActionsMenu order={row.original as any} mode="active" />
+          </div>
         ),
       }),
     ],

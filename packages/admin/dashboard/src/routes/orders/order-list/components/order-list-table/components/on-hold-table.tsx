@@ -7,6 +7,7 @@ import { PlaceholderCell } from "../../../../../../components/table/table-cells/
 import { useHoldTag } from "../../../../../../hooks/api/order-holds"
 import { getViewQuery } from "../../../order-views"
 import { getHoldReason } from "./hold-reason"
+import { HELD_ROW_ACTIONS_COLUMN } from "./row-actions-menu"
 import { ViewOrderTable } from "./view-order-table"
 
 const columnHelper = createColumnHelper<HttpTypes.AdminOrder>()
@@ -40,12 +41,6 @@ const useReasonColumn = () => {
 }
 
 /**
- * Columns appended after the Reason column. The Release row action is added
- * here by the release task; kept as a named, empty list until then.
- */
-const ON_HOLD_ACTION_COLUMNS: ColumnDef<HttpTypes.AdminOrder, any>[] = []
-
-/**
  * The "On Hold" view: orders carrying the hold tag. Only needs the hold tag
  * (not the held ids), so only a tag lookup failure errors this table.
  */
@@ -55,7 +50,7 @@ export const OnHoldTable = () => {
   const reasonColumn = useReasonColumn()
 
   const extraColumns = useMemo(
-    () => [reasonColumn, ...ON_HOLD_ACTION_COLUMNS],
+    () => [reasonColumn, HELD_ROW_ACTIONS_COLUMN],
     [reasonColumn]
   )
 
@@ -64,7 +59,7 @@ export const OnHoldTable = () => {
       query={getViewQuery("on-hold", { heldIds: [], holdTagId: tagId })}
       prefix="hld"
       noRecordsMessage={t("orders.holdTable.noRecordsMessage")}
-      extraFields="metadata"
+      extraFields="metadata,+fulfillments.id"
       extraColumns={extraColumns}
       lookupLoading={isLoading}
       lookupError={isError}

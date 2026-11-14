@@ -4868,6 +4868,62 @@
           "required": ["noRecordsMessage"],
           "additionalProperties": false
         },
+        "rowActions": {
+          "type": "object",
+          "properties": {
+            "hold": {
+              "type": "string"
+            },
+            "release": {
+              "type": "string"
+            },
+            "cancel": {
+              "type": "string"
+            },
+            "cancelDisabled": {
+              "type": "string"
+            },
+            "holdTitle": {
+              "type": "string"
+            },
+            "holdDescription": {
+              "type": "string"
+            },
+            "holdReason": {
+              "type": "string"
+            },
+            "holdConfirm": {
+              "type": "string"
+            },
+            "holdSuccess": {
+              "type": "string"
+            },
+            "releaseWarning": {
+              "type": "string"
+            },
+            "releaseSuccess": {
+              "type": "string"
+            },
+            "onHoldBadge": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "hold",
+            "release",
+            "cancel",
+            "cancelDisabled",
+            "holdTitle",
+            "holdDescription",
+            "holdReason",
+            "holdConfirm",
+            "holdSuccess",
+            "releaseWarning",
+            "releaseSuccess",
+            "onHoldBadge"
+          ],
+          "additionalProperties": false
+        },
         "holdTable": {
           "type": "object",
           "properties": {
@@ -6986,6 +7042,7 @@
         "tags",
         "list",
         "awaitingPayment",
+        "rowActions",
         "holdTable",
         "cancelled",
         "readyToShip",

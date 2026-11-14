@@ -1245,6 +1245,20 @@
     "awaitingPayment": {
       "noRecordsMessage": "Orders awaiting payment will show up here."
     },
+    "rowActions": {
+      "hold": "Put on hold",
+      "release": "Release",
+      "cancel": "Cancel order",
+      "cancelDisabled": "Void the shipping label first",
+      "holdTitle": "Put order {{id}} on hold",
+      "holdDescription": "Held orders move to the On Hold tab and cannot be fulfilled until released.",
+      "holdReason": "Reason for the hold",
+      "holdConfirm": "Put on hold",
+      "holdSuccess": "Order put on hold",
+      "releaseWarning": "You are about to release the hold on order {{id}}.",
+      "releaseSuccess": "Order released",
+      "onHoldBadge": "On hold"
+    },
     "holdTable": {
       "reason": "Reason",
       "noRecordsMessage": "Orders on hold will show up here."
