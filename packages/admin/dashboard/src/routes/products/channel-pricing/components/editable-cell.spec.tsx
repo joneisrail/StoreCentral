@@ -9,7 +9,11 @@ import {
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("react-i18next", () => ({
-  useTranslation: () => ({ t: (key: string) => key }),
+  useTranslation: () => ({
+    t: (key: string, o?: { channel?: string }) => {
+      return o?.channel ? `${key}:${o.channel}` : key
+    },
+  }),
 }))
 
 import { EditableCell } from "./editable-cell"
@@ -88,19 +92,25 @@ describe("EditableCell", () => {
     await waitFor(() => expect(onSave).toHaveBeenCalledWith(null))
   })
 
-  it.each([["-1"], ["abc"], ["1e3"], ["1.234"]])(
-    "rejects invalid price %s inline",
-    (bad) => {
-      const { onSave } = setup()
-      const input = open()
-      fireEvent.change(input, { target: { value: bad } })
-      fireEvent.keyDown(input, { key: "Enter" })
-      expect(onSave).not.toHaveBeenCalled()
-      expect(screen.getByRole("alert")).toBeTruthy()
-    }
-  )
+  it.each([
+    ["-1"],
+    ["abc"],
+    ["1e3"],
+    ["1.234"],
+    ["12."],
+    ["12,5"],
+    ["1000001"],
+    ["9".repeat(400)],
+  ])("rejects invalid price %s inline", (bad) => {
+    const { onSave } = setup()
+    const input = open()
+    fireEvent.change(input, { target: { value: bad } })
+    fireEvent.keyDown(input, { key: "Enter" })
+    expect(onSave).not.toHaveBeenCalled()
+    expect(screen.getByRole("alert")).toBeTruthy()
+  })
 
-  it.each([["1.5"], ["-2"], [""], ["x"]])(
+  it.each([["1.5"], ["-2"], [""], ["x"], ["1000001"]])(
     "rejects invalid stock %j inline",
     (bad) => {
       const { onSave } = setup({ kind: "stock", value: 3, display: "3" })
@@ -124,6 +134,59 @@ describe("EditableCell", () => {
       await screen.findByText("Only 2 free units are available")
     ).toBeTruthy()
     expect(screen.getByRole("textbox")).toBeTruthy()
+  })
+
+  it("keeps focus after a failed save, Esc cancels, blur does not resubmit", async () => {
+    const onSave = vi.fn().mockRejectedValue(new Error("Only 2 free units"))
+    setup({ kind: "stock", value: 3, display: "3", onSave })
+    const input = open()
+    fireEvent.change(input, { target: { value: "50" } })
+    fireEvent.keyDown(input, { key: "Enter" })
+    await screen.findByText("Only 2 free units")
+    expect(input.disabled).toBe(false)
+    fireEvent.blur(input)
+    expect(onSave).toHaveBeenCalledTimes(1)
+    fireEvent.keyDown(input, { key: "Escape" })
+    expect(screen.queryByRole("textbox")).toBeNull()
+  })
+
+  it("editing after an error clears it and Enter retries", async () => {
+    const onSave = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("Only 2 free units"))
+      .mockResolvedValueOnce(undefined)
+    setup({ kind: "stock", value: 3, display: "3", onSave })
+    const input = open()
+    fireEvent.change(input, { target: { value: "50" } })
+    fireEvent.keyDown(input, { key: "Enter" })
+    await screen.findByText("Only 2 free units")
+    fireEvent.change(input, { target: { value: "2" } })
+    expect(screen.queryByRole("alert")).toBeNull()
+    fireEvent.keyDown(input, { key: "Enter" })
+    await waitFor(() => expect(onSave).toHaveBeenLastCalledWith(2))
+    await waitFor(() => expect(screen.queryByRole("textbox")).toBeNull())
+  })
+
+  it("Enter then blur makes one request", async () => {
+    const { onSave } = setup()
+    const input = open()
+    fireEvent.change(input, { target: { value: "12" } })
+    fireEvent.keyDown(input, { key: "Enter" })
+    fireEvent.blur(input)
+    await waitFor(() => expect(screen.queryByRole("textbox")).toBeNull())
+    expect(onSave).toHaveBeenCalledTimes(1)
+  })
+
+  it("describes a failed cell with its error text", () => {
+    setup({ failed: true, error: "Rejected by eBay" })
+    const cell = screen.getByTestId("editable-cell")
+    const id = cell.getAttribute("aria-describedby") as string
+    expect(document.getElementById(id)?.textContent).toBe("Rejected by eBay")
+  })
+
+  it("does not show a strikethrough equal to the current value", () => {
+    setup({ pending: true, previousDisplay: "10.00" })
+    expect(screen.getAllByText("10.00")).toHaveLength(1)
   })
 
   it("renders read-only text without a pencil", () => {
@@ -154,6 +217,7 @@ describe("SyncButton", () => {
     render(
       <SyncButton
         channelName="Webstore"
+        live
         hasConnection={false}
         state={null}
         onSync={vi.fn()}
@@ -161,6 +225,36 @@ describe("SyncButton", () => {
     )
     expect(screen.getByText("channelPricing.live")).toBeTruthy()
     expect(screen.queryByRole("button")).toBeNull()
+  })
+
+  it("shows Not connected for a marketplace without a connection", () => {
+    render(
+      <SyncButton
+        channelName="eBay"
+        hasConnection={false}
+        state={null}
+        onSync={vi.fn()}
+      />
+    )
+    expect(screen.getByText("channelPricing.notConnected")).toBeTruthy()
+    expect(screen.queryByText("channelPricing.live")).toBeNull()
+  })
+
+  it("names the failed retry button and links the error", () => {
+    render(
+      <SyncButton
+        channelName="eBay"
+        hasConnection
+        state="failed"
+        error="Rejected by eBay"
+        onSync={vi.fn()}
+      />
+    )
+    const btn = screen.getByRole("button", {
+      name: "channelPricing.sync.retry:eBay",
+    })
+    const id = btn.getAttribute("aria-describedby") as string
+    expect(document.getElementById(id)?.textContent).toBe("Rejected by eBay")
   })
 
   it("shows busy while syncing, then idle", async () => {
@@ -180,7 +274,7 @@ describe("SyncButton", () => {
       />
     )
     const btn = screen.getByRole("button", {
-      name: "channelPricing.sync.label",
+      name: "channelPricing.sync.label:eBay",
     })
     fireEvent.click(btn)
     expect(onSync).toHaveBeenCalledTimes(1)

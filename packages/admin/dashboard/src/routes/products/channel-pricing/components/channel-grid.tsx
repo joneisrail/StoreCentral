@@ -180,7 +180,9 @@ export const ChannelGrid = () => {
     })
     if (cell.has_connection) {
       setPrevious((prev) => {
-        if (cell.sync_state === "pending" && key in prev) {
+        // Only a synced cell has a trustworthy previous value; a cell that
+        // loaded already pending keeps amber without a strikethrough.
+        if (cell.sync_state !== "synced") {
           return prev
         }
         return { ...prev, [key]: old }
@@ -466,11 +468,9 @@ export const ChannelGrid = () => {
                           {cell && (
                             <SyncButton
                               channelName={c.name}
-                              hasConnection={
-                                cell.has_connection &&
-                                c.kind !== "web" &&
-                                c.kind !== "pos"
-                              }
+                              live={c.kind === "web" || c.kind === "pos"}
+                              hasConnection={cell.has_connection}
+                              error={cell.last_error}
                               state={cell.sync_state}
                               onSync={() =>
                                 syncOffer.mutateAsync({

@@ -1,11 +1,12 @@
 import { Pencil } from "@medusajs/icons"
-import { KeyboardEvent, useRef, useState } from "react"
+import { KeyboardEvent, useId, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 
 export type EditableCellKind = "price" | "stock"
 
 const PRICE_PATTERN = /^\d+(\.\d{1,2})?$/
 const STOCK_PATTERN = /^\d+$/
+const MAX_VALUE = 1_000_000
 
 type Parsed = { ok: true; value: number | null } | { ok: false }
 
@@ -16,11 +17,11 @@ const parse = (kind: EditableCellKind, raw: string): Parsed => {
     if (text === "") {
       return { ok: true, value: null }
     }
-    return PRICE_PATTERN.test(text)
+    return PRICE_PATTERN.test(text) && Number(text) <= MAX_VALUE
       ? { ok: true, value: Number(text) }
       : { ok: false }
   }
-  return STOCK_PATTERN.test(text)
+  return STOCK_PATTERN.test(text) && Number(text) <= MAX_VALUE
     ? { ok: true, value: Number(text) }
     : { ok: false }
 }
@@ -62,6 +63,10 @@ export const EditableCell = ({
   const [message, setMessage] = useState<string | null>(null)
   // Guards against blur firing after Enter/Esc or while a save is in flight.
   const settled = useRef(false)
+  // The draft the server last rejected; blur must not resubmit it unchanged.
+  const rejectedDraft = useRef<string | null>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const errorId = useId()
 
   const state = failed ? "failed" : pending ? "pending" : "idle"
   const tone =
@@ -85,6 +90,7 @@ export const EditableCell = ({
 
   const start = () => {
     settled.current = false
+    rejectedDraft.current = null
     setDraft(value === null || value === undefined ? "" : String(value))
     setMessage(null)
     setEditing(true)
@@ -98,6 +104,9 @@ export const EditableCell = ({
 
   const commit = async () => {
     if (settled.current || saving) {
+      return
+    }
+    if (rejectedDraft.current === draft) {
       return
     }
     const parsed = parse(kind, draft)
@@ -123,6 +132,8 @@ export const EditableCell = ({
       setEditing(false)
     } catch (e) {
       settled.current = false
+      rejectedDraft.current = draft
+      setTimeout(() => inputRef.current?.focus(), 0)
       setMessage(
         e instanceof Error && e.message
           ? e.message
@@ -151,17 +162,20 @@ export const EditableCell = ({
         className="inline-flex flex-col items-end gap-y-1"
       >
         <input
+          ref={inputRef}
           autoFocus
-          inputMode="decimal"
+          inputMode={kind === "price" ? "decimal" : "numeric"}
           aria-label={label}
           aria-invalid={message ? true : undefined}
           placeholder={
             kind === "price" ? t("channelPricing.edit.basePrice") : undefined
           }
-          disabled={saving}
+          readOnly={saving}
+          aria-describedby={message ? errorId : undefined}
           value={draft}
           onChange={(e) => {
             setDraft(e.target.value)
+            rejectedDraft.current = null
             setMessage(null)
           }}
           onKeyDown={onKeyDown}
@@ -174,7 +188,11 @@ export const EditableCell = ({
           </span>
         )}
         {message && (
-          <span role="alert" className="max-w-[16rem] text-xs text-ui-fg-error">
+          <span
+            id={errorId}
+            role="alert"
+            className="max-w-[16rem] text-xs text-ui-fg-error"
+          >
             {message}
           </span>
         )}
@@ -187,14 +205,20 @@ export const EditableCell = ({
       data-testid="editable-cell"
       data-state={state}
       title={failed && error ? error : undefined}
+      aria-describedby={failed && error ? errorId : undefined}
       className={`group relative inline-flex items-center gap-x-1 rounded px-1 ${tone}`}
     >
-      {pending && previousDisplay ? (
+      {pending && previousDisplay && previousDisplay !== display ? (
         <span className="text-xs text-ui-fg-muted line-through">
           {previousDisplay}
         </span>
       ) : null}
       <span>{display}</span>
+      {failed && error ? (
+        <span id={errorId} className="sr-only">
+          {error}
+        </span>
+      ) : null}
       <button
         type="button"
         aria-label={label}

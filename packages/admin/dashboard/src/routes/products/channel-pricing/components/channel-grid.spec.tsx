@@ -11,7 +11,11 @@ import { createMemoryRouter, RouterProvider } from "react-router-dom"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("react-i18next", () => ({
-  useTranslation: () => ({ t: (key: string) => key }),
+  useTranslation: () => ({
+    t: (key: string, o?: { channel?: string }) => {
+      return o?.channel ? `${key}:${o.channel}` : key
+    },
+  }),
 }))
 
 const { mockUseChannelOffers, mockUpdate, mockSync } = vi.hoisted(() => ({
@@ -129,10 +133,10 @@ describe("ChannelGrid", () => {
   it("makes web/POS price read-only but keeps stock editable", () => {
     renderAt()
     expect(
-      screen.getAllByRole("button", { name: "channelPricing.edit.price" })
+      screen.getAllByRole("button", { name: /channelPricing\.edit\.price/ })
     ).toHaveLength(1)
     expect(
-      screen.getAllByRole("button", { name: "channelPricing.edit.stock" })
+      screen.getAllByRole("button", { name: /channelPricing\.edit\.stock/ })
     ).toHaveLength(2)
   })
 
@@ -151,15 +155,36 @@ describe("ChannelGrid", () => {
     renderAt()
     expect(screen.getAllByText("channelPricing.live")).toHaveLength(1)
     expect(
-      screen.getAllByRole("button", { name: "channelPricing.sync.label" })
+      screen.getAllByRole("button", { name: "channelPricing.sync.label:eBay" })
     ).toHaveLength(1)
+  })
+
+  it("shows a cell that loaded pending as amber without a strikethrough", () => {
+    ok({
+      rows: [
+        {
+          ...data.rows[0],
+          channels: {
+            ch_ebay: cell({ has_connection: true, sync_state: "pending" }),
+            ch_web: cell(),
+          },
+        },
+      ],
+    })
+    renderAt()
+    expect(
+      screen
+        .getAllByTestId("editable-cell")
+        .some((c) => c.getAttribute("data-state") === "pending")
+    ).toBe(true)
+    expect(document.querySelector(".line-through")).toBeNull()
   })
 
   it("saves a stock edit through the update route", async () => {
     mockUpdate.mockResolvedValue({})
     renderAt()
     fireEvent.click(
-      screen.getAllByRole("button", { name: "channelPricing.edit.stock" })[0]
+      screen.getAllByRole("button", { name: /channelPricing\.edit\.stock/ })[0]
     )
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "5" } })
     fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter" })
@@ -176,7 +201,7 @@ describe("ChannelGrid", () => {
     mockUpdate.mockResolvedValue({})
     renderAt()
     fireEvent.click(
-      screen.getByRole("button", { name: "channelPricing.edit.price" })
+      screen.getByRole("button", { name: /channelPricing\.edit\.price/ })
     )
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "" } })
     fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter" })
@@ -209,7 +234,7 @@ describe("ChannelGrid", () => {
     })
     renderAt()
     const btn = screen.getByRole("button", {
-      name: "channelPricing.sync.label",
+      name: "channelPricing.sync.retry:eBay",
     })
     fireEvent.click(btn)
     expect(mockSync).toHaveBeenCalledWith({

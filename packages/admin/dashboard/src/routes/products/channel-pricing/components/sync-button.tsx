@@ -1,26 +1,41 @@
 import { ArrowPath, CheckCircleSolid, ExclamationCircle } from "@medusajs/icons"
-import { useState } from "react"
+import { useId, useState } from "react"
 import { useTranslation } from "react-i18next"
 
 type SyncButtonProps = {
   channelName: string
-  /** False for web store, POS and unconnected channels: shown as "live". */
+  /** Web store and POS channels are "live" and never need a sync. */
+  live?: boolean
+  /** False for a marketplace without a connection: "Not connected". */
   hasConnection: boolean
+  /** last_error of a failed cell, announced with the retry button. */
+  error?: string | null
   state: string | null
   onSync: () => Promise<unknown>
 }
 
 export const SyncButton = ({
   channelName,
+  live,
   hasConnection,
+  error,
   state,
   onSync,
 }: SyncButtonProps) => {
   const { t } = useTranslation()
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
+  const errorId = useId()
 
-  if (!hasConnection) {
+  if (!live && !hasConnection) {
+    return (
+      <span className="text-xs text-ui-fg-muted">
+        {t("channelPricing.notConnected")}
+      </span>
+    )
+  }
+
+  if (live) {
     return (
       <span className="text-xs text-ui-fg-muted">
         {t("channelPricing.live")}
@@ -66,8 +81,12 @@ export const SyncButton = ({
     <span className="inline-flex flex-col items-end">
       <button
         type="button"
-        aria-label={t("channelPricing.sync.label")}
-        title={`${t("channelPricing.sync.label")} (${channelName})`}
+        aria-label={
+          state === "failed"
+            ? t("channelPricing.sync.retry", { channel: channelName })
+            : t("channelPricing.sync.label", { channel: channelName })
+        }
+        aria-describedby={state === "failed" && error ? errorId : undefined}
         aria-busy={busy}
         disabled={busy}
         onClick={() => void run()}
@@ -75,6 +94,11 @@ export const SyncButton = ({
       >
         <Icon className={busy ? "animate-spin" : undefined} />
       </button>
+      {state === "failed" && error ? (
+        <span id={errorId} className="sr-only">
+          {error}
+        </span>
+      ) : null}
       {message && (
         <span role="alert" className="max-w-[16rem] text-xs text-ui-fg-error">
           {message}

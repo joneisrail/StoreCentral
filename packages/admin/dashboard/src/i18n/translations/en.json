@@ -468,17 +468,19 @@
     "total": "Total",
     "unallocated": "Unallocated",
     "live": "live",
+    "notConnected": "Not connected",
     "edit": {
       "price": "Edit {{channel}} price",
       "stock": "Edit {{channel}} stock",
       "basePrice": "Base price",
-      "invalidPrice": "Enter a price of 0 or more, or leave it empty to use the base price.",
-      "invalidStock": "Enter a whole number of 0 or more.",
+      "invalidPrice": "Enter a price from 0 to 1,000,000, or leave it empty to use the base price.",
+      "invalidStock": "Enter a whole number from 0 to 1,000,000.",
       "saving": "Saving...",
       "saveFailed": "The change could not be saved."
     },
     "sync": {
-      "label": "Sync now",
+      "label": "Sync {{channel}} now",
+      "retry": "Retry sync {{channel}}",
       "failed": "The sync could not be started."
     },
     "baseMarker": "base",

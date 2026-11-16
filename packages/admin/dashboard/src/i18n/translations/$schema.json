@@ -1857,6 +1857,9 @@
         "live": {
           "type": "string"
         },
+        "notConnected": {
+          "type": "string"
+        },
         "edit": {
           "type": "object",
           "properties": {
@@ -1899,11 +1902,14 @@
             "label": {
               "type": "string"
             },
+            "retry": {
+              "type": "string"
+            },
             "failed": {
               "type": "string"
             }
           },
-          "required": ["label", "failed"],
+          "required": ["label", "retry", "failed"],
           "additionalProperties": false
         },
         "baseMarker": {
@@ -1950,6 +1956,7 @@
         "total",
         "unallocated",
         "live",
+        "notConnected",
         "edit",
         "sync",
         "baseMarker",
