@@ -12818,6 +12818,34 @@
         "subtitle": {
           "type": "string"
         },
+        "channelStock": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string"
+            },
+            "shareStock": {
+              "type": "string"
+            },
+            "shareStockHint": {
+              "type": "string"
+            },
+            "loadError": {
+              "type": "string"
+            },
+            "saved": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "title",
+            "shareStock",
+            "shareStockHint",
+            "loadError",
+            "saved"
+          ],
+          "additionalProperties": false
+        },
         "list": {
           "type": "object",
           "properties": {
@@ -12934,6 +12962,12 @@
             "syncNotLive": {
               "type": "string"
             },
+            "autoSyncPrice": {
+              "type": "string"
+            },
+            "autoSyncPriceHint": {
+              "type": "string"
+            },
             "sectionTitle": {
               "type": "string"
             },
@@ -13009,6 +13043,9 @@
             "toast": {
               "type": "object",
               "properties": {
+                "autoSyncPriceSaved": {
+                  "type": "string"
+                },
                 "saved": {
                   "type": "string"
                 },
@@ -13068,6 +13105,7 @@
                 }
               },
               "required": [
+                "autoSyncPriceSaved",
                 "saved",
                 "saveTestFailed",
                 "saveApplyFailed",
@@ -13097,6 +13135,8 @@
             "none",
             "credentialsHint",
             "syncNotLive",
+            "autoSyncPrice",
+            "autoSyncPriceHint",
             "sectionTitle",
             "loading",
             "loadError",
@@ -13163,6 +13203,7 @@
       "required": [
         "domain",
         "subtitle",
+        "channelStock",
         "list",
         "createSalesChannel",
         "createSalesChannelHint",

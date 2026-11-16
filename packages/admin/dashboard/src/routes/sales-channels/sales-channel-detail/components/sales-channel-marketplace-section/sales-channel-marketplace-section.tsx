@@ -20,6 +20,7 @@ import {
 import { MARKETPLACES } from "../../../components/marketplace-fields"
 import { MarketplaceConnectDrawer } from "../marketplace-connect-drawer"
 import { MarketplaceEditDrawer } from "../marketplace-edit-drawer"
+import { AutoSyncPriceSwitch } from "./auto-sync-price-switch"
 
 type SalesChannelMarketplaceSectionProps = {
   salesChannelId: string
@@ -202,6 +203,11 @@ const ConnectionDetails = ({
           </div>
         </Row>
       ) : null}
+      <AutoSyncPriceSwitch
+        connectionId={connection.id}
+        checked={connection.auto_sync_price === true}
+        disabled={!actionsEnabled}
+      />
       {actionsEnabled ? (
         <div className="flex flex-wrap items-center gap-2 px-6 py-4">
           <Button

@@ -3322,6 +3322,13 @@
   "salesChannels": {
     "domain": "Sales Channels",
     "subtitle": "Manage the online and offline channels you sell products on.",
+    "channelStock": {
+      "title": "Channel stock",
+      "shareStock": "Share stock across channels after a sale",
+      "shareStockHint": "After a sale on one channel, the remaining stock is split equally across all channels.",
+      "loadError": "Could not load the channel stock setting.",
+      "saved": "Channel stock setting saved"
+    },
     "list": {
       "empty": {
         "heading": "No sales channels found",
@@ -3355,6 +3362,8 @@
       "none": "No marketplace",
       "credentialsHint": "Credentials are stored securely and are never shown again. You can leave them empty and add them later.",
       "syncNotLive": "Saved — sync not live yet",
+      "autoSyncPrice": "Auto-sync prices",
+      "autoSyncPriceHint": "Push price changes to this marketplace automatically. When off, prices are sent only when you press the sync icon.",
       "sectionTitle": "Marketplace connection",
       "loading": "Loading marketplace connection...",
       "loadError": "Could not load the marketplace connection.",
@@ -3380,6 +3389,7 @@
       "disconnectWarning": "This removes the stored credentials and stops syncing for this sales channel.",
       "testFailedUnchanged": "The working connection was left unchanged.",
       "toast": {
+        "autoSyncPriceSaved": "Auto-sync prices saved",
         "saved": "Credentials saved",
         "saveTestFailed": "Credentials saved, but the connection test failed: {{message}}",
         "saveApplyFailed": "Credentials saved, but the connection could not be started: {{message}}",

@@ -38,6 +38,8 @@ export type MarketplaceConnection = {
   sync_live: boolean
   fields: Record<string, unknown>
   webhook_url: string | null
+  // Added by the backend in Task 14; absent means off.
+  auto_sync_price?: boolean
 }
 
 export type MarketplaceTestResult = { ok: boolean; message?: string }
@@ -87,7 +89,9 @@ export type CreateMarketplaceSalesChannelResponse = {
   fields?: string[]
 }
 
-export type SaveMarketplaceConnectionInput = CredentialFields
+export type SaveMarketplaceConnectionInput = CredentialFields & {
+  auto_sync_price?: boolean
+}
 
 export type MarketplaceConnectionResponse = {
   connection?: MarketplaceConnection | null
