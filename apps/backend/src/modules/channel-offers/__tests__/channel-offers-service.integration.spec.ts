@@ -83,6 +83,51 @@ moduleIntegrationTestRunner<ChannelOffersModuleService>({
         expect(cleared.price).toBeNull()
       })
 
+      it("concurrent identical applyMovement calls: one true, one false", async () => {
+        const m = {
+          kind: "order" as const,
+          variant_id: "variant_7",
+          sales_channel_id: "sc_a",
+          delta: -1,
+          ref: "line_race",
+        }
+        const results = await Promise.all([
+          service.applyMovement(m),
+          service.applyMovement(m),
+        ])
+        expect(results.filter(Boolean)).toHaveLength(1)
+        expect(results.filter((r) => !r)).toHaveLength(1)
+      })
+
+      it("concurrent ensureOffers calls leave one row per (variant, channel)", async () => {
+        await Promise.all([
+          service.ensureOffers(["variant_8", "variant_9"], ["sc_a", "sc_b"]),
+          service.ensureOffers(["variant_9", "variant_10"], ["sc_b", "sc_c"]),
+        ])
+        for (const [v, n] of [
+          ["variant_8", 2],
+          ["variant_9", 3],
+          ["variant_10", 2],
+        ] as const) {
+          const rows = await service.listForVariant(v)
+          expect(rows).toHaveLength(n)
+          expect(new Set(rows.map((r) => r.sales_channel_id)).size).toBe(n)
+        }
+      })
+
+      it("setStocks and setPrice reject negative values", async () => {
+        await service.ensureOffers(["variant_11"], ["sc_a"])
+        await expect(
+          service.setStocks("variant_11", { sc_a: -1 })
+        ).rejects.toThrow(/must be >= 0/)
+        await expect(
+          service.setPrice("variant_11", "sc_a", -0.01)
+        ).rejects.toThrow(/must be >= 0/)
+        const [row] = await service.listForVariant("variant_11")
+        expect(row.stock).toBe(0)
+        expect(row.price).toBeNull()
+      })
+
       it("setStocks and markSync persist", async () => {
         await service.ensureOffers(["variant_5"], ["sc_a", "sc_b"])
         await service.setStocks("variant_5", { sc_a: 3, sc_b: 4 })
