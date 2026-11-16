@@ -1,5 +1,5 @@
 import { Button, Container, Heading, Text } from "@medusajs/ui"
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { useSearchParams } from "react-router-dom"
 
@@ -21,6 +21,17 @@ const formatAmount = (value: number | null | undefined) => {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })
+}
+
+const STATIC_ORDER = /^-?(name|total|unallocated)$/
+const CHANNEL_ORDER = /^-?([A-Za-z0-9_]+):(stock|price)$/
+
+const isKnownOrder = (order: string, channelIds: Set<string>) => {
+  if (STATIC_ORDER.test(order)) {
+    return true
+  }
+  const match = CHANNEL_ORDER.exec(order)
+  return !!match && channelIds.has(match[1])
 }
 
 const selectClass =
@@ -67,11 +78,19 @@ export const ChannelGrid = () => {
   const [params, setParams] = useSearchParams()
 
   const q = params.get("q") ?? ""
-  const order = params.get("order") || DEFAULT_ORDER
+  const urlOrder = params.get("order") || DEFAULT_ORDER
   const offset = Math.max(0, Number(params.get("offset")) || 0)
   const channelsParam = params.get("channels")
 
   const [searchText, setSearchText] = useState(q)
+  // Channel ids from the last good response, used to validate the URL order.
+  const knownChannelIds = useRef<Set<string>>(new Set())
+  const orderIsValid = isKnownOrder(urlOrder, knownChannelIds.current)
+  const order = orderIsValid ? urlOrder : DEFAULT_ORDER
+
+  useEffect(() => {
+    setSearchText(q)
+  }, [q])
 
   const update = (changes: Record<string, string | null>) => {
     setParams(
@@ -109,6 +128,11 @@ export const ChannelGrid = () => {
   })
 
   const allChannels = data?.channels ?? []
+  if (data) {
+    knownChannelIds.current = new Set(data.channels.map((c) => c.id))
+  }
+  const sortWasReset =
+    !!data && !isKnownOrder(urlOrder, knownChannelIds.current)
   const visibleIds = useMemo(() => {
     if (channelsParam === null) {
       return null
@@ -162,6 +186,14 @@ export const ChannelGrid = () => {
   const rows = data?.rows ?? []
   const count = data?.count ?? 0
 
+  useEffect(() => {
+    if (data && !isError && rows.length === 0 && offset > 0 && count > 0) {
+      const last = Math.floor((count - 1) / PAGE_SIZE) * PAGE_SIZE
+      update({ offset: last > 0 ? String(last) : null })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, isError, offset, count, rows.length])
+
   return (
     <Container className="divide-y p-0">
       <div className="flex flex-col gap-y-3 px-6 py-4">
@@ -172,6 +204,7 @@ export const ChannelGrid = () => {
             role="searchbox"
             aria-label={t("channelPricing.search")}
             placeholder={t("channelPricing.search")}
+            maxLength={100}
             className={`${selectClass} w-64`}
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
@@ -232,6 +265,11 @@ export const ChannelGrid = () => {
             })}
           </div>
         )}
+        {sortWasReset && (
+          <Text size="small" className="text-ui-fg-subtle" role="status">
+            {t("channelPricing.sortReset")}
+          </Text>
+        )}
         {data?.truncated && (
           <Text size="small" className="text-ui-fg-subtle" role="status">
             {t("channelPricing.truncated")}
@@ -242,9 +280,20 @@ export const ChannelGrid = () => {
       {isError ? (
         <div className="flex flex-col items-center gap-y-3 px-6 py-12">
           <Text className="text-ui-fg-subtle">{t("channelPricing.error")}</Text>
-          <Button size="small" variant="secondary" onClick={() => refetch()}>
-            {t("actions.retry")}
-          </Button>
+          <div className="flex items-center gap-x-2">
+            <Button size="small" variant="secondary" onClick={() => refetch()}>
+              {t("actions.retry")}
+            </Button>
+            {params.get("order") && (
+              <Button
+                size="small"
+                variant="secondary"
+                onClick={() => update({ order: null, offset: null })}
+              >
+                {t("channelPricing.resetSort")}
+              </Button>
+            )}
+          </div>
         </div>
       ) : isLoading ? (
         <div className="px-6 py-12">
@@ -367,7 +416,8 @@ export const ChannelGrid = () => {
               disabled={offset === 0}
               onClick={() =>
                 update({
-                  offset: String(Math.max(0, offset - PAGE_SIZE)) || null,
+                  offset:
+                    offset - PAGE_SIZE <= 0 ? null : String(offset - PAGE_SIZE),
                 })
               }
             >

@@ -1866,6 +1866,12 @@
         "loading": {
           "type": "string"
         },
+        "resetSort": {
+          "type": "string"
+        },
+        "sortReset": {
+          "type": "string"
+        },
         "empty": {
           "type": "string"
         },
@@ -1895,6 +1901,8 @@
         "basePriceHint",
         "showing",
         "loading",
+        "resetSort",
+        "sortReset",
         "empty",
         "error",
         "truncated"

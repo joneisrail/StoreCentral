@@ -471,6 +471,8 @@
     "basePriceHint": "No channel price set, using the base price",
     "showing": "{{shown}} of {{count}} products",
     "loading": "Loading...",
+    "resetSort": "Reset sort",
+    "sortReset": "That sort is no longer available, so the default sort is used.",
     "empty": "No products match your search.",
     "error": "The channel grid could not be loaded.",
     "truncated": "Only part of your catalog is shown here. Narrow your search to see the rest."

@@ -164,6 +164,56 @@ describe("ChannelGrid", () => {
     expect(refetch).toHaveBeenCalled()
   })
 
+  it("never sends an unknown order and says the sort was reset", () => {
+    renderAt("/?order=-ch_deleted:stock")
+    expect(mockUseChannelOffers).toHaveBeenLastCalledWith(
+      expect.objectContaining({ order: "total" })
+    )
+    expect(screen.getByText("channelPricing.sortReset")).toBeTruthy()
+  })
+
+  it("sends a channel order once the channel is known", () => {
+    renderAt("/?order=-ch_ebay:stock")
+    // the first render has no channel list yet; any later render has one
+    fireEvent.click(screen.getByRole("button", { name: "Webstore" }))
+    expect(mockUseChannelOffers).toHaveBeenLastCalledWith(
+      expect.objectContaining({ order: "-ch_ebay:stock" })
+    )
+  })
+
+  it("offers Reset sort in the error state and clears the order", () => {
+    mockUseChannelOffers.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: true,
+      refetch: vi.fn(),
+    })
+    const router = renderAt("/?order=name")
+    fireEvent.click(
+      screen.getByRole("button", { name: "channelPricing.resetSort" })
+    )
+    expect(router.state.location.search).toBe("")
+  })
+
+  it("steps back when the offset is beyond the last page", () => {
+    ok({ rows: [], count: 120 })
+    const router = renderAt("/?offset=500")
+    expect(router.state.location.search).toBe("?offset=100")
+  })
+
+  it("resyncs the search box when q changes in the URL", () => {
+    const router = renderAt("/?q=rose")
+    expect((screen.getByRole("searchbox") as HTMLInputElement).value).toBe(
+      "rose"
+    )
+    act(() => {
+      router.navigate("/?q=musk")
+    })
+    expect((screen.getByRole("searchbox") as HTMLInputElement).value).toBe(
+      "musk"
+    )
+  })
+
   it("shows the truncated notice", () => {
     ok({ truncated: true })
     renderAt()
