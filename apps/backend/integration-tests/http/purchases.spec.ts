@@ -1,5 +1,6 @@
 import { medusaIntegrationTestRunner } from "@medusajs/test-utils"
 import { ContainerRegistrationKeys, Modules } from "@medusajs/framework/utils"
+import { CHANNEL_OFFERS_MODULE } from "../../src/modules/channel-offers"
 import { PURCHASE_MODULE } from "../../src/modules/purchase"
 import { createAdminUser } from "../helpers/create-admin-user"
 
@@ -1628,6 +1629,104 @@ medusaIntegrationTestRunner({
           expect(await allReceiptRowCounts()).toEqual({ receipts: 0, items: 0 })
           expect(await allStockLocationLinkCount()).toBe(0)
           expect(await stockedAt(shirt.inventory_item_id, location.id)).toBe(3)
+        })
+
+        describe("channel stock split", () => {
+          // Channels in creation order; the test DB may already hold a default one.
+          const channelsInOrder = async () => {
+            const query = getContainer().resolve(
+              ContainerRegistrationKeys.QUERY
+            ) as any
+            const { data } = await query.graph({
+              entity: "sales_channel",
+              fields: ["id", "created_at"],
+              pagination: { order: { created_at: "ASC" } },
+            })
+            return (data as { id: string }[]).map((c) => c.id)
+          }
+          const ensureThreeChannels = async () => {
+            let ids = await channelsInOrder()
+            while (ids.length < 3) {
+              await api.post(
+                "/admin/sales-channels",
+                { name: `Split channel ${ids.length}` },
+                adminHeaders
+              )
+              ids = await channelsInOrder()
+            }
+            return ids
+          }
+          const channelStock = async (variantId: string, ids: string[]) => {
+            const offers = getContainer().resolve(CHANNEL_OFFERS_MODULE) as any
+            const rows = await offers.listForVariant(variantId)
+            return ids.map(
+              (id) =>
+                rows.find((r: any) => r.sales_channel_id === id)?.stock ?? 0
+            )
+          }
+
+          it("splits the received quantity equally across all channels, odd units to the first channels, and accumulates over receipts", async () => {
+            const ids = await ensureThreeChannels()
+            const location = await createStockLocation()
+            const shirt = await createStockedVariant()
+            const purchase = await orderedPurchase([
+              { variant_id: shirt.id, quantity: 11 },
+            ])
+            const item = purchase.items[0].id
+
+            const first = await receive(purchase.id, {
+              stock_location_id: location.id,
+              items: [{ purchase_item_id: item, quantity: 7 }],
+            })
+            expect(first.status).toBe(200)
+            const n = ids.length
+            const base = Math.floor(7 / n)
+            const extra = 7 % n
+            expect(await channelStock(shirt.id, ids)).toEqual(
+              ids.map((_, i) => base + (i < extra ? 1 : 0))
+            )
+
+            const second = await receive(purchase.id, {
+              stock_location_id: location.id,
+              items: [{ purchase_item_id: item, quantity: 4 }],
+            })
+            expect(second.status).toBe(200)
+            const total = (await channelStock(shirt.id, ids)).reduce(
+              (s: number, v: number) => s + v,
+              0
+            )
+            expect(total).toBe(11)
+            expect(await stockedAt(shirt.inventory_item_id, location.id)).toBe(11)
+          })
+
+          it("a failing split leaves the purchase unreceived, stock untouched and no channel stock", async () => {
+            const ids = await ensureThreeChannels()
+            const location = await createStockLocation()
+            const shirt = await createStockedVariant()
+            await setStock(shirt.inventory_item_id, location.id, 3)
+            const purchase = await orderedPurchase([
+              { variant_id: shirt.id, quantity: 5 },
+            ])
+
+            const offers = getContainer().resolve(CHANNEL_OFFERS_MODULE) as any
+            const spy = jest
+              .spyOn(offers, "setStocks")
+              .mockRejectedValueOnce(new Error("split failed"))
+            const response = await receive(purchase.id, {
+              stock_location_id: location.id,
+              items: [{ purchase_item_id: purchase.items[0].id, quantity: 5 }],
+            })
+            spy.mockRestore()
+
+            expect(response.status).toBe(500)
+            const after = await fetchPurchase(purchase.id)
+            expect(after.status).toBe("ordered")
+            expect(after.items[0].quantity_received).toBe(0)
+            expect(after.receipts).toEqual([])
+            expect(await allReceiptRowCounts()).toEqual({ receipts: 0, items: 0 })
+            expect(await stockedAt(shirt.inventory_item_id, location.id)).toBe(3)
+            expect(await channelStock(shirt.id, ids)).toEqual(ids.map(() => 0))
+          })
         })
 
         it("still receives goods on an existing purchase after its supplier is made inactive", async () => {
