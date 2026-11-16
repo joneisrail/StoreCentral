@@ -49,12 +49,18 @@ export async function readOrderStockLines(
   }
 }
 
+type MovementKey = {
+  kind: "order" | "cancel" | "rebalance"
+  ref: string
+  sales_channel_id: string
+}
+
 type Applied = {
   variant_id: string
-  ref: string
-  kind: "order" | "cancel"
   previous: Record<string, number>
   previous_sync: Record<string, "synced" | "pending" | "failed">
+  // Exactly the movement rows created by this call.
+  movements: MovementKey[]
 }
 
 export type ApplyOrderResult = {
@@ -73,17 +79,27 @@ function log(container: Pick<MedusaContainer, "resolve">, message: string) {
 async function removeMovements(
   offers: ChannelOffersModuleService,
   variantId: string,
-  ref: string,
-  kind: "order" | "cancel"
+  keys: MovementKey[]
 ) {
-  const rows = (await offers.listChannelStockMovements({
-    variant_id: variantId,
-    ref: [ref],
-    kind: [kind, "rebalance"],
-  })) as unknown as { id: string }[]
-  if (rows.length) {
-    await offers.deleteChannelStockMovements(rows.map((r) => r.id))
+  for (const k of keys) {
+    const rows = (await offers.listChannelStockMovements({
+      variant_id: variantId,
+      sales_channel_id: k.sales_channel_id,
+      kind: k.kind,
+      ref: k.ref,
+    })) as unknown as { id: string }[]
+    if (rows.length) await offers.deleteChannelStockMovements(rows.map((r) => r.id))
   }
+}
+
+async function restore(offers: ChannelOffersModuleService, variantId: string, e: Applied) {
+  if (Object.keys(e.previous).length) {
+    await offers.setStocks(variantId, e.previous)
+    for (const [id, state] of Object.entries(e.previous_sync)) {
+      await offers.markSync(variantId, id, { state })
+    }
+  }
+  await removeMovements(offers, variantId, e.movements)
 }
 
 export const applyOrderToChannelStockStep = createStep(
@@ -115,7 +131,13 @@ export const applyOrderToChannelStockStep = createStep(
 
       await locking.execute([channelOfferLockKey(variantId)], async () => {
         const variant = await readVariantStock(container, variantId)
-        if (!variant.managed) return
+        if (!variant.managed) {
+          log(
+            container,
+            `Channel stock: variant ${variantId} missing or not stock-tracked (order ${input.order_id}), skipped`
+          )
+          return
+        }
 
         const rows = await offers.listForVariant(variantId)
         const row = rows.find((r) => r.sales_channel_id === channelId)
@@ -127,69 +149,103 @@ export const applyOrderToChannelStockStep = createStep(
           return
         }
 
+        // Already applied for this line and kind (redelivered event).
+        const done = await offers.listChannelStockMovements({
+          kind,
+          ref: line.id,
+          variant_id: variantId,
+          sales_channel_id: channelId,
+        })
+        if (done.length) return
+
         const ids = rows.map((r) => r.sales_channel_id)
         const before = Object.fromEntries(rows.map((r) => [r.sales_channel_id, r.stock]))
         let direct: Record<string, number>
         if (input.mode === "placed") {
           direct = deduct(before, channelId, line.quantity)
         } else {
+          // Add back only what the order movement of this very line deducted.
+          const [deductedRow] = (await offers.listChannelStockMovements({
+            kind: "order",
+            ref: line.id,
+            variant_id: variantId,
+            sales_channel_id: channelId,
+          })) as unknown as { delta: number }[]
+          if (!deductedRow) {
+            log(
+              container,
+              `Channel stock: line ${line.id} of order ${input.order_id} has no recorded deduction, cancel skipped`
+            )
+            return
+          }
+          const deducted = Math.max(0, -Number(deductedRow.delta))
           // Never let the channels together promise more than is available.
           const sum = Object.values(before).reduce((s, v) => s + v, 0)
           const free = Math.max(0, variant.available - sum)
-          direct = { ...before, [channelId]: before[channelId] + Math.min(line.quantity, free) }
+          direct = { ...before, [channelId]: before[channelId] + Math.min(deducted, free) }
         }
         const final = share ? resplitPool(direct, ids) : direct
-
-        // The movement is the idempotency gate: one per order line and kind.
-        const first = await offers.applyMovement({
-          kind,
+        const changedIds = ids.filter((id) => final[id] !== before[id])
+        const entry: Applied = {
           variant_id: variantId,
-          sales_channel_id: channelId,
-          delta: direct[channelId] - before[channelId],
-          ref: line.id,
-        })
-        if (!first) return
+          previous: Object.fromEntries(changedIds.map((id) => [id, before[id]])),
+          previous_sync: Object.fromEntries(
+            rows
+              .filter((r) => changedIds.includes(r.sales_channel_id))
+              .map((r) => [r.sales_channel_id, r.sync_state])
+          ),
+          movements: [],
+        }
 
         try {
-          for (const id of ids) {
-            const d = final[id] - direct[id]
-            if (d !== 0) {
-              await offers.applyMovement({
-                kind: "rebalance",
-                variant_id: variantId,
-                sales_channel_id: id,
-                delta: d,
-                ref: line.id,
-              })
-            }
-          }
-          const changedIds = ids.filter((id) => final[id] !== before[id])
-          const entry: Applied = {
-            variant_id: variantId,
-            ref: line.id,
-            kind,
-            previous: Object.fromEntries(changedIds.map((id) => [id, before[id]])),
-            previous_sync: Object.fromEntries(
-              rows
-                .filter((r) => changedIds.includes(r.sales_channel_id))
-                .map((r) => [r.sales_channel_id, r.sync_state])
-            ),
-          }
+          // Stock first, movement second: a crash in between double-applies on
+          // redelivery (never oversells) instead of silently losing a deduction.
           if (changedIds.length) {
             await offers.setStocks(
               variantId,
               Object.fromEntries(changedIds.map((id) => [id, final[id]]))
             )
-            for (const id of changedIds) {
-              await offers.markSync(variantId, id, { state: "pending" })
-              changed.set(`${variantId}|${id}`, { variant_id: variantId, sales_channel_id: id })
-            }
+            for (const id of changedIds) await offers.markSync(variantId, id, { state: "pending" })
           }
-          applied.push(entry)
+          const ok = await offers.applyMovement({
+            kind,
+            variant_id: variantId,
+            sales_channel_id: channelId,
+            delta: direct[channelId] - before[channelId],
+            ref: line.id,
+          })
+          if (!ok) throw new Error(`Movement for line ${line.id} was not recorded`)
+          entry.movements.push({ kind, ref: line.id, sales_channel_id: channelId })
+          const rebalanceRef = `${input.mode}:${line.id}`
+          for (const id of ids) {
+            const d = final[id] - direct[id]
+            if (d === 0) continue
+            const rec = await offers.applyMovement({
+              kind: "rebalance",
+              variant_id: variantId,
+              sales_channel_id: id,
+              delta: d,
+              ref: rebalanceRef,
+            })
+            if (!rec) throw new Error(`Rebalance movement for line ${line.id} was not recorded`)
+            entry.movements.push({ kind: "rebalance", ref: rebalanceRef, sales_channel_id: id })
+          }
         } catch (e) {
-          await removeMovements(offers, variantId, line.id, kind)
+          log(
+            container,
+            `Channel stock: failed applying line ${line.id} of order ${input.order_id}, rolling back`
+          )
+          try {
+            await restore(offers, variantId, entry)
+          } catch {
+            log(container, `Channel stock: rollback failed for line ${line.id}`)
+          }
           throw e
         }
+        for (const id of changedIds) {
+          changed.set(`${variantId}|${id}`, { variant_id: variantId, sales_channel_id: id })
+        }
+        applied.push(entry)
       })
     }
 
@@ -203,15 +259,9 @@ export const applyOrderToChannelStockStep = createStep(
     const offers = container.resolve<ChannelOffersModuleService>(CHANNEL_OFFERS_MODULE)
     const locking = container.resolve(Modules.LOCKING)
     for (const entry of [...applied].reverse()) {
-      await locking.execute([channelOfferLockKey(entry.variant_id)], async () => {
-        if (Object.keys(entry.previous).length) {
-          await offers.setStocks(entry.variant_id, entry.previous)
-          for (const [id, state] of Object.entries(entry.previous_sync)) {
-            await offers.markSync(entry.variant_id, id, { state })
-          }
-        }
-        await removeMovements(offers, entry.variant_id, entry.ref, entry.kind)
-      })
+      await locking.execute([channelOfferLockKey(entry.variant_id)], () =>
+        restore(offers, entry.variant_id, entry)
+      )
     }
   }
 )

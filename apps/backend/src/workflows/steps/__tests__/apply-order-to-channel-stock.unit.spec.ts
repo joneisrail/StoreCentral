@@ -30,6 +30,8 @@ function make(opts: {
   unmanaged?: string[]
   missingVariants?: string[]
   share?: boolean
+  // movements already recorded, e.g. the deduction a cancel must undo
+  prior?: { kind: string; ref: string; variant_id: string; sales_channel_id: string; delta: number }[]
 }) {
   const offers: any[] = []
   Object.entries(opts.stocks ?? {}).forEach(([variant_id, byChannel]) =>
@@ -44,7 +46,7 @@ function make(opts: {
       })
     )
   )
-  const movements: any[] = []
+  const movements: any[] = (opts.prior ?? []).map((m, i) => ({ ...m, id: `p${i}` }))
   const service = {
     ensureOffers: jest.fn(),
     listForVariant: jest.fn(async (v: string) =>
@@ -73,6 +75,7 @@ function make(opts: {
       movements.filter(
         (m) =>
           m.variant_id === f.variant_id &&
+          (f.sales_channel_id === undefined || m.sales_channel_id === f.sales_channel_id) &&
           ([] as string[]).concat(f.ref).includes(m.ref) &&
           ([] as string[]).concat(f.kind).includes(m.kind)
       )
@@ -127,6 +130,14 @@ const run = (c: any, mode: "placed" | "canceled" = "placed") =>
 const stocksOf = (offers: any[], v = "v1") =>
   Object.fromEntries(offers.filter((o) => o.variant_id === v).map((o) => [o.sales_channel_id, o.stock]))
 
+const prior = (ref: string, delta: number, channel = "a", variant = "v1") => ({
+  kind: "order",
+  ref,
+  variant_id: variant,
+  sales_channel_id: channel,
+  delta,
+})
+
 const order = (items: Line[], sales_channel_id: string | null = "a") => ({ sales_channel_id, items })
 
 describe("applyOrderToChannelStockStep", () => {
@@ -180,10 +191,11 @@ describe("applyOrderToChannelStockStep", () => {
       order: order([{ id: "li_1", variant_id: "v1", quantity: 3 }]),
       stocks: { v1: { a: 5, b: 5 } },
       available: { v1: 100 },
+      prior: [prior("li_1", -3)],
     })
     await run(t.c, "canceled")
     expect(stocksOf(t.offers)).toEqual({ a: 8, b: 5 })
-    expect(t.movements[0]).toMatchObject({ kind: "cancel", ref: "li_1", delta: 3 })
+    expect(t.movements.find((m) => m.kind === "cancel")).toMatchObject({ ref: "li_1", delta: 3 })
   })
 
   it("canceled adds back only the free units when the sum would exceed available stock", async () => {
@@ -191,10 +203,11 @@ describe("applyOrderToChannelStockStep", () => {
       order: order([{ id: "li_1", variant_id: "v1", quantity: 5 }]),
       stocks: { v1: { a: 5, b: 5 } },
       available: { v1: 12 },
+      prior: [prior("li_1", -5)],
     })
     await run(t.c, "canceled")
     expect(stocksOf(t.offers)).toEqual({ a: 7, b: 5 })
-    expect(t.movements[0].delta).toBe(2)
+    expect(t.movements.find((m) => m.kind === "cancel").delta).toBe(2)
   })
 
   it("canceled with nothing free changes nothing but is still recorded as handled", async () => {
@@ -202,11 +215,12 @@ describe("applyOrderToChannelStockStep", () => {
       order: order([{ id: "li_1", variant_id: "v1", quantity: 5 }]),
       stocks: { v1: { a: 5, b: 5 } },
       available: { v1: 10 },
+      prior: [prior("li_1", -5)],
     })
     const { result } = await run(t.c, "canceled")
     expect(stocksOf(t.offers)).toEqual({ a: 5, b: 5 })
     expect(result.changed).toEqual([])
-    expect(t.movements).toHaveLength(1)
+    expect(t.movements).toHaveLength(2)
   })
 
   it("canceled with the switch on re-splits after adding back", async () => {
@@ -215,6 +229,7 @@ describe("applyOrderToChannelStockStep", () => {
       stocks: { v1: { a: 8, b: 9, c: 9 } },
       available: { v1: 100 },
       share: true,
+      prior: [prior("li_1", -2)],
     })
     await run(t.c, "canceled")
     expect(stocksOf(t.offers)).toEqual({ a: 10, b: 9, c: 9 })
@@ -274,6 +289,136 @@ describe("applyOrderToChannelStockStep", () => {
     const { result } = await run(t.c)
     expect(stocksOf(t.offers)).toEqual({ a: 7, b: 10 })
     expect(result.changed).toEqual([{ variant_id: "v1", sales_channel_id: "a" }])
+  })
+
+  it("cancel with no recorded deduction changes nothing and logs ids only", async () => {
+    const t = make({
+      order: order([{ id: "li_1", variant_id: "v1", quantity: 3 }]),
+      stocks: { v1: { a: 5, b: 5 } },
+      available: { v1: 100 },
+    })
+    const { result } = await run(t.c, "canceled")
+    expect(stocksOf(t.offers)).toEqual({ a: 5, b: 5 })
+    expect(result.changed).toEqual([])
+    expect(t.movements).toEqual([])
+    expect(t.warn).toHaveBeenCalledWith(expect.stringContaining("li_1"))
+  })
+
+  it("a floored deduction is cancelled back for exactly what was deducted", async () => {
+    const t = make({
+      order: order([{ id: "li_1", variant_id: "v1", quantity: 5 }]),
+      stocks: { v1: { a: 2, b: 4 } },
+      available: { v1: 100 },
+    })
+    await run(t.c)
+    expect(stocksOf(t.offers)).toEqual({ a: 0, b: 4 })
+    await run(t.c, "canceled")
+    expect(stocksOf(t.offers)).toEqual({ a: 2, b: 4 })
+  })
+
+  it("a duplicate cancel delivery changes nothing", async () => {
+    const t = make({
+      order: order([{ id: "li_1", variant_id: "v1", quantity: 3 }]),
+      stocks: { v1: { a: 10, b: 10 } },
+      available: { v1: 100 },
+    })
+    await run(t.c)
+    await run(t.c, "canceled")
+    const { result } = await run(t.c, "canceled")
+    expect(stocksOf(t.offers)).toEqual({ a: 10, b: 10 })
+    expect(result.changed).toEqual([])
+  })
+
+  it("place then cancel the same line with the switch on records both rebalance sets", async () => {
+    const t = make({
+      order: order([{ id: "li_1", variant_id: "v1", quantity: 2 }]),
+      stocks: { v1: { a: 10, b: 10, c: 10 } },
+      available: { v1: 100 },
+      share: true,
+    })
+    await run(t.c)
+    await run(t.c, "canceled")
+    const rb = t.movements.filter((m) => m.kind === "rebalance")
+    expect(rb.filter((m) => m.ref === "placed:li_1").length).toBeGreaterThan(0)
+    expect(rb.filter((m) => m.ref === "canceled:li_1").length).toBeGreaterThan(0)
+    expect(stocksOf(t.offers)).toEqual({ a: 10, b: 10, c: 10 })
+  })
+
+  it("a failed cancel rolls back its own rows and leaves the placed rows intact", async () => {
+    const t = make({
+      order: order([{ id: "li_1", variant_id: "v1", quantity: 2 }]),
+      stocks: { v1: { a: 10, b: 10, c: 10 } },
+      available: { v1: 100 },
+      share: true,
+    })
+    await run(t.c)
+    const placedMovements = t.movements.map((m) => m.id)
+    const stocksAfterPlace = stocksOf(t.offers)
+    const orig = t.service.applyMovement.getMockImplementation()!
+    t.service.applyMovement.mockImplementation(async (m: any) => {
+      if (m.kind === "rebalance" && m.ref === "canceled:li_1") throw new Error("write failed")
+      return orig(m)
+    })
+    const r = await wf(t.c).run({
+      input: { order_id: "order_1", mode: "canceled" },
+      throwOnError: false,
+    })
+    expect(r.errors[0].error.message).toBe("write failed")
+    expect(stocksOf(t.offers)).toEqual(stocksAfterPlace)
+    expect(t.movements.map((m) => m.id)).toEqual(placedMovements)
+  })
+
+  it("writes stock before the movement and restores stock if the movement fails", async () => {
+    const t = make({
+      order: order([{ id: "li_1", variant_id: "v1", quantity: 3 }]),
+      stocks: { v1: { a: 10, b: 10 } },
+    })
+    const calls: string[] = []
+    const setOrig = t.service.setStocks.getMockImplementation()!
+    t.service.setStocks.mockImplementation(async (v: string, s: any) => {
+      calls.push("stock")
+      return setOrig(v, s)
+    })
+    const movOrig = t.service.applyMovement.getMockImplementation()!
+    t.service.applyMovement.mockImplementation(async (m: any) => {
+      calls.push("movement")
+      if (m.kind === "order") throw new Error("movement failed")
+      return movOrig(m)
+    })
+    const r = await wf(t.c).run({
+      input: { order_id: "order_1", mode: "placed" },
+      throwOnError: false,
+    })
+    expect(calls.slice(0, 2)).toEqual(["stock", "movement"])
+    expect(r.errors[0].error.message).toBe("movement failed")
+    expect(stocksOf(t.offers)).toEqual({ a: 10, b: 10 })
+    expect(t.movements).toEqual([])
+  })
+
+  it("a rollback error is logged and the original error is rethrown", async () => {
+    const t = make({
+      order: order([{ id: "li_1", variant_id: "v1", quantity: 3 }]),
+      stocks: { v1: { a: 10, b: 10 } },
+    })
+    t.service.applyMovement.mockRejectedValue(new Error("original"))
+    t.service.setStocks
+      .mockImplementationOnce(async () => {})
+      .mockRejectedValue(new Error("rollback"))
+    const r = await wf(t.c).run({
+      input: { order_id: "order_1", mode: "placed" },
+      throwOnError: false,
+    })
+    expect(r.errors[0].error.message).toBe("original")
+    expect(t.warn).toHaveBeenCalledWith(expect.stringContaining("rollback failed"))
+  })
+
+  it("logs a skip when the variant is missing", async () => {
+    const t = make({
+      order: order([{ id: "li_1", variant_id: "v_gone", quantity: 1 }]),
+      missingVariants: ["v_gone"],
+    })
+    await run(t.c)
+    expect(t.warn).toHaveBeenCalledWith(expect.stringContaining("v_gone"))
   })
 
   it("compensation restores stocks and removes movements", async () => {
