@@ -12,6 +12,7 @@ import { marketplaceConnectionMiddlewares } from './admin/marketplace-connection
 import { orderHoldMiddlewares } from './admin/orders/middlewares'
 import { orderSearchMiddlewares } from './admin/order-search/middlewares'
 import { guardSalesChannelDelete } from './admin/sales-channels/guard'
+import { channelStockSettingsMiddlewares } from './admin/channel-stock-settings/middlewares'
 import { reviewMiddlewares } from './store/reviews/middlewares'
 
 // The product index declares filterable `status` and `sales_channel_ids`, so
@@ -46,6 +47,7 @@ export default defineMiddlewares({
     ...marketplaceConnectionMiddlewares,
     ...orderHoldMiddlewares,
     ...orderSearchMiddlewares,
+    ...channelStockSettingsMiddlewares,
     {
       method: ['DELETE'],
       matcher: '/admin/sales-channels/:id',
