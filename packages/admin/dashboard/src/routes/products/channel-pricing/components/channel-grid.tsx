@@ -197,6 +197,27 @@ export const ChannelGrid = () => {
     offset,
   })
 
+  // Drop remembered previous values once a cell is synced again, so a later
+  // pending change that was not made here never shows a stale strikethrough.
+  useEffect(() => {
+    if (!data) {
+      return
+    }
+    setPrevious((prev) => {
+      const next = { ...prev }
+      let changed = false
+      for (const key of Object.keys(prev)) {
+        const [variantId, channelId] = key.split(":")
+        const row = data.rows.find((r) => r.variant_id === variantId)
+        if (row?.channels[channelId]?.sync_state === "synced") {
+          delete next[key]
+          changed = true
+        }
+      }
+      return changed ? next : prev
+    })
+  }, [data])
+
   const allChannels = data?.channels ?? []
   const loadedChannels = data?.channels
   useEffect(() => {

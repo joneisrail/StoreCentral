@@ -136,18 +136,57 @@ describe("EditableCell", () => {
     expect(screen.getByRole("textbox")).toBeTruthy()
   })
 
-  it("keeps focus after a failed save, Esc cancels, blur does not resubmit", async () => {
-    const onSave = vi.fn().mockRejectedValue(new Error("Only 2 free units"))
+  it("keeps focus after a failed save, Enter retries, Esc cancels, blur does not resubmit", async () => {
+    let reject!: (e: Error) => void
+    const onSave = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise((_, rej) => {
+            reject = rej
+          })
+      )
+      .mockRejectedValue(new Error("Only 2 free units"))
     setup({ kind: "stock", value: 3, display: "3", onSave })
     const input = open()
+    input.focus()
     fireEvent.change(input, { target: { value: "50" } })
     fireEvent.keyDown(input, { key: "Enter" })
+    expect(input.readOnly).toBe(true)
+    reject(new Error("Only 2 free units"))
     await screen.findByText("Only 2 free units")
-    expect(input.disabled).toBe(false)
+    expect(input.readOnly).toBe(false)
+    await waitFor(() => expect(document.activeElement).toBe(input))
     fireEvent.blur(input)
     expect(onSave).toHaveBeenCalledTimes(1)
+    fireEvent.keyDown(input, { key: "Enter" })
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(2))
+    await screen.findByText("Only 2 free units")
     fireEvent.keyDown(input, { key: "Escape" })
     expect(screen.queryByRole("textbox")).toBeNull()
+  })
+
+  it("does not steal focus from another control after a failed save", async () => {
+    let reject!: (e: Error) => void
+    const onSave = vi.fn(
+      () =>
+        new Promise((_, rej) => {
+          reject = rej
+        })
+    )
+    setup({ kind: "stock", value: 3, display: "3", onSave })
+    const other = document.createElement("button")
+    document.body.appendChild(other)
+    const input = open()
+    input.focus()
+    fireEvent.change(input, { target: { value: "50" } })
+    fireEvent.keyDown(input, { key: "Enter" })
+    other.focus()
+    reject(new Error("Only 2 free units"))
+    await screen.findByText("Only 2 free units")
+    await new Promise((r) => setTimeout(r, 10))
+    expect(document.activeElement).toBe(other)
+    other.remove()
   })
 
   it("editing after an error clears it and Enter retries", async () => {
@@ -179,8 +218,9 @@ describe("EditableCell", () => {
 
   it("describes a failed cell with its error text", () => {
     setup({ failed: true, error: "Rejected by eBay" })
-    const cell = screen.getByTestId("editable-cell")
-    const id = cell.getAttribute("aria-describedby") as string
+    const id = screen
+      .getByRole("button", { name: "Edit Shopify price" })
+      .getAttribute("aria-describedby") as string
     expect(document.getElementById(id)?.textContent).toBe("Rejected by eBay")
   })
 

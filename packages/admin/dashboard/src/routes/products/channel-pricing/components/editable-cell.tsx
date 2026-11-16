@@ -102,11 +102,11 @@ export const EditableCell = ({
     setEditing(false)
   }
 
-  const commit = async () => {
+  const commit = async (fromBlur = false) => {
     if (settled.current || saving) {
       return
     }
-    if (rejectedDraft.current === draft) {
+    if (fromBlur && rejectedDraft.current === draft) {
       return
     }
     const parsed = parse(kind, draft)
@@ -133,7 +133,17 @@ export const EditableCell = ({
     } catch (e) {
       settled.current = false
       rejectedDraft.current = draft
-      setTimeout(() => inputRef.current?.focus(), 0)
+      setTimeout(() => {
+        const active = document.activeElement
+        // Only restore focus if the user has not moved to another control.
+        if (
+          !active ||
+          active === document.body ||
+          active === inputRef.current
+        ) {
+          inputRef.current?.focus()
+        }
+      }, 0)
       setMessage(
         e instanceof Error && e.message
           ? e.message
@@ -179,7 +189,7 @@ export const EditableCell = ({
             setMessage(null)
           }}
           onKeyDown={onKeyDown}
-          onBlur={() => void commit()}
+          onBlur={() => void commit(true)}
           className="txt-compact-small h-7 w-24 rounded-md border-0 bg-ui-bg-field px-2 text-right text-ui-fg-base shadow-borders-base"
         />
         {saving && (
@@ -205,7 +215,6 @@ export const EditableCell = ({
       data-testid="editable-cell"
       data-state={state}
       title={failed && error ? error : undefined}
-      aria-describedby={failed && error ? errorId : undefined}
       className={`group relative inline-flex items-center gap-x-1 rounded px-1 ${tone}`}
     >
       {pending && previousDisplay && previousDisplay !== display ? (
@@ -222,6 +231,7 @@ export const EditableCell = ({
       <button
         type="button"
         aria-label={label}
+        aria-describedby={failed && error ? errorId : undefined}
         onClick={start}
         className="text-ui-fg-muted opacity-0 focus:opacity-100 group-focus-within:opacity-100 group-hover:opacity-100"
       >
