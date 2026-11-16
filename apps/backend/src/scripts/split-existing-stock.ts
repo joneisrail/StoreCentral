@@ -3,12 +3,18 @@
  * channels (remainder to the earliest-created channels). Nothing is pushed to
  * marketplaces and no channel-offer.changed event is emitted.
  *
- *   npx medusa exec ./src/scripts/split-existing-stock.ts --dry-run
- *   npx medusa exec ./src/scripts/split-existing-stock.ts
+ * DRY RUN BY DEFAULT: it only counts what would be split. It writes only when
+ * the exact positional word `apply` is passed (flags such as --dry-run are
+ * swallowed by `medusa exec` and never reach the script):
  *
- * Idempotent and safe to re-run after an interruption: a variant with any
- * nonzero channel stock, or with an `initial-split:<variant_id>` movement, is
- * left alone. Logs counts only. Never run by the build.
+ *   npx medusa exec ./src/scripts/split-existing-stock.ts          (dry run)
+ *   npx medusa exec ./src/scripts/split-existing-stock.ts apply    (writes)
+ *
+ * Run in a quiet period (no orders or stock edits in flight). Safe to re-run,
+ * also after an interruption: a variant with any nonzero channel stock, or
+ * with an `initial-split:<variant_id>` movement, is left alone. Available
+ * stock is re-read under each variant's lock and the split never exceeds it.
+ * Logs counts only. Never run by the build.
  */
 import { ContainerRegistrationKeys, Modules } from "@medusajs/framework/utils"
 import type { ExecArgs } from "@medusajs/framework/types"
@@ -16,6 +22,7 @@ import { CHANNEL_OFFERS_MODULE } from "../modules/channel-offers"
 import {
   availableFromItems,
   channelOfferLockKey,
+  readVariantStock,
 } from "../modules/channel-offers/available-stock"
 import { splitEqually } from "../modules/channel-offers/rules"
 import { STOCK_ROWS_SQL, type StockRow } from "../modules/channel-offers/stock-rows"
@@ -78,7 +85,13 @@ export async function splitVariants(
   container: Container,
   variants: { variant_id: string; available: number }[],
   channelIds: string[],
-  opts: { dryRun: boolean }
+  opts: {
+    dryRun: boolean
+    readStock?: (
+      container: Container,
+      variantId: string
+    ) => Promise<{ managed: boolean; available: number }>
+  }
 ): Promise<SplitResult> {
   const offers = container.resolve(CHANNEL_OFFERS_MODULE)
   const result: SplitResult = { checked: variants.length, split: 0, skipped: 0 }
@@ -91,14 +104,17 @@ export async function splitVariants(
     return result
   }
 
-  if (channelIds.length && variants.length) {
-    await offers.ensureOffers(variants.map((v) => v.variant_id), channelIds)
-  }
+  const readStock = opts.readStock ?? readVariantStock
   const locking = container.resolve(Modules.LOCKING)
   for (const v of variants) {
     const applied = await locking.execute([channelOfferLockKey(v.variant_id)], async () => {
-      const p = await plan(offers, v, channelIds)
+      // The bulk snapshot may be stale: use the lower of it and the live value.
+      const live = await readStock(container, v.variant_id)
+      if (!live.managed) return false
+      const available = Math.min(v.available, live.available)
+      const p = await plan(offers, { variant_id: v.variant_id, available }, channelIds)
       if (!p) return false
+      await offers.ensureOffers([p.variant_id], channelIds)
       await offers.setStocks(p.variant_id, p.stocks)
       for (const [channel, stock] of Object.entries(p.stocks)) {
         if (stock <= 0) continue
@@ -122,10 +138,10 @@ export default async function splitExistingStock({ container, args }: ExecArgs) 
   const logger = container.resolve(ContainerRegistrationKeys.LOGGER) as any
   const query = container.resolve(ContainerRegistrationKeys.QUERY) as any
   const pg = container.resolve(ContainerRegistrationKeys.PG_CONNECTION) as any
-  const dryRun = (args ?? []).includes("--dry-run")
+  const dryRun = !(args ?? []).includes("apply")
 
   const channelIds = await readChannelIdsInCreationOrder(container)
-  logger.info(`split-existing-stock: ${channelIds.length} channels${dryRun ? " (dry run)" : ""}`)
+  logger.info(`split-existing-stock: ${channelIds.length} channels${dryRun ? " (dry run, nothing will be written)" : ""}`)
   if (!channelIds.length) return
 
   const itemsByVariant = new Map<string, { required_quantity: number | null; net: number }[]>()
@@ -159,4 +175,9 @@ export default async function splitExistingStock({ container, args }: ExecArgs) 
   logger.info(
     `split-existing-stock: done${dryRun ? " (dry run, nothing written)" : ""}: checked ${total.checked}, ${dryRun ? "would split" : "split"} ${total.split}, skipped ${total.skipped}`
   )
+  if (dryRun) {
+    logger.info(
+      "split-existing-stock: to apply run: npx medusa exec ./src/scripts/split-existing-stock.ts apply"
+    )
+  }
 }
