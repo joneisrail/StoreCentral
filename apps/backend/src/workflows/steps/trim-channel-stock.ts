@@ -15,7 +15,7 @@ export type TrimChannelStockResult = {
   changed: { variant_id: string; sales_channel_id: string }[]
 }
 
-type Applied = {
+export type Applied = {
   variant_id: string
   ref: string
   trimmed: Record<string, number>
@@ -34,32 +34,31 @@ function log(container: Pick<MedusaContainer, "resolve">, message: string) {
   }
 }
 
-// Restores the snapshot for channels nobody changed since; for a channel that
-// changed meanwhile, gives back at most the trimmed units, capped by what is
-// still free (available - sum) so the sum never exceeds the available total.
+// Gives back what was trimmed under ONE shared budget: free = available - sum
+// of the current stock. Each trimmed channel (in channel order) is restored to
+// its snapshot when nobody changed it since, or gets back at most the trimmed
+// units when it changed; either way the increase is capped by what is still
+// free, so the sum can never end above the available total.
 async function undo(
   container: Pick<MedusaContainer, "resolve">,
   offers: ChannelOffersModuleService,
   entry: Applied
 ) {
   const rows = await offers.listForVariant(entry.variant_id)
+  const variant = await readVariantStock(container, entry.variant_id)
   const sum = rows.reduce((s, r) => s + r.stock, 0)
-  let free: number | undefined
+  let free = Math.max(0, variant.available - sum)
   const next: Record<string, number> = {}
   for (const row of rows) {
     const id = row.sales_channel_id
     if (!(id in entry.trimmed)) continue
-    if (row.stock === entry.after[id]) {
-      next[id] = entry.previous[id]
-      continue
-    }
-    if (free === undefined) {
-      const variant = await readVariantStock(container, entry.variant_id)
-      free = Math.max(0, variant.available - sum)
-    }
-    const give = Math.min(entry.trimmed[id], free)
-    free -= give
-    if (give > 0) next[id] = row.stock + give
+    const target =
+      row.stock === entry.after[id]
+        ? entry.previous[id]
+        : row.stock + entry.trimmed[id]
+    const add = Math.min(Math.max(0, target - row.stock), free)
+    free -= add
+    if (add > 0) next[id] = row.stock + add
   }
   if (Object.keys(next).length) {
     await offers.setStocks(entry.variant_id, next)
@@ -150,11 +149,25 @@ export const trimChannelStockStep = createStep(
     return new StepResponse<TrimChannelStockResult, Applied[]>({ changed }, applied)
   },
   async (applied, { container }) => {
-    if (!applied?.length) return
-    const offers = container.resolve<ChannelOffersModuleService>(CHANNEL_OFFERS_MODULE)
-    const locking = container.resolve(Modules.LOCKING)
-    for (const entry of [...applied].reverse()) {
-      await locking.execute([channelOfferLockKey(entry.variant_id)], () => undo(container, offers, entry))
-    }
+    await compensateTrims(container, applied)
   }
 )
+
+/** Undoes each entry on its own: one failing entry never skips the rest. */
+export async function compensateTrims(
+  container: Pick<MedusaContainer, "resolve">,
+  applied: Applied[] | undefined
+) {
+  if (!applied?.length) return
+  const offers = container.resolve<ChannelOffersModuleService>(CHANNEL_OFFERS_MODULE)
+  const locking = container.resolve(Modules.LOCKING)
+  for (const entry of [...applied].reverse()) {
+    try {
+      await locking.execute([channelOfferLockKey(entry.variant_id)], () =>
+        undo(container, offers, entry)
+      )
+    } catch {
+      log(container, `Channel stock: trim rollback failed for variant ${entry.variant_id}`)
+    }
+  }
+}

@@ -6,7 +6,7 @@ import {
   WorkflowResponse,
 } from "@medusajs/framework/workflows-sdk"
 import { ensureChannelOffersStep } from "../ensure-channel-offers"
-import { trimChannelStockStep } from "../trim-channel-stock"
+import { compensateTrims, trimChannelStockStep } from "../trim-channel-stock"
 
 const trimWf = createWorkflow("test-trim-step", function (input: any) {
   const r = trimChannelStockStep(transform({ input }, ({ input }) => input))
@@ -25,6 +25,7 @@ function make(opts: {
   variantIds?: string[]
   failSetStocks?: boolean
   failMovement?: boolean
+  availableAfterFail?: number
 }) {
   const channels = opts.channels ?? ["a", "b", "c"]
   const offers: any[] = Object.entries(opts.stocks ?? {}).map(([c, stock]) => ({
@@ -42,7 +43,10 @@ function make(opts: {
       offers.slice().sort((x, y) => x.channel_order - y.channel_order).map((o) => ({ ...o }))
     ),
     applyMovement: jest.fn(async (m: any) => {
-      if (opts.failMovement) throw new Error("movement down")
+      if (opts.failMovement) {
+        opts.available = opts.availableAfterFail ?? opts.available
+        throw new Error("movement down")
+      }
       movements.push(m)
       return true
     }),
@@ -92,7 +96,7 @@ function make(opts: {
       },
     }),
   } as any)
-  return { c, service, offers, movements }
+  return { c, service, offers, movements, opts }
 }
 
 describe("trimChannelStockStep", () => {
@@ -147,7 +151,7 @@ describe("trimChannelStockStep rollback", () => {
   })
 
   it("a movement write failing after setStocks restores the snapshot exactly", async () => {
-    const t = make({ stocks: { a: 5, b: 2, c: 1 }, available: 5, failMovement: true })
+    const t = make({ stocks: { a: 5, b: 2, c: 1 }, available: 5, failMovement: true, availableAfterFail: 8 })
     expect((await trimWf(t.c).run({ input: { variant_id: "v1" }, throwOnError: false })).errors[0].error.message).toBe("movement down")
     expect(stocksOf(t.offers)).toEqual([5, 2, 1])
     expect(t.movements).toEqual([])
@@ -168,7 +172,7 @@ describe("trimChannelStockStep rollback", () => {
   it("compensation restores the snapshot when stock is unchanged since", async () => {
     const t = make({ stocks: { a: 5, b: 2, c: 1 }, available: 5 })
     ;(t.service as any)._offers = t.offers
-    expect((await boomAfter(() => {})(t.c).run({ input: { variant_id: "v1" }, throwOnError: false })).errors[0].error.message).toBe("boom")
+    expect((await boomAfter(() => { t.opts.available = 8 })(t.c).run({ input: { variant_id: "v1" }, throwOnError: false })).errors[0].error.message).toBe("boom")
     expect(stocksOf(t.offers)).toEqual([5, 2, 1])
     expect(t.movements).toEqual([])
   })
@@ -196,6 +200,56 @@ describe("trimChannelStockStep rollback", () => {
     })
     expect(r.errors[0].error.message).toBe("boom")
     expect(stocksOf(t.offers)).toEqual([2, 2, 1])
+  })
+})
+
+describe("trim rollback shared budget", () => {
+  let n = 0
+  const run = (mutate: (offers: any[]) => void, t: ReturnType<typeof make>) => {
+    ;(t.service as any)._offers = t.offers
+    const boom = createStep(`budget-boom-${++n}`, async (_r: any, { container }) => {
+      mutate((container.resolve("channelOffers") as any)._offers)
+      throw new Error("boom")
+    })
+    const wf = createWorkflow(`budget-wf-${n}`, function (input: any) {
+      const r = trimChannelStockStep(transform({ input }, ({ input }) => input))
+      return new WorkflowResponse(boom(r))
+    })
+    return wf(t.c).run({ input: { variant_id: "v1" }, throwOnError: false })
+  }
+
+  it("mixed unchanged + changed channels never end above available", async () => {
+    // available 6, {6,6,0} trims to {3,3,0}; later b drops to 2 (sum 5, free 1).
+    // a (unchanged) wants +3, b (changed) wants +3: only 1 unit may come back.
+    const t = make({ stocks: { a: 6, b: 6, c: 0 }, available: 6 })
+    await run((offers) => { offers[1].stock = 2 }, t)
+    expect(t.offers.map((o) => o.stock)).toEqual([4, 2, 0])
+  })
+
+  it("available dropped again after the trim caps the restore", async () => {
+    const t = make({ stocks: { a: 5, b: 2, c: 1 }, available: 5 })
+    await run(() => { t.opts.available = 3 }, t) // trimmed to {2,2,1}, now only 3 available
+    expect(t.offers.reduce((s, o) => s + o.stock, 0)).toBe(5)
+    expect(t.offers.map((o) => o.stock)).toEqual([2, 2, 1])
+  })
+
+  it("one failing entry does not skip the rest", async () => {
+    const t = make({ stocks: { a: 2, b: 2, c: 1 }, available: 5 })
+    const entry = (ref: string) => ({
+      variant_id: "v1",
+      ref,
+      trimmed: { a: 3 },
+      previous: { a: 5 },
+      after: { a: 2 },
+    })
+    let calls = 0
+    t.service.listForVariant.mockImplementation(async () => {
+      calls += 1
+      if (calls === 1) throw new Error("db down")
+      return t.offers.map((o) => ({ ...o }))
+    })
+    await expect(compensateTrims(t.c, [entry("trim:1"), entry("trim:2")])).resolves.toBeUndefined()
+    expect(calls).toBe(2)
   })
 })
 
