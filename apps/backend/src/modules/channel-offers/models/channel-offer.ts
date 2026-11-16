@@ -6,9 +6,9 @@ const ChannelOffer = model
     variant_id: model.text(),
     sales_channel_id: model.text(),
     // null = use the variant's base price
-    price: model.float().nullable(),
+    price: model.bigNumber().nullable(),
     stock: model.number().default(0),
-    last_synced_price: model.float().nullable(),
+    last_synced_price: model.bigNumber().nullable(),
     last_synced_stock: model.number().nullable(),
     last_synced_at: model.dateTime().nullable(),
     // "synced" | "pending" | "failed"

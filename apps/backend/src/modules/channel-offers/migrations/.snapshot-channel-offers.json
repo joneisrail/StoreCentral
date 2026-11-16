@@ -56,7 +56,7 @@
         },
         "price": {
           "name": "price",
-          "type": "real",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -68,7 +68,7 @@
           "default": null,
           "comment": null,
           "enumItems": [],
-          "mappedType": "float"
+          "mappedType": "decimal"
         },
         "stock": {
           "name": "stock",
@@ -88,7 +88,7 @@
         },
         "last_synced_price": {
           "name": "last_synced_price",
-          "type": "real",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -100,7 +100,7 @@
           "default": null,
           "comment": null,
           "enumItems": [],
-          "mappedType": "float"
+          "mappedType": "decimal"
         },
         "last_synced_stock": {
           "name": "last_synced_stock",
@@ -181,6 +181,38 @@
           "comment": null,
           "enumItems": [],
           "mappedType": "integer"
+        },
+        "raw_price": {
+          "name": "raw_price",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "json"
+        },
+        "raw_last_synced_price": {
+          "name": "raw_last_synced_price",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "json"
         },
         "created_at": {
           "name": "created_at",

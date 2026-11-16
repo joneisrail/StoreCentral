@@ -66,6 +66,23 @@ moduleIntegrationTestRunner<ChannelOffersModuleService>({
         expect(rows).toHaveLength(2)
       })
 
+      it("stores prices as exact decimals and returns plain numbers", async () => {
+        await service.ensureOffers(["variant_6"], ["sc_a"])
+        await service.setPrice("variant_6", "sc_a", 89.99)
+        await service.markSync("variant_6", "sc_a", {
+          state: "synced",
+          price: 1234567.89,
+        })
+        const [row] = await service.listForVariant("variant_6")
+        expect(typeof row.price).toBe("number")
+        expect(row.price).toBe(89.99)
+        expect(typeof row.last_synced_price).toBe("number")
+        expect(row.last_synced_price).toBe(1234567.89)
+        await service.setPrice("variant_6", "sc_a", null)
+        const [cleared] = await service.listForVariant("variant_6")
+        expect(cleared.price).toBeNull()
+      })
+
       it("setStocks and markSync persist", async () => {
         await service.ensureOffers(["variant_5"], ["sc_a", "sc_b"])
         await service.setStocks("variant_5", { sc_a: 3, sc_b: 4 })

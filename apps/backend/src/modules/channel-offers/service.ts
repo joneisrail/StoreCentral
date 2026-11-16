@@ -96,7 +96,12 @@ class ChannelOffersModuleService extends MedusaService({
       { variant_id: variantId },
       { order: { channel_order: "ASC", id: "ASC" } }
     )
-    return rows as unknown as ChannelOfferRecord[]
+    const num = (v: unknown) => (v == null ? null : Number(v))
+    return rows.map((r: any) => ({
+      ...r,
+      price: num(r.price),
+      last_synced_price: num(r.last_synced_price),
+    })) as unknown as ChannelOfferRecord[]
   }
 
   /**
