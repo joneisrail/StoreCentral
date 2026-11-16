@@ -17,6 +17,7 @@ import { queryKeysFactory, TQueryKey } from "../../lib/query-key-factory"
 // imports `useOrderCarrierRates` (a value) from this file.
 import type { PackageSelection } from "../../routes/orders/order-list/components/order-list-table/components/ready-to-ship-table"
 import { inventoryItemsQueryKeys } from "./inventory"
+import { orderEventsQueryKeys } from "./order-events"
 import { ORDER_VIEW_COUNTS_QUERY_KEY } from "./order-query-keys"
 import { reservationItemsQueryKeys } from "./reservations"
 
@@ -455,6 +456,9 @@ export const useCancelOrder = (
       queryClient.invalidateQueries({
         queryKey: ordersQueryKeys.preview(orderId),
       })
+
+      // The order page's activity records the cancel in its history.
+      queryClient.invalidateQueries({ queryKey: orderEventsQueryKeys.all })
 
       options?.onSuccess?.(data, variables, context)
     },

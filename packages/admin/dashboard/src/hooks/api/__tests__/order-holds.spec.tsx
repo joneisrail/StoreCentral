@@ -53,6 +53,7 @@ describe("hold/release mutations", () => {
     expect(keys).toContainEqual(["order-view-counts"])
     expect(keys).toContainEqual(["order-held-ids"])
     expect(keys).toContainEqual(["order-tags"])
+    expect(keys).toContainEqual(["order-events"])
   })
 
   it("release posts with no body and invalidates the same queries", async () => {
@@ -72,5 +73,6 @@ describe("hold/release mutations", () => {
     expect(keys).toContainEqual(["order-view-counts"])
     expect(keys).toContainEqual(["order-held-ids"])
     expect(keys).toContainEqual(["order-tags"])
+    expect(keys).toContainEqual(["order-events"])
   })
 })

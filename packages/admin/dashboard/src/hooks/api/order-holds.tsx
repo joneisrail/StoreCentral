@@ -6,6 +6,7 @@ import {
 } from "@tanstack/react-query"
 import { sdk } from "../../lib/client"
 import { queryClient } from "../../lib/query-client"
+import { orderEventsQueryKeys } from "./order-events"
 import { orderTagsQueryKeys, useOrderTags } from "./order-tags"
 import {
   HOLD_TAG_VALUE,
@@ -76,6 +77,8 @@ const invalidateHoldQueries = () => {
   queryClient.invalidateQueries({ queryKey: [ORDER_VIEW_COUNTS_QUERY_KEY] })
   queryClient.invalidateQueries({ queryKey: orderHeldIdsQueryKeys.all })
   queryClient.invalidateQueries({ queryKey: orderTagsQueryKeys.all })
+  // The order page's activity shows a new history line after a hold/release.
+  queryClient.invalidateQueries({ queryKey: orderEventsQueryKeys.all })
 }
 
 export const useHoldOrder = (

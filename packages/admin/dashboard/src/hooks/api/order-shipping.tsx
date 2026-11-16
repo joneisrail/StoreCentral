@@ -2,6 +2,7 @@ import { FetchError } from "@medusajs/js-sdk"
 import { useMutation, UseMutationOptions } from "@tanstack/react-query"
 import { sdk } from "../../lib/client"
 import { queryClient } from "../../lib/query-client"
+import { orderEventsQueryKeys } from "./order-events"
 import { ORDER_VIEW_COUNTS_QUERY_KEY } from "./order-query-keys"
 import { ordersQueryKeys } from "./orders"
 
@@ -26,6 +27,8 @@ const invalidateShippingQueries = (orderId: string) => {
   queryClient.invalidateQueries({ queryKey: [ORDER_VIEW_COUNTS_QUERY_KEY] })
   queryClient.invalidateQueries({ queryKey: ordersQueryKeys.detail(orderId) })
   queryClient.invalidateQueries({ queryKey: ordersQueryKeys.preview(orderId) })
+  // The order page's activity shows a new history line after void / ship.
+  queryClient.invalidateQueries({ queryKey: orderEventsQueryKeys.all })
 }
 
 export const useVoidOrderLabel = (
