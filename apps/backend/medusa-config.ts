@@ -21,6 +21,9 @@ module.exports = defineConfig({
       resolve: './src/modules/order-events',
     },
     {
+      resolve: './src/modules/channel-offers',
+    },
+    {
       resolve: './src/modules/supplier',
     },
     {
