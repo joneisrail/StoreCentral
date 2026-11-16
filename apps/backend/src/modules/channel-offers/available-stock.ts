@@ -39,24 +39,37 @@ export const VARIANT_STOCK_FIELDS = [
   "inventory_items.inventory.location_levels.reserved_quantity",
 ]
 
-/** The available-stock rule applied to a variant row read with VARIANT_STOCK_FIELDS. */
-export function availableFromVariantRow(variant: VariantRow): number {
-  const items = variant.inventory_items ?? []
-  if (!variant.manage_inventory || !items.length) return 0
-  const perItem = items.map((item) => {
-    const levels = item.inventory?.location_levels ?? []
-    const total = Math.max(
-      0,
-      levels.reduce(
-        (s, l) =>
-          s + Number(l.stocked_quantity ?? 0) - Number(l.reserved_quantity ?? 0),
-        0
+/**
+ * The one available-stock formula. `net` is the sum over the item levels of
+ * (stocked - reserved), unfloored. Used by the per-variant read and by the
+ * grid bulk read so the semantics cannot drift.
+ */
+export function availableFromItems(
+  managed: boolean,
+  items: { required_quantity?: number | null; net: number }[]
+): number {
+  if (!managed || !items.length) return 0
+  return Math.min(
+    ...items.map((i) =>
+      Math.floor(
+        Math.max(0, i.net) / Math.max(1, Number(i.required_quantity ?? 1))
       )
     )
-    const required = Math.max(1, Number(item.required_quantity ?? 1))
-    return Math.floor(total / required)
-  })
-  return Math.min(...perItem)
+  )
+}
+
+/** The available-stock rule applied to a variant row read with VARIANT_STOCK_FIELDS. */
+export function availableFromVariantRow(variant: VariantRow): number {
+  return availableFromItems(
+    !!variant.manage_inventory,
+    (variant.inventory_items ?? []).map((item) => ({
+      required_quantity: item.required_quantity,
+      net: (item.inventory?.location_levels ?? []).reduce(
+        (s, l) => s + Number(l.stocked_quantity ?? 0) - Number(l.reserved_quantity ?? 0),
+        0
+      ),
+    }))
+  )
 }
 
 export async function readVariantStock(

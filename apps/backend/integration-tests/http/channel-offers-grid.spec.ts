@@ -12,6 +12,7 @@ medusaIntegrationTestRunner({
     let storeId: string
     let hubConnections: any[] | "down"
     const realFetch = global.fetch
+    process.env.CHANNEL_GRID_STOCK_MEMO_TTL_MS = "0"
 
     beforeEach(async () => {
       await createAdminUser(dbConnection, adminHeaders, getContainer())
@@ -219,6 +220,8 @@ medusaIntegrationTestRunner({
         expect((await bad("?offset=-1")).status).toBe(400)
         expect((await bad("?order=bogus")).status).toBe(400)
         expect((await bad("?nope=1")).status).toBe(400)
+        expect((await bad("?order=sc_unknown:stock")).status).toBe(400)
+        expect((await bad("?order=-sc_unknown:price")).status).toBe(400)
       })
     })
   },

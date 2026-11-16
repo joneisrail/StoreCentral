@@ -20,13 +20,23 @@ import {
   hasWildcards,
   longestLiteralSegment,
 } from "../order-search/search"
+import { MedusaError } from "@medusajs/framework/utils"
 import {
+  availableFromItems,
   availableFromVariantRow,
   VARIANT_STOCK_FIELDS,
 } from "../../../modules/channel-offers/available-stock"
 
 export const VARIANT_CAP = 20_000
 export const OFFER_CAP = 300_000
+export type GridCaps = { variantCap: number; offerCap: number; stockMemoTtlMs: number }
+const BULK_PAGE = 5000
+// All-variants stock map memo (process local). It can be up to this many ms
+// stale; only the sort-key phase uses it, and page rows show the same value so
+// the grid is self-consistent. CHANNEL_GRID_STOCK_MEMO_TTL_MS=0 disables it
+// (tests do).
+const STOCK_MEMO_TTL_MS = 10_000
+let stockMemo: { at: number; items: StockItems } | null = null
 const VARIANT_PAGE = 1000
 const OFFER_PAGE = 10_000
 const ID_CHUNK = 500
@@ -65,6 +75,7 @@ type VariantKey = {
   variant_title: string
   product_id: string
   product_title: string
+  managed: boolean
   available?: number
 }
 
@@ -147,16 +158,36 @@ async function loadDefaultCurrency(deps: GridDeps): Promise<string | null> {
   return (list.find((c) => c.is_default) ?? list[0])?.currency_code?.toLowerCase() ?? null
 }
 
+async function pagedGraph(
+  deps: GridDeps,
+  entity: string,
+  fields: string[],
+  opts: { filters?: Record<string, unknown>; cap?: number } = {}
+): Promise<{ data: any[]; total: number }> {
+  const fetchPage = (skip: number) =>
+    deps.query.graph({
+      entity,
+      fields,
+      filters: opts.filters,
+      pagination: { skip, take: BULK_PAGE, order: { id: "ASC" } },
+    })
+  const first: any = await fetchPage(0)
+  const total: number = first.metadata?.count ?? first.data.length
+  const skips: number[] = []
+  for (let skip = BULK_PAGE; skip < Math.min(total, opts.cap ?? Infinity); skip += BULK_PAGE) skips.push(skip)
+  const rest = await mapLimited(skips, async (skip) => (await fetchPage(skip)).data)
+  return { data: [first.data, ...rest].flat(), total }
+}
+
 async function fetchVariantKeys(
   deps: GridDeps,
   q: string | undefined,
-  withStock: boolean
+  caps: GridCaps
 ): Promise<{ rows: VariantKey[]; truncated: boolean }> {
   const text = q?.trim()
-  let filters: Record<string, unknown> | undefined
   let literal: string | null = null
+  let like: string | null = null
   if (text) {
-    let like: string
     if (hasWildcards(text)) {
       const seg = longestLiteralSegment(text)
       if (!seg) return { rows: [], truncated: false }
@@ -165,53 +196,96 @@ async function fetchVariantKeys(
     } else {
       like = `%${text}%`
     }
+  }
+  // Product titles are loaded once (id, title only: cheap) and matched in
+  // memory, so the variant query needs no join.
+  const { data: products } = await pagedGraph(deps, "product", ["id", "title"])
+  const titleById = new Map<string, string>(products.map((p) => [p.id, p.title ?? ""]))
+  let filters: Record<string, unknown> | undefined
+  if (text && like) {
+    const matchedProducts = products
+      .filter((p) => containsLiteral([p.title], text))
+      .map((p) => p.id as string)
     filters = {
       $or: [
         { sku: { $ilike: like } },
         { title: { $ilike: like } },
-        { product: { title: { $ilike: like } } },
+        ...(matchedProducts.length ? [{ product_id: matchedProducts }] : []),
       ],
     }
   }
-  const fields = [
-    "id",
-    "sku",
-    "title",
-    "product.id",
-    "product.title",
-    ...(withStock ? VARIANT_STOCK_FIELDS.filter((f) => f !== "id") : []),
-  ]
+  const { data, total } = await pagedGraph(
+    deps,
+    "product_variant",
+    ["id", "sku", "title", "product_id", "manage_inventory"],
+    { filters, cap: caps.variantCap }
+  )
   const rows: VariantKey[] = []
-  const fetchPage = async (skip: number) => {
-    const res = await deps.query.graph({
-      entity: "product_variant",
-      fields,
-      filters,
-      pagination: { skip, take: VARIANT_PAGE, order: { id: "ASC" } },
+  for (const v of data) {
+    const productTitle = titleById.get(v.product_id) ?? ""
+    if (literal && !containsLiteral([v.sku, v.title, productTitle], literal)) continue
+    rows.push({
+      id: v.id,
+      sku: v.sku ?? null,
+      variant_title: v.title ?? "",
+      product_id: v.product_id ?? "",
+      product_title: productTitle,
+      managed: !!v.manage_inventory,
     })
-    return res
   }
-  const first = await fetchPage(0)
-  const total: number = (first as any).metadata?.count ?? first.data.length
-  const pages = [first.data]
-  const skips: number[] = []
-  for (let skip = VARIANT_PAGE; skip < Math.min(total, VARIANT_CAP); skip += VARIANT_PAGE) skips.push(skip)
-  pages.push(...(await mapLimited(skips, async (skip) => (await fetchPage(skip)).data)))
-  for (const data of pages) {
-    for (const v of data) {
-      if (literal && !containsLiteral([v.sku, v.title, v.product?.title], literal)) continue
-      rows.push({
-        id: v.id,
-        sku: v.sku ?? null,
-        variant_title: v.title ?? "",
-        product_id: v.product?.id ?? "",
-        product_title: v.product?.title ?? "",
-        ...(withStock ? { available: availableFromVariantRow(v) } : {}),
-      })
-    }
-  }
-  const truncated = total > VARIANT_CAP
+  const truncated = total > caps.variantCap
+  if (rows.length > caps.variantCap) rows.length = caps.variantCap
   return { rows, truncated }
+}
+
+type StockItems = Map<string, { required_quantity: number | null; net: number }[]>
+
+// Variant to inventory item links with each item net stock (sum of stocked -
+// reserved over its levels), from two bulk reads. The memo holds this raw
+// structure so `managed` flags of the current request are always applied.
+async function readStockItems(deps: GridDeps): Promise<StockItems> {
+  const [{ data: links }, { data: levels }] = await Promise.all([
+    pagedGraph(deps, "product_variant_inventory_item", ["id", "variant_id", "inventory_item_id", "required_quantity"]),
+    pagedGraph(deps, "inventory_level", ["id", "inventory_item_id", "stocked_quantity", "reserved_quantity"]),
+  ])
+  const netByItem = new Map<string, number>()
+  for (const l of levels) {
+    netByItem.set(
+      l.inventory_item_id,
+      (netByItem.get(l.inventory_item_id) ?? 0) + Number(l.stocked_quantity ?? 0) - Number(l.reserved_quantity ?? 0)
+    )
+  }
+  const itemsByVariant: StockItems = new Map()
+  for (const k of links) {
+    const list = itemsByVariant.get(k.variant_id) ?? []
+    list.push({ required_quantity: k.required_quantity, net: netByItem.get(k.inventory_item_id) ?? 0 })
+    itemsByVariant.set(k.variant_id, list)
+  }
+  return itemsByVariant
+}
+
+// Available stock per variant via availableFromItems. Variants missing from the
+// map have no inventory item (available 0).
+async function loadAllAvailable(
+  deps: GridDeps,
+  managed: Map<string, boolean>,
+  ttlMs: number
+): Promise<Map<string, number>> {
+  let items: StockItems
+  if (ttlMs > 0 && stockMemo && Date.now() - stockMemo.at < ttlMs) items = stockMemo.items
+  else {
+    items = await readStockItems(deps)
+    if (ttlMs > 0) stockMemo = { at: Date.now(), items }
+  }
+  const map = new Map<string, number>()
+  for (const [variantId, list] of items) {
+    map.set(variantId, availableFromItems(managed.get(variantId) ?? false, list))
+  }
+  return map
+}
+
+export function clearStockMemo() {
+  stockMemo = null
 }
 
 async function loadAvailable(deps: GridDeps, variantIds: string[]): Promise<Map<string, number>> {
@@ -260,8 +334,13 @@ async function loadBasePrices(
 
 type OfferMap = Map<string, Map<string, Offer>>
 
-async function loadOffers(deps: GridDeps, variantIds: string[] | null): Promise<OfferMap> {
+async function loadOffers(
+  deps: GridDeps,
+  variantIds: string[] | null,
+  offerCap: number
+): Promise<{ map: OfferMap; truncated: boolean }> {
   const map: OfferMap = new Map()
+  let truncated = false
   const add = (rows: any[]) => {
     for (const r of rows) {
       let inner = map.get(r.variant_id)
@@ -281,17 +360,22 @@ async function loadOffers(deps: GridDeps, variantIds: string[] | null): Promise<
     await mapLimited(chunks(variantIds, ID_CHUNK), async (part) => {
       add(await deps.offers.listChannelOffers({ variant_id: part }, { take: null }))
     })
-    return map
+    return { map, truncated }
   }
-  for (let skip = 0; skip < OFFER_CAP; skip += OFFER_PAGE) {
-    const rows = await deps.offers.listChannelOffers(
-      {},
-      { skip, take: OFFER_PAGE, order: { id: "ASC" } }
-    )
+  for (let skip = 0; ; ) {
+    const remaining = offerCap - skip
+    const take = Math.min(OFFER_PAGE, remaining + 1)
+    const rows = await deps.offers.listChannelOffers({}, { skip, take, order: { id: "ASC" } })
+    if (rows.length > remaining) {
+      add(rows.slice(0, remaining))
+      truncated = true
+      break
+    }
     add(rows)
-    if (rows.length < OFFER_PAGE) break
+    skip += rows.length
+    if (rows.length < take) break
   }
-  return map
+  return { map, truncated }
 }
 
 const lower = (s: string) => s.toLowerCase()
@@ -300,7 +384,14 @@ const byName = (a: VariantKey, b: VariantKey) =>
   lower(a.variant_title).localeCompare(lower(b.variant_title)) ||
   (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
 
-export async function loadGrid(deps: GridDeps, params: GridParams) {
+export async function loadGrid(deps: GridDeps, params: GridParams, overrides: Partial<GridCaps> = {}) {
+  const envTtl = process.env.CHANNEL_GRID_STOCK_MEMO_TTL_MS
+  const caps: GridCaps = {
+    variantCap: VARIANT_CAP,
+    offerCap: OFFER_CAP,
+    stockMemoTtlMs: envTtl !== undefined && envTtl !== "" ? Number(envTtl) : STOCK_MEMO_TTL_MS,
+    ...overrides,
+  }
   const sort = parseOrder(params.order)
   const needsStock = sort.kind === "total" || sort.kind === "unallocated"
   const needsAllOffers = sort.kind === "unallocated" || sort.kind === "stock" || sort.kind === "price"
@@ -308,8 +399,14 @@ export async function loadGrid(deps: GridDeps, params: GridParams) {
   const [allChannels, currency, found] = await Promise.all([
     loadChannels(deps),
     loadDefaultCurrency(deps),
-    fetchVariantKeys(deps, params.q, needsStock),
+    fetchVariantKeys(deps, params.q, caps),
   ])
+  if (
+    (sort.kind === "stock" || sort.kind === "price") &&
+    !allChannels.some((c) => c.id === sort.channel)
+  ) {
+    throw new MedusaError(MedusaError.Types.INVALID_DATA, "Unknown sales channel in order")
+  }
   const kindOf = new Map(allChannels.map((c) => [c.id, c.kind]))
   const isFlat = (channelId: string) => {
     const k = kindOf.get(channelId)
@@ -322,9 +419,22 @@ export async function loadGrid(deps: GridDeps, params: GridParams) {
   const variants = found.rows
   const all = variants.map((v) => v.id)
 
+  let truncated = found.truncated
   let offers: OfferMap | null = null
   let base: Map<string, number> | null = null
-  if (needsAllOffers) offers = await loadOffers(deps, variants.length <= VARIANT_PAGE ? all : null)
+  if (needsStock) {
+    const availableMap = await loadAllAvailable(
+      deps,
+      new Map(variants.map((v) => [v.id, v.managed])),
+      caps.stockMemoTtlMs
+    )
+    for (const v of variants) v.available = availableMap.get(v.id) ?? 0
+  }
+  if (needsAllOffers) {
+    const r = await loadOffers(deps, variants.length <= VARIANT_PAGE ? all : null, caps.offerCap)
+    offers = r.map
+    truncated = truncated || r.truncated
+  }
   if (sort.kind === "price") base = await loadBasePrices(deps, all, currency)
 
   const offerOf = (id: string, channel: string) => offers?.get(id)?.get(channel)
@@ -362,7 +472,7 @@ export async function loadGrid(deps: GridDeps, params: GridParams) {
   const page = variants.slice(params.offset, params.offset + params.limit)
   const pageIds = page.map((v) => v.id)
   const [pageOffers, pageBase, pageAvailable] = await Promise.all([
-    offers ?? loadOffers(deps, pageIds),
+    offers ?? loadOffers(deps, pageIds, caps.offerCap).then((r) => r.map),
     base ?? loadBasePrices(deps, pageIds, currency),
     needsStock ? null : loadAvailable(deps, pageIds),
   ])
@@ -404,5 +514,5 @@ export async function loadGrid(deps: GridDeps, params: GridParams) {
     }
   })
 
-  return { rows, channels, count: variants.length, truncated: found.truncated }
+  return { rows, channels, count: variants.length, truncated }
 }

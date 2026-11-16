@@ -68,6 +68,10 @@ medusaIntegrationTestRunner({
 
     const rows = async (variantId: string) =>
       (getContainer().resolve(CHANNEL_OFFERS_MODULE) as any).listForVariant(variantId)
+    // The ensure subscribers create a row for every channel, so look the row
+    // up by channel instead of assuming it is the only or first one.
+    const rowOf = async (variantId: string, channelId: string) =>
+      (await rows(variantId)).find((r: any) => r.sales_channel_id === channelId)
 
     describe("POST /admin/channel-offers/:variant_id/:channel_id", () => {
       it("sets stock and price, records an edit movement, marks pending", async () => {
@@ -75,7 +79,7 @@ medusaIntegrationTestRunner({
         const v = await createVariant({ manage_inventory: true, stocked: 10 })
         const res = await post(v, ch, { stock: 6, price: 19.99 })
         expect(res.status).toBe(200)
-        const [row] = await rows(v)
+        const row = await rowOf(v, ch)
         expect(row).toMatchObject({ sales_channel_id: ch, stock: 6, price: 19.99, sync_state: "pending" })
         const movements = await (getContainer().resolve(CHANNEL_OFFERS_MODULE) as any).listChannelStockMovements({ variant_id: v })
         expect(movements).toHaveLength(1)
@@ -92,7 +96,7 @@ medusaIntegrationTestRunner({
         expect(res.status).toBe(200)
         expect(res.data.kind).toBeNull()
         expect(res.data.offer).toMatchObject({ stock: 4, price: 8 })
-        expect((await rows(v))[0].sync_state).toBe("synced")
+        expect((await rowOf(v, ch)).sync_state).toBe("synced")
         expect(await svc.listChannelStockMovements({ variant_id: v })).toHaveLength(1)
       })
 
@@ -102,7 +106,7 @@ medusaIntegrationTestRunner({
         await post(v, ch, { price: 5 })
         const res = await post(v, ch, { price: null })
         expect(res.status).toBe(200)
-        expect((await rows(v))[0].price).toBeNull()
+        expect((await rowOf(v, ch)).price).toBeNull()
       })
 
       it("rejects over-allocation with the free-unit count", async () => {
