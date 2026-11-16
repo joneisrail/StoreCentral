@@ -1,0 +1,389 @@
+import { Button, Container, Heading, Text } from "@medusajs/ui"
+import { useEffect, useMemo, useState } from "react"
+import { useTranslation } from "react-i18next"
+import { useSearchParams } from "react-router-dom"
+
+import {
+  ChannelOfferCell,
+  ChannelOfferChannel,
+  useChannelOffers,
+} from "../../../../hooks/api/channel-offers"
+
+const PAGE_SIZE = 50
+const SEARCH_DEBOUNCE_MS = 300
+const DEFAULT_ORDER = "total"
+
+const formatAmount = (value: number | null | undefined) => {
+  if (value === null || value === undefined) {
+    return "-"
+  }
+  return value.toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })
+}
+
+const selectClass =
+  "bg-ui-bg-field text-ui-fg-base txt-compact-small shadow-borders-base h-8 rounded-md border-0 px-2"
+
+const PriceCell = ({
+  channel,
+  cell,
+}: {
+  channel: ChannelOfferChannel
+  cell: ChannelOfferCell | undefined
+}) => {
+  const { t } = useTranslation()
+
+  if (!cell) {
+    return <span className="text-ui-fg-muted">-</span>
+  }
+
+  // Web and POS channels always sell at the base price; marketplaces fall back
+  // to it when they have no price of their own.
+  const readOnly = channel.kind === "web" || channel.kind === "pos"
+  const isFallback = cell.price === null && cell.effective_price !== null
+
+  return (
+    <span
+      className={readOnly ? "text-ui-fg-subtle" : undefined}
+      title={isFallback ? t("channelPricing.basePriceHint") : undefined}
+    >
+      {formatAmount(cell.effective_price)}
+      {isFallback && (
+        <span
+          data-testid="price-fallback"
+          className="ml-1 text-xs text-ui-fg-muted"
+        >
+          {t("channelPricing.baseMarker")}
+        </span>
+      )}
+    </span>
+  )
+}
+
+export const ChannelGrid = () => {
+  const { t } = useTranslation()
+  const [params, setParams] = useSearchParams()
+
+  const q = params.get("q") ?? ""
+  const order = params.get("order") || DEFAULT_ORDER
+  const offset = Math.max(0, Number(params.get("offset")) || 0)
+  const channelsParam = params.get("channels")
+
+  const [searchText, setSearchText] = useState(q)
+
+  const update = (changes: Record<string, string | null>) => {
+    setParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        for (const [key, value] of Object.entries(changes)) {
+          if (value === null || value === "") {
+            next.delete(key)
+          } else {
+            next.set(key, value)
+          }
+        }
+        return next
+      },
+      { replace: true }
+    )
+  }
+
+  useEffect(() => {
+    if (searchText === q) {
+      return
+    }
+    const handle = setTimeout(() => {
+      update({ q: searchText.trim() || null, offset: null })
+    }, SEARCH_DEBOUNCE_MS)
+    return () => clearTimeout(handle)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchText, q])
+
+  const { data, isLoading, isError, refetch } = useChannelOffers({
+    q: q || undefined,
+    order,
+    limit: PAGE_SIZE,
+    offset,
+  })
+
+  const allChannels = data?.channels ?? []
+  const visibleIds = useMemo(() => {
+    if (channelsParam === null) {
+      return null
+    }
+    return new Set(channelsParam.split(","))
+  }, [channelsParam])
+  const channels = allChannels.filter(
+    (c) => !visibleIds || visibleIds.has(c.id)
+  )
+
+  const toggleChannel = (id: string) => {
+    const current = allChannels
+      .filter((c) => !visibleIds || visibleIds.has(c.id))
+      .map((c) => c.id)
+    const next = current.includes(id)
+      ? current.filter((x) => x !== id)
+      : allChannels
+          .map((c) => c.id)
+          .filter((x) => x === id || current.includes(x))
+    update({
+      channels:
+        next.length === allChannels.length ? null : next.join(",") || "none",
+    })
+  }
+
+  const descending = order.startsWith("-")
+  const sortKey = descending ? order.slice(1) : order
+
+  const setSort = (key: string, desc: boolean) =>
+    update({
+      order: key === DEFAULT_ORDER && !desc ? null : `${desc ? "-" : ""}${key}`,
+      offset: null,
+    })
+
+  const sortOptions = [
+    { value: "name", label: t("channelPricing.sort.name") },
+    { value: "total", label: t("channelPricing.sort.total") },
+    { value: "unallocated", label: t("channelPricing.sort.unallocated") },
+    ...allChannels.flatMap((c) => [
+      {
+        value: `${c.id}:stock`,
+        label: t("channelPricing.sort.channelStock", { channel: c.name }),
+      },
+      {
+        value: `${c.id}:price`,
+        label: t("channelPricing.sort.channelPrice", { channel: c.name }),
+      },
+    ]),
+  ]
+
+  const rows = data?.rows ?? []
+  const count = data?.count ?? 0
+
+  return (
+    <Container className="divide-y p-0">
+      <div className="flex flex-col gap-y-3 px-6 py-4">
+        <Heading level="h1">{t("channelPricing.title")}</Heading>
+        <div className="flex flex-wrap items-end gap-3">
+          <input
+            type="search"
+            role="searchbox"
+            aria-label={t("channelPricing.search")}
+            placeholder={t("channelPricing.search")}
+            className={`${selectClass} w-64`}
+            value={searchText}
+            onChange={(e) => setSearchText(e.target.value)}
+          />
+          <label className="txt-compact-small flex flex-col gap-y-1">
+            <span className="text-ui-fg-subtle">
+              {t("channelPricing.sortBy")}
+            </span>
+            <select
+              className={selectClass}
+              value={sortKey}
+              onChange={(e) => setSort(e.target.value, descending)}
+            >
+              {sortOptions.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="txt-compact-small flex flex-col gap-y-1">
+            <span className="text-ui-fg-subtle">
+              {t("channelPricing.direction")}
+            </span>
+            <select
+              className={selectClass}
+              value={descending ? "desc" : "asc"}
+              onChange={(e) => setSort(sortKey, e.target.value === "desc")}
+            >
+              <option value="asc">{t("channelPricing.lowToHigh")}</option>
+              <option value="desc">{t("channelPricing.highToLow")}</option>
+            </select>
+          </label>
+        </div>
+        {allChannels.length > 0 && (
+          <div
+            className="flex flex-wrap items-center gap-2"
+            role="group"
+            aria-label={t("channelPricing.channels")}
+          >
+            {allChannels.map((c) => {
+              const on = !visibleIds || visibleIds.has(c.id)
+              return (
+                <button
+                  key={c.id}
+                  type="button"
+                  aria-pressed={on}
+                  onClick={() => toggleChannel(c.id)}
+                  className={`txt-compact-small-plus rounded-full border px-3 py-1 ${
+                    on
+                      ? "border-ui-border-interactive bg-ui-bg-interactive text-ui-fg-on-color"
+                      : "border-ui-border-base text-ui-fg-subtle"
+                  }`}
+                >
+                  {c.name}
+                </button>
+              )
+            })}
+          </div>
+        )}
+        {data?.truncated && (
+          <Text size="small" className="text-ui-fg-subtle" role="status">
+            {t("channelPricing.truncated")}
+          </Text>
+        )}
+      </div>
+
+      {isError ? (
+        <div className="flex flex-col items-center gap-y-3 px-6 py-12">
+          <Text className="text-ui-fg-subtle">{t("channelPricing.error")}</Text>
+          <Button size="small" variant="secondary" onClick={() => refetch()}>
+            {t("actions.retry")}
+          </Button>
+        </div>
+      ) : isLoading ? (
+        <div className="px-6 py-12">
+          <Text className="text-ui-fg-subtle">
+            {t("channelPricing.loading")}
+          </Text>
+        </div>
+      ) : rows.length === 0 ? (
+        <div className="px-6 py-12">
+          <Text className="text-ui-fg-subtle">{t("channelPricing.empty")}</Text>
+        </div>
+      ) : (
+        <div className="overflow-x-auto" tabIndex={0}>
+          <table className="txt-compact-small w-full border-collapse">
+            <thead className="bg-ui-bg-subtle text-ui-fg-subtle">
+              <tr>
+                <th
+                  rowSpan={2}
+                  scope="col"
+                  className="sticky left-0 z-10 min-w-[220px] bg-ui-bg-subtle px-4 py-2 text-left"
+                >
+                  {t("channelPricing.product")}
+                </th>
+                {channels.map((c) => (
+                  <th
+                    key={c.id}
+                    colSpan={2}
+                    scope="colgroup"
+                    data-channel-group=""
+                    className="border-l border-ui-border-base px-4 py-2 text-center"
+                  >
+                    {c.name}
+                  </th>
+                ))}
+                <th
+                  rowSpan={2}
+                  scope="col"
+                  className="border-l border-ui-border-base px-4 py-2 text-right"
+                >
+                  {t("channelPricing.total")}
+                </th>
+                <th rowSpan={2} scope="col" className="px-4 py-2 text-right">
+                  {t("channelPricing.unallocated")}
+                </th>
+              </tr>
+              <tr>
+                {channels.flatMap((c) => [
+                  <th
+                    key={`${c.id}-price`}
+                    scope="col"
+                    className="border-l border-ui-border-base px-4 py-1 text-right font-normal"
+                  >
+                    {t("channelPricing.price")}
+                  </th>,
+                  <th
+                    key={`${c.id}-stock`}
+                    scope="col"
+                    className="px-4 py-1 text-right font-normal"
+                  >
+                    {t("channelPricing.stock")}
+                  </th>,
+                ])}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr
+                  key={row.variant_id}
+                  className="border-t border-ui-border-base"
+                >
+                  <th
+                    scope="row"
+                    className="sticky left-0 z-10 bg-ui-bg-base px-4 py-2 text-left font-normal"
+                  >
+                    <div className="text-ui-fg-base">{row.product_title}</div>
+                    <div className="text-xs text-ui-fg-subtle">
+                      {[row.variant_title, row.sku].filter(Boolean).join(" · ")}
+                    </div>
+                  </th>
+                  {channels.flatMap((c) => {
+                    const cell = row.channels[c.id]
+                    return [
+                      <td
+                        key={`${c.id}-price`}
+                        className="border-l border-ui-border-base px-4 py-2 text-right"
+                      >
+                        <PriceCell channel={c} cell={cell} />
+                      </td>,
+                      <td
+                        key={`${c.id}-stock`}
+                        className="px-4 py-2 text-right"
+                      >
+                        {cell ? cell.stock : "-"}
+                      </td>,
+                    ]
+                  })}
+                  <td className="border-l border-ui-border-base px-4 py-2 text-right">
+                    {row.available}
+                  </td>
+                  <td className="px-4 py-2 text-right">{row.unallocated}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {!isError && !isLoading && rows.length > 0 && (
+        <div className="flex items-center justify-between px-6 py-3">
+          <Text size="small" className="text-ui-fg-subtle">
+            {t("channelPricing.showing", {
+              shown: rows.length,
+              count,
+            })}
+          </Text>
+          <div className="flex items-center gap-x-2">
+            <Button
+              size="small"
+              variant="secondary"
+              disabled={offset === 0}
+              onClick={() =>
+                update({
+                  offset: String(Math.max(0, offset - PAGE_SIZE)) || null,
+                })
+              }
+            >
+              {t("general.prev")}
+            </Button>
+            <Button
+              size="small"
+              variant="secondary"
+              disabled={offset + PAGE_SIZE >= count}
+              onClick={() => update({ offset: String(offset + PAGE_SIZE) })}
+            >
+              {t("general.next")}
+            </Button>
+          </div>
+        </div>
+      )}
+    </Container>
+  )
+}

@@ -119,6 +119,7 @@
   },
   "actions": {
     "save": "Save",
+    "retry": "Retry",
     "saveChanges": "Save changes",
     "saveAsDraft": "Save as draft",
     "saveAndClose": "Save and close",
@@ -444,6 +445,35 @@
   },
   "sales_channels": {
     "availableIn": "Available in <0>{{x}}</0> of <1>{{y}}</1> sales channels"
+  },
+  "channelPricing": {
+    "title": "Channel stock & pricing",
+    "link": "Channel stock & pricing",
+    "search": "Search products or SKUs",
+    "sortBy": "Sort by",
+    "direction": "Direction",
+    "lowToHigh": "Low to high",
+    "highToLow": "High to low",
+    "sort": {
+      "name": "Product name",
+      "total": "Total stock",
+      "unallocated": "Unallocated stock",
+      "channelStock": "{{channel}} stock",
+      "channelPrice": "{{channel}} price"
+    },
+    "channels": "Channels",
+    "product": "Product",
+    "price": "Price",
+    "stock": "Stock",
+    "total": "Total",
+    "unallocated": "Unallocated",
+    "baseMarker": "base",
+    "basePriceHint": "No channel price set, using the base price",
+    "showing": "{{shown}} of {{count}} products",
+    "loading": "Loading...",
+    "empty": "No products match your search.",
+    "error": "The channel grid could not be loaded.",
+    "truncated": "Only part of your catalog is shown here. Narrow your search to see the rest."
   },
   "products": {
     "domain": "Products",

@@ -516,6 +516,9 @@
         "save": {
           "type": "string"
         },
+        "retry": {
+          "type": "string"
+        },
         "saveChanges": {
           "type": "string"
         },
@@ -663,6 +666,7 @@
       },
       "required": [
         "save",
+        "retry",
         "saveChanges",
         "saveAsDraft",
         "saveAndClose",
@@ -1778,6 +1782,123 @@
         }
       },
       "required": ["availableIn"],
+      "additionalProperties": false
+    },
+    "channelPricing": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string"
+        },
+        "link": {
+          "type": "string"
+        },
+        "search": {
+          "type": "string"
+        },
+        "sortBy": {
+          "type": "string"
+        },
+        "direction": {
+          "type": "string"
+        },
+        "lowToHigh": {
+          "type": "string"
+        },
+        "highToLow": {
+          "type": "string"
+        },
+        "sort": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "total": {
+              "type": "string"
+            },
+            "unallocated": {
+              "type": "string"
+            },
+            "channelStock": {
+              "type": "string"
+            },
+            "channelPrice": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "total",
+            "unallocated",
+            "channelStock",
+            "channelPrice"
+          ],
+          "additionalProperties": false
+        },
+        "channels": {
+          "type": "string"
+        },
+        "product": {
+          "type": "string"
+        },
+        "price": {
+          "type": "string"
+        },
+        "stock": {
+          "type": "string"
+        },
+        "total": {
+          "type": "string"
+        },
+        "unallocated": {
+          "type": "string"
+        },
+        "baseMarker": {
+          "type": "string"
+        },
+        "basePriceHint": {
+          "type": "string"
+        },
+        "showing": {
+          "type": "string"
+        },
+        "loading": {
+          "type": "string"
+        },
+        "empty": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        },
+        "truncated": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "link",
+        "search",
+        "sortBy",
+        "direction",
+        "lowToHigh",
+        "highToLow",
+        "sort",
+        "channels",
+        "product",
+        "price",
+        "stock",
+        "total",
+        "unallocated",
+        "baseMarker",
+        "basePriceHint",
+        "showing",
+        "loading",
+        "empty",
+        "error",
+        "truncated"
+      ],
       "additionalProperties": false
     },
     "products": {
@@ -15590,6 +15711,7 @@
     "email",
     "transferOwnership",
     "sales_channels",
+    "channelPricing",
     "products",
     "collections",
     "categories",

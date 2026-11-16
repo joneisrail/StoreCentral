@@ -15,6 +15,10 @@ export const ConfigurableProductListTable = () => {
         adapter={adapter}
         heading={t("products.domain")}
         actions={[
+          {
+            label: t("channelPricing.link"),
+            to: "/products/channel-pricing",
+          },
           { label: t("actions.export"), to: `export${location.search}` },
           { label: t("actions.import"), to: `import${location.search}` },
           { label: t("actions.create"), to: "create" },

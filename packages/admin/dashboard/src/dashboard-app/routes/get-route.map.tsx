@@ -59,6 +59,14 @@ export function getRouteMap({
                   ],
                 },
                 {
+                  path: "channel-pricing",
+                  errorElement: <ErrorBoundary />,
+                  handle: {
+                    breadcrumb: () => t("channelPricing.title"),
+                  },
+                  lazy: () => import("../../routes/products/channel-pricing"),
+                },
+                {
                   path: ":id",
                   errorElement: <ErrorBoundary />,
                   lazy: async () => {
