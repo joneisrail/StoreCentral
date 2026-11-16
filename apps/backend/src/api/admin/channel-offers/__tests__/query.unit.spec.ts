@@ -13,6 +13,14 @@ function fakeDeps(variants: V[], levels: Level[], offerRows: any[] = []): GridDe
   return {
     calls,
     connectedChannelIds: async () => new Set(),
+    stockRows: async () => {
+      calls.push("stockRows")
+      const net = new Map<string, number>()
+      for (const l of levels) net.set(l.item, (net.get(l.item) ?? 0) + l.stocked - l.reserved)
+      return variants.flatMap((v) =>
+        v.items.map((i) => ({ variant_id: v.id, required_quantity: i.required, net: String(net.get(i.item) ?? 0) }))
+      )
+    },
     offers: {
       listChannelOffers: async (_f: any, c: any = {}) => {
         const skip = c.skip ?? 0
@@ -107,9 +115,9 @@ describe("bulk stock equals availableFromVariantRow", () => {
       { item: "i1", stocked: 4, reserved: 0 },
     ])
     await loadGrid(deps, params, { stockMemoTtlMs: 10_000 })
-    const before = deps.calls.filter((c) => c === "inventory_level").length
+    const before = deps.calls.filter((c) => c === "stockRows").length
     await loadGrid(deps, params, { stockMemoTtlMs: 10_000 })
-    expect(deps.calls.filter((c) => c === "inventory_level").length).toBe(before)
+    expect(deps.calls.filter((c) => c === "stockRows").length).toBe(before)
   })
 })
 

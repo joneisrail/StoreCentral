@@ -65,6 +65,11 @@ type Offer = {
 export type GridDeps = {
   query: { graph: (args: any) => Promise<{ data: any[] }> }
   offers: { listChannelOffers: (filters: any, config?: any) => Promise<any[]> }
+  /**
+   * One row per (variant, inventory item) link with the item's net stock
+   * (sum over its levels of stocked - reserved, unfloored).
+   */
+  stockRows: () => Promise<{ variant_id: string; required_quantity: number | null; net: number | string }[]>
   /** Sales channel ids that have a marketplace connection; never throws. */
   connectedChannelIds: () => Promise<Set<string>>
 }
@@ -241,25 +246,15 @@ async function fetchVariantKeys(
 type StockItems = Map<string, { required_quantity: number | null; net: number }[]>
 
 // Variant to inventory item links with each item net stock (sum of stocked -
-// reserved over its levels), from two bulk reads. The memo holds this raw
-// structure so `managed` flags of the current request are always applied.
+// reserved over its levels), one aggregated read supplied by deps.stockRows.
+// The memo holds this raw structure so the `managed` flags of the current
+// request are always applied.
 async function readStockItems(deps: GridDeps): Promise<StockItems> {
-  const [{ data: links }, { data: levels }] = await Promise.all([
-    pagedGraph(deps, "product_variant_inventory_item", ["id", "variant_id", "inventory_item_id", "required_quantity"]),
-    pagedGraph(deps, "inventory_level", ["id", "inventory_item_id", "stocked_quantity", "reserved_quantity"]),
-  ])
-  const netByItem = new Map<string, number>()
-  for (const l of levels) {
-    netByItem.set(
-      l.inventory_item_id,
-      (netByItem.get(l.inventory_item_id) ?? 0) + Number(l.stocked_quantity ?? 0) - Number(l.reserved_quantity ?? 0)
-    )
-  }
   const itemsByVariant: StockItems = new Map()
-  for (const k of links) {
-    const list = itemsByVariant.get(k.variant_id) ?? []
-    list.push({ required_quantity: k.required_quantity, net: netByItem.get(k.inventory_item_id) ?? 0 })
-    itemsByVariant.set(k.variant_id, list)
+  for (const r of await deps.stockRows()) {
+    const list = itemsByVariant.get(r.variant_id) ?? []
+    list.push({ required_quantity: r.required_quantity, net: Number(r.net ?? 0) })
+    itemsByVariant.set(r.variant_id, list)
   }
   return itemsByVariant
 }
