@@ -44,7 +44,7 @@
   - `deduct(stocks, channelId, qty): Record<string, number>` — channel stock minus qty, floored at 0.
   - `trimToTotal(stocks, total, order?): { stocks: Record<string, number>; trimmed: Record<string, number> }` — no change when sum ≤ total; otherwise removes units one at a time from the channel with the most stock (ties: earlier in `order`) until sum = total.
 
-- [ ] Step 1: Write failing tests: split of 7 over [a,b,c] = {a:3,b:2,c:2}; 2 over 3 = {a:1,b:1,c:0}; 0 = zeros; no channels = {}; resplit of {a:8,b:10,c:10} = {a:10,b:9,c:9}; deduct never below 0; trim {a:5,b:3,c:3} to total 8 = {a:3,b:3,c:2}... verify by the stated rule and assert `trimmed`; trim with sum ≤ total unchanged.
+- [ ] Step 1: Write failing tests: split of 7 over [a,b,c] = {a:3,b:2,c:2}; 2 over 3 = {a:1,b:1,c:0}; 0 = zeros; no channels = {}; resplit of {a:8,b:10,c:10} = {a:10,b:9,c:9}; deduct never below 0; trim {a:5,b:3,c:3} to total 8 = {a:2,b:3,c:3} with `trimmed` = {a:3} (a drops to 3, then the three-way tie goes to a); trim with sum ≤ total unchanged.
 - [ ] Step 2: Run, expect FAIL. Step 3: Implement as pure functions (no I/O). Step 4: Run, expect PASS.
 - [ ] Step 5: Commit `feat(backend): channel stock rules`.
 
@@ -82,7 +82,7 @@
 
 **Interfaces:**
 - Consumes: Task 1, 2 (+ available stock via the inventory module: sum of `stocked_quantity - reserved_quantity` over the variant's inventory levels; reuse the same read the seller-hub `inventory_quantity` uses).
-- Produces: `updateChannelOfferWorkflow` input `{ variant_id, channel_id, price?: number | null, stock?: number }`; validates `stock` is an integer ≥ 0 and `sum(other channels) + stock ≤ available` (error message includes the free units); price must be ≥ 0 or null; unknown channel → 404; a `edit` movement is recorded; sets `sync_state: "pending"`; runs under the variant lock key `channel-offers:<variant_id>`; emits `channel-offer.changed` `{ variant_id, sales_channel_id, kind: "stock" | "price" | "both", manual: true }` (consumed in Task 12). Route `POST` body `z.strictObject({ price: z.number().nonnegative().nullable().optional(), stock: z.number().int().nonnegative().optional() })`, refine at least one key.
+- Produces: `updateChannelOfferWorkflow` input `{ variant_id, channel_id, price?: number | null, stock?: number }`; validates `stock` is an integer ≥ 0 and `sum(other channels) + stock ≤ available` (error message includes the free units); price must be ≥ 0 or null; unknown channel → 404; a `edit` movement is recorded; sets `sync_state: "pending"`; runs under the variant lock key `channel-offers:<variant_id>`; emits `channel-offer.changed` `{ variant_id, sales_channel_id, kind: "stock" | "price" | "both", manual: true }` (consumed in Task 13). Route `POST` body `z.strictObject({ price: z.number().nonnegative().nullable().optional(), stock: z.number().int().nonnegative().optional() })`, refine at least one key.
 
 - [ ] Step 1: failing tests (over-allocation rejected with free-unit count, negative rejected, price null allowed, concurrent edits cannot exceed the total, movement + pending state written, 404 channel). Steps 2-4. Step 5 commit.
 
