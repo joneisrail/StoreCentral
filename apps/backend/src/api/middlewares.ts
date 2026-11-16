@@ -14,6 +14,7 @@ import { orderSearchMiddlewares } from './admin/order-search/middlewares'
 import { guardSalesChannelDelete } from './admin/sales-channels/guard'
 import { channelStockSettingsMiddlewares } from './admin/channel-stock-settings/middlewares'
 import { channelOfferMiddlewares } from './admin/channel-offers/[variant_id]/[channel_id]/middlewares'
+import { channelOffersGridMiddlewares } from './admin/channel-offers/middlewares'
 import { reviewMiddlewares } from './store/reviews/middlewares'
 
 // The product index declares filterable `status` and `sales_channel_ids`, so
@@ -50,6 +51,7 @@ export default defineMiddlewares({
     ...orderSearchMiddlewares,
     ...channelStockSettingsMiddlewares,
     ...channelOfferMiddlewares,
+    ...channelOffersGridMiddlewares,
     {
       method: ['DELETE'],
       matcher: '/admin/sales-channels/:id',

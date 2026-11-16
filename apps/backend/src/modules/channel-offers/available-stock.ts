@@ -31,28 +31,18 @@ type VariantRow = {
  * For the usual single item with required_quantity 1 this is exactly the sum
  * over the item's levels.
  */
-export async function readVariantStock(
-  container: Pick<MedusaContainer, "resolve">,
-  variantId: string
-): Promise<VariantStock> {
-  const query = container.resolve(ContainerRegistrationKeys.QUERY) as any
-  const { data } = await query.graph({
-    entity: "product_variant",
-    fields: [
-      "id",
-      "manage_inventory",
-      "inventory_items.required_quantity",
-      "inventory_items.inventory.location_levels.stocked_quantity",
-      "inventory_items.inventory.location_levels.reserved_quantity",
-    ],
-    filters: { id: variantId },
-  })
-  const variant = (data as VariantRow[])[0]
-  if (!variant) return { exists: false, managed: false, available: 0 }
+export const VARIANT_STOCK_FIELDS = [
+  "id",
+  "manage_inventory",
+  "inventory_items.required_quantity",
+  "inventory_items.inventory.location_levels.stocked_quantity",
+  "inventory_items.inventory.location_levels.reserved_quantity",
+]
+
+/** The available-stock rule applied to a variant row read with VARIANT_STOCK_FIELDS. */
+export function availableFromVariantRow(variant: VariantRow): number {
   const items = variant.inventory_items ?? []
-  if (!variant.manage_inventory || !items.length) {
-    return { exists: true, managed: false, available: 0 }
-  }
+  if (!variant.manage_inventory || !items.length) return 0
   const perItem = items.map((item) => {
     const levels = item.inventory?.location_levels ?? []
     const total = Math.max(
@@ -66,7 +56,26 @@ export async function readVariantStock(
     const required = Math.max(1, Number(item.required_quantity ?? 1))
     return Math.floor(total / required)
   })
-  return { exists: true, managed: true, available: Math.min(...perItem) }
+  return Math.min(...perItem)
+}
+
+export async function readVariantStock(
+  container: Pick<MedusaContainer, "resolve">,
+  variantId: string
+): Promise<VariantStock> {
+  const query = container.resolve(ContainerRegistrationKeys.QUERY) as any
+  const { data } = await query.graph({
+    entity: "product_variant",
+    fields: VARIANT_STOCK_FIELDS,
+    filters: { id: variantId },
+  })
+  const variant = (data as VariantRow[])[0]
+  if (!variant) return { exists: false, managed: false, available: 0 }
+  const items = variant.inventory_items ?? []
+  if (!variant.manage_inventory || !items.length) {
+    return { exists: true, managed: false, available: 0 }
+  }
+  return { exists: true, managed: true, available: availableFromVariantRow(variant) }
 }
 
 export const channelOfferLockKey = (variantId: string) =>
