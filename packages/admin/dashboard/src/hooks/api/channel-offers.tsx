@@ -101,6 +101,76 @@ export const useChannelStockSettings = () =>
       sdk.client.fetch<ChannelStockSettings>("/admin/channel-stock-settings"),
   })
 
+export type UpdateChannelOfferBody = {
+  /** A number sets the channel price, null clears it (falls back to base). */
+  price?: number | null
+  stock?: number
+}
+
+export type UpdateChannelOfferVariables = {
+  variant_id: string
+  channel_id: string
+  body: UpdateChannelOfferBody
+}
+
+export type UpdateChannelOfferResponse = {
+  variant_id: string
+  sales_channel_id: string
+  kind: "stock" | "price" | "both" | null
+  offer: unknown
+}
+
+export const useUpdateChannelOffer = (
+  options?: UseMutationOptions<
+    UpdateChannelOfferResponse,
+    FetchError,
+    UpdateChannelOfferVariables
+  >
+) => {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ variant_id, channel_id, body }) =>
+      sdk.client.fetch<UpdateChannelOfferResponse>(
+        `/admin/channel-offers/${variant_id}/${channel_id}`,
+        { method: "POST", body }
+      ),
+    ...options,
+    onSuccess: (data, variables, context) => {
+      queryClient.invalidateQueries({ queryKey: channelOffersQueryKeys.all })
+      options?.onSuccess?.(data, variables, context)
+    },
+  })
+}
+
+export type SyncChannelOfferVariables = {
+  variant_id: string
+  channel_id: string
+}
+
+export const useSyncChannelOffer = (
+  options?: UseMutationOptions<
+    { queued: boolean },
+    FetchError,
+    SyncChannelOfferVariables
+  >
+) => {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ variant_id, channel_id }) =>
+      sdk.client.fetch<{ queued: boolean }>(
+        `/admin/channel-offers/${variant_id}/${channel_id}/sync`,
+        { method: "POST" }
+      ),
+    ...options,
+    onSuccess: (data, variables, context) => {
+      queryClient.invalidateQueries({ queryKey: channelOffersQueryKeys.all })
+      options?.onSuccess?.(data, variables, context)
+    },
+  })
+}
+
 export const useUpdateChannelStockSettings = (
   options?: UseMutationOptions<
     ChannelStockSettings,

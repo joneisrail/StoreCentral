@@ -1854,6 +1854,58 @@
         "unallocated": {
           "type": "string"
         },
+        "live": {
+          "type": "string"
+        },
+        "edit": {
+          "type": "object",
+          "properties": {
+            "price": {
+              "type": "string"
+            },
+            "stock": {
+              "type": "string"
+            },
+            "basePrice": {
+              "type": "string"
+            },
+            "invalidPrice": {
+              "type": "string"
+            },
+            "invalidStock": {
+              "type": "string"
+            },
+            "saving": {
+              "type": "string"
+            },
+            "saveFailed": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "price",
+            "stock",
+            "basePrice",
+            "invalidPrice",
+            "invalidStock",
+            "saving",
+            "saveFailed"
+          ],
+          "additionalProperties": false
+        },
+        "sync": {
+          "type": "object",
+          "properties": {
+            "label": {
+              "type": "string"
+            },
+            "failed": {
+              "type": "string"
+            }
+          },
+          "required": ["label", "failed"],
+          "additionalProperties": false
+        },
         "baseMarker": {
           "type": "string"
         },
@@ -1897,6 +1949,9 @@
         "stock",
         "total",
         "unallocated",
+        "live",
+        "edit",
+        "sync",
         "baseMarker",
         "basePriceHint",
         "showing",

@@ -7,7 +7,11 @@ import {
   ChannelOfferCell,
   ChannelOfferChannel,
   useChannelOffers,
+  useSyncChannelOffer,
+  useUpdateChannelOffer,
 } from "../../../../hooks/api/channel-offers"
+import { EditableCell } from "./editable-cell"
+import { SyncButton } from "./sync-button"
 
 const PAGE_SIZE = 50
 const SEARCH_DEBOUNCE_MS = 300
@@ -37,12 +41,33 @@ const isKnownOrder = (order: string, channelIds: Set<string>) => {
 const selectClass =
   "bg-ui-bg-field text-ui-fg-base txt-compact-small shadow-borders-base h-8 rounded-md border-0 px-2"
 
-const PriceCell = ({
+type CellKind = "price" | "stock"
+type OfferKey = `${string}:${string}:${CellKind}`
+type SaveFn = (
+  variantId: string,
+  channel: ChannelOfferChannel,
+  cell: ChannelOfferCell,
+  kind: CellKind,
+  value: number | null
+) => Promise<unknown>
+
+const isPending = (cell: ChannelOfferCell) => cell.sync_state === "pending"
+const isFailed = (cell: ChannelOfferCell) => cell.sync_state === "failed"
+
+const OfferCell = ({
+  variantId,
   channel,
   cell,
+  kind,
+  previous,
+  onSave,
 }: {
+  variantId: string
   channel: ChannelOfferChannel
   cell: ChannelOfferCell | undefined
+  kind: CellKind
+  previous: Record<string, number | null>
+  onSave: SaveFn
 }) => {
   const { t } = useTranslation()
 
@@ -50,22 +75,39 @@ const PriceCell = ({
     return <span className="text-ui-fg-muted">-</span>
   }
 
-  // Web and POS channels always sell at the base price; marketplaces fall back
-  // to it when they have no price of their own.
-  const readOnly = channel.kind === "web" || channel.kind === "pos"
-  const isFallback = cell.price === null && cell.effective_price !== null
+  // Web and POS channels always sell at the base price (their stock stays
+  // editable); marketplaces fall back to it when they have no price of their
+  // own.
+  const readOnly =
+    kind === "price" && (channel.kind === "web" || channel.kind === "pos")
+  const isFallback =
+    kind === "price" && cell.price === null && cell.effective_price !== null
+  const shown = kind === "price" ? cell.effective_price : cell.stock
+  const format = (v: number | null | undefined) => {
+    return kind === "price" ? formatAmount(v) : String(v ?? "-")
+  }
+  const key: OfferKey = `${variantId}:${channel.id}:${kind}`
+  const hasPrevious = key in previous
 
   return (
     <span
-      className={readOnly ? "text-ui-fg-subtle" : undefined}
+      className="inline-flex items-center gap-x-1"
       title={isFallback ? t("channelPricing.basePriceHint") : undefined}
     >
-      {formatAmount(cell.effective_price)}
+      <EditableCell
+        kind={kind}
+        value={kind === "price" ? cell.price : cell.stock}
+        display={format(shown)}
+        label={t(`channelPricing.edit.${kind}`, { channel: channel.name })}
+        readOnly={readOnly}
+        pending={isPending(cell)}
+        failed={isFailed(cell)}
+        error={cell.last_error}
+        previousDisplay={hasPrevious ? format(previous[key]) : null}
+        onSave={(value) => onSave(variantId, channel, cell, kind, value)}
+      />
       {isFallback && (
-        <span
-          data-testid="price-fallback"
-          className="ml-1 text-xs text-ui-fg-muted"
-        >
+        <span data-testid="price-fallback" className="text-xs text-ui-fg-muted">
           {t("channelPricing.baseMarker")}
         </span>
       )}
@@ -121,6 +163,30 @@ export const ChannelGrid = () => {
     return () => clearTimeout(handle)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchText, q])
+
+  const updateOffer = useUpdateChannelOffer()
+  const syncOffer = useSyncChannelOffer()
+  // Previous synced values, kept client-side so a pending cell can show what
+  // the marketplace still has. Overwritten on the first edit of a synced cell.
+  const [previous, setPrevious] = useState<Record<string, number | null>>({})
+
+  const save: SaveFn = async (variantId, channel, cell, kind, value) => {
+    const key = `${variantId}:${channel.id}:${kind}`
+    const old = kind === "price" ? cell.effective_price : cell.stock
+    await updateOffer.mutateAsync({
+      variant_id: variantId,
+      channel_id: channel.id,
+      body: kind === "price" ? { price: value } : { stock: value as number },
+    })
+    if (cell.has_connection) {
+      setPrevious((prev) => {
+        if (cell.sync_state === "pending" && key in prev) {
+          return prev
+        }
+        return { ...prev, [key]: old }
+      })
+    }
+  }
 
   const { data, isLoading, isError, refetch } = useChannelOffers({
     q: q || undefined,
@@ -388,13 +454,46 @@ export const ChannelGrid = () => {
                         key={`${c.id}-price`}
                         className="border-l border-ui-border-base px-4 py-2 text-right"
                       >
-                        <PriceCell channel={c} cell={cell} />
+                        <span className="inline-flex items-center gap-x-2">
+                          <OfferCell
+                            variantId={row.variant_id}
+                            channel={c}
+                            cell={cell}
+                            kind="price"
+                            previous={previous}
+                            onSave={save}
+                          />
+                          {cell && (
+                            <SyncButton
+                              channelName={c.name}
+                              hasConnection={
+                                cell.has_connection &&
+                                c.kind !== "web" &&
+                                c.kind !== "pos"
+                              }
+                              state={cell.sync_state}
+                              onSync={() =>
+                                syncOffer.mutateAsync({
+                                  variant_id: row.variant_id,
+                                  channel_id: c.id,
+                                })
+                              }
+                            />
+                          )}
+                        </span>
                       </td>,
                       <td
                         key={`${c.id}-stock`}
                         className="px-4 py-2 text-right"
                       >
-                        {cell ? cell.stock : "-"}
+                        <OfferCell
+                          variantId={row.variant_id}
+                          channel={c}
+                          cell={cell}
+                          kind="stock"
+                          previous={previous}
+                          onSave={save}
+                        />
                       </td>,
                     ]
                   })}

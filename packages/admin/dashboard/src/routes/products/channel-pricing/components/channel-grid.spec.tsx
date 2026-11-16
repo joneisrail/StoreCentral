@@ -1,5 +1,12 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react"
 import { createMemoryRouter, RouterProvider } from "react-router-dom"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -7,12 +14,16 @@ vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (key: string) => key }),
 }))
 
-const { mockUseChannelOffers } = vi.hoisted(() => ({
+const { mockUseChannelOffers, mockUpdate, mockSync } = vi.hoisted(() => ({
   mockUseChannelOffers: vi.fn(),
+  mockUpdate: vi.fn(),
+  mockSync: vi.fn(),
 }))
 
 vi.mock("../../../../hooks/api/channel-offers", () => ({
   useChannelOffers: (params: unknown) => mockUseChannelOffers(params),
+  useUpdateChannelOffer: () => ({ mutateAsync: mockUpdate }),
+  useSyncChannelOffer: () => ({ mutateAsync: mockSync }),
 }))
 
 import { ChannelGrid } from "./channel-grid"
@@ -113,6 +124,101 @@ describe("ChannelGrid", () => {
   it("marks the base price fallback", () => {
     renderAt()
     expect(screen.getAllByTestId("price-fallback")).toHaveLength(1)
+  })
+
+  it("makes web/POS price read-only but keeps stock editable", () => {
+    renderAt()
+    expect(
+      screen.getAllByRole("button", { name: "channelPricing.edit.price" })
+    ).toHaveLength(1)
+    expect(
+      screen.getAllByRole("button", { name: "channelPricing.edit.stock" })
+    ).toHaveLength(2)
+  })
+
+  it("shows live for channels without a connection, a sync icon otherwise", () => {
+    ok({
+      rows: [
+        {
+          ...data.rows[0],
+          channels: {
+            ch_ebay: cell({ has_connection: true, sync_state: "synced" }),
+            ch_web: cell(),
+          },
+        },
+      ],
+    })
+    renderAt()
+    expect(screen.getAllByText("channelPricing.live")).toHaveLength(1)
+    expect(
+      screen.getAllByRole("button", { name: "channelPricing.sync.label" })
+    ).toHaveLength(1)
+  })
+
+  it("saves a stock edit through the update route", async () => {
+    mockUpdate.mockResolvedValue({})
+    renderAt()
+    fireEvent.click(
+      screen.getAllByRole("button", { name: "channelPricing.edit.stock" })[0]
+    )
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "5" } })
+    fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter" })
+    await waitFor(() =>
+      expect(mockUpdate).toHaveBeenCalledWith({
+        variant_id: "v1",
+        channel_id: "ch_ebay",
+        body: { stock: 5 },
+      })
+    )
+  })
+
+  it("clears a channel price by sending null", async () => {
+    mockUpdate.mockResolvedValue({})
+    renderAt()
+    fireEvent.click(
+      screen.getByRole("button", { name: "channelPricing.edit.price" })
+    )
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "" } })
+    fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter" })
+    await waitFor(() =>
+      expect(mockUpdate).toHaveBeenCalledWith({
+        variant_id: "v1",
+        channel_id: "ch_ebay",
+        body: { price: null },
+      })
+    )
+  })
+
+  it("calls the sync route and shows busy until it settles", async () => {
+    let resolve!: () => void
+    mockSync.mockReturnValue(
+      new Promise<void>((r) => {
+        resolve = r
+      })
+    )
+    ok({
+      rows: [
+        {
+          ...data.rows[0],
+          channels: {
+            ch_ebay: cell({ has_connection: true, sync_state: "failed" }),
+            ch_web: cell(),
+          },
+        },
+      ],
+    })
+    renderAt()
+    const btn = screen.getByRole("button", {
+      name: "channelPricing.sync.label",
+    })
+    fireEvent.click(btn)
+    expect(mockSync).toHaveBeenCalledWith({
+      variant_id: "v1",
+      channel_id: "ch_ebay",
+    })
+    expect(btn.getAttribute("aria-busy")).toBe("true")
+    resolve()
+    await waitFor(() => expect(btn.getAttribute("aria-busy")).toBe("false"))
   })
 
   it("sends the debounced search term as q", () => {

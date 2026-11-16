@@ -467,6 +467,20 @@
     "stock": "Stock",
     "total": "Total",
     "unallocated": "Unallocated",
+    "live": "live",
+    "edit": {
+      "price": "Edit {{channel}} price",
+      "stock": "Edit {{channel}} stock",
+      "basePrice": "Base price",
+      "invalidPrice": "Enter a price of 0 or more, or leave it empty to use the base price.",
+      "invalidStock": "Enter a whole number of 0 or more.",
+      "saving": "Saving...",
+      "saveFailed": "The change could not be saved."
+    },
+    "sync": {
+      "label": "Sync now",
+      "failed": "The sync could not be started."
+    },
     "baseMarker": "base",
     "basePriceHint": "No channel price set, using the base price",
     "showing": "{{shown}} of {{count}} products",
