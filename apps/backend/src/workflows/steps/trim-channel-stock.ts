@@ -72,11 +72,11 @@ export const trimChannelStockStep = createStep(
     try {
       await locking.execute([channelOfferLockKey(variantId)], async () => {
         const variant = await readVariantStock(container, variantId)
-        if (!variant.exists) return
+        // Missing or unmanaged (no stock tracking): rows hold no promise to trim.
+        if (!variant.exists || !variant.managed) return
         const rows = await offers.listForVariant(variantId)
         const stocks = Object.fromEntries(rows.map((r) => [r.sales_channel_id, r.stock]))
         const sum = Object.values(stocks).reduce((s, n) => s + n, 0)
-        // readVariantStock reports available 0 for an unmanaged variant.
         const total = variant.available
         if (sum <= total) return
 

@@ -110,6 +110,15 @@ describe("trimChannelStockStep", () => {
     expect(result.changed).toEqual([])
   })
 
+  it("skips unmanaged variants (no trim, no writes)", async () => {
+    const t = make({ stocks: { a: 5, b: 2, c: 1 }, available: 0, unmanaged: true })
+    const { result } = await trimWf(t.c).run({ input: { variant_id: "v1" } })
+    expect(t.service.setStocks).not.toHaveBeenCalled()
+    expect(t.movements).toEqual([])
+    expect(result.changed).toEqual([])
+    expect(t.offers.map((o) => o.stock)).toEqual([5, 2, 1])
+  })
+
   it("an increase leaves stock unallocated", async () => {
     const t = make({ stocks: { a: 1, b: 1, c: 1 }, available: 100 })
     await trimWf(t.c).run({ input: { variant_id: "v1" } })
