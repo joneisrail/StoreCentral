@@ -174,8 +174,10 @@ describe("ChannelGrid", () => {
 
   it("sends a channel order once the channel is known", () => {
     renderAt("/?order=-ch_ebay:stock")
-    // the first render has no channel list yet; any later render has one
-    fireEvent.click(screen.getByRole("button", { name: "Webstore" }))
+    // no manual re-render: the loaded channel list alone must trigger it
+    expect(mockUseChannelOffers).toHaveBeenCalledWith(
+      expect.objectContaining({ order: "total" })
+    )
     expect(mockUseChannelOffers).toHaveBeenLastCalledWith(
       expect.objectContaining({ order: "-ch_ebay:stock" })
     )
@@ -192,6 +194,26 @@ describe("ChannelGrid", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "channelPricing.resetSort" })
     )
+    expect(router.state.location.search).toBe("")
+  })
+
+  it("a stale channel order that still 400s offers Reset sort", () => {
+    mockUseChannelOffers.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: true,
+      refetch: vi.fn(),
+    })
+    const router = renderAt("/?order=-ch_gone:price")
+    fireEvent.click(
+      screen.getByRole("button", { name: "channelPricing.resetSort" })
+    )
+    expect(router.state.location.search).toBe("")
+  })
+
+  it("clears a stale offset when there are no results at all", () => {
+    ok({ rows: [], count: 0 })
+    const router = renderAt("/?offset=50")
     expect(router.state.location.search).toBe("")
   })
 

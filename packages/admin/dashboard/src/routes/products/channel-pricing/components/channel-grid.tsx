@@ -1,5 +1,5 @@
 import { Button, Container, Heading, Text } from "@medusajs/ui"
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { useSearchParams } from "react-router-dom"
 
@@ -84,8 +84,10 @@ export const ChannelGrid = () => {
 
   const [searchText, setSearchText] = useState(q)
   // Channel ids from the last good response, used to validate the URL order.
-  const knownChannelIds = useRef<Set<string>>(new Set())
-  const orderIsValid = isKnownOrder(urlOrder, knownChannelIds.current)
+  const [knownChannelIds, setKnownChannelIds] = useState<Set<string>>(
+    () => new Set()
+  )
+  const orderIsValid = isKnownOrder(urlOrder, knownChannelIds)
   const order = orderIsValid ? urlOrder : DEFAULT_ORDER
 
   useEffect(() => {
@@ -128,11 +130,16 @@ export const ChannelGrid = () => {
   })
 
   const allChannels = data?.channels ?? []
-  if (data) {
-    knownChannelIds.current = new Set(data.channels.map((c) => c.id))
-  }
+  const loadedChannels = data?.channels
+  useEffect(() => {
+    if (loadedChannels) {
+      setKnownChannelIds(new Set(loadedChannels.map((c) => c.id)))
+    }
+  }, [loadedChannels])
   const sortWasReset =
-    !!data && !isKnownOrder(urlOrder, knownChannelIds.current)
+    !!loadedChannels &&
+    knownChannelIds.size > 0 &&
+    !isKnownOrder(urlOrder, knownChannelIds)
   const visibleIds = useMemo(() => {
     if (channelsParam === null) {
       return null
@@ -187,8 +194,9 @@ export const ChannelGrid = () => {
   const count = data?.count ?? 0
 
   useEffect(() => {
-    if (data && !isError && rows.length === 0 && offset > 0 && count > 0) {
-      const last = Math.floor((count - 1) / PAGE_SIZE) * PAGE_SIZE
+    if (data && !isError && rows.length === 0 && offset > 0) {
+      const last =
+        count > 0 ? Math.floor((count - 1) / PAGE_SIZE) * PAGE_SIZE : 0
       update({ offset: last > 0 ? String(last) : null })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
