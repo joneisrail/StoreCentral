@@ -1,5 +1,6 @@
 import { createMedusaContainer } from "@medusajs/framework/utils"
 import {
+  createStep,
   createWorkflow,
   transform,
   WorkflowResponse,
@@ -22,6 +23,8 @@ function make(opts: {
   available?: number
   unmanaged?: boolean
   variantIds?: string[]
+  failSetStocks?: boolean
+  failMovement?: boolean
 }) {
   const channels = opts.channels ?? ["a", "b", "c"]
   const offers: any[] = Object.entries(opts.stocks ?? {}).map(([c, stock]) => ({
@@ -39,15 +42,21 @@ function make(opts: {
       offers.slice().sort((x, y) => x.channel_order - y.channel_order).map((o) => ({ ...o }))
     ),
     applyMovement: jest.fn(async (m: any) => {
+      if (opts.failMovement) throw new Error("movement down")
       movements.push(m)
       return true
     }),
     setStocks: jest.fn(async (_v: string, s: Record<string, number>) => {
+      if (opts.failSetStocks) throw new Error("db down")
       for (const [c, n] of Object.entries(s)) offers.find((o) => o.sales_channel_id === c).stock = n
     }),
     markSync: jest.fn(async () => {}),
-    listChannelStockMovements: jest.fn(async () => []),
-    deleteChannelStockMovements: jest.fn(async () => {}),
+    listChannelStockMovements: jest.fn(async (f: any) =>
+      movements.filter((m) => m.kind === f.kind && m.ref === f.ref && m.sales_channel_id === f.sales_channel_id).map((m) => ({ id: m.ref + m.sales_channel_id }))
+    ),
+    deleteChannelStockMovements: jest.fn(async (ids: string[]) => {
+      for (const id of ids) movements.splice(movements.findIndex((m) => m.ref + m.sales_channel_id === id), 1)
+    }),
   }
   const c = createMedusaContainer()
   c.register("channelOffers", { resolve: () => service } as any)
@@ -123,6 +132,70 @@ describe("trimChannelStockStep", () => {
     const t = make({ stocks: { a: 1, b: 1, c: 1 }, available: 100 })
     await trimWf(t.c).run({ input: { variant_id: "v1" } })
     expect(t.offers.map((o) => o.stock)).toEqual([1, 1, 1])
+  })
+})
+
+describe("trimChannelStockStep rollback", () => {
+  const stocksOf = (offers: any[]) => offers.map((o) => o.stock)
+
+  it("setStocks throwing credits nothing and rethrows the original error", async () => {
+    const t = make({ stocks: { a: 5, b: 2, c: 1 }, available: 5, failSetStocks: true })
+    expect((await trimWf(t.c).run({ input: { variant_id: "v1" }, throwOnError: false })).errors[0].error.message).toBe("db down")
+    expect(stocksOf(t.offers)).toEqual([5, 2, 1])
+    // only the failed write was attempted: no give-back write
+    expect(t.service.setStocks).toHaveBeenCalledTimes(1)
+  })
+
+  it("a movement write failing after setStocks restores the snapshot exactly", async () => {
+    const t = make({ stocks: { a: 5, b: 2, c: 1 }, available: 5, failMovement: true })
+    expect((await trimWf(t.c).run({ input: { variant_id: "v1" }, throwOnError: false })).errors[0].error.message).toBe("movement down")
+    expect(stocksOf(t.offers)).toEqual([5, 2, 1])
+    expect(t.movements).toEqual([])
+  })
+
+  let wfCount = 0
+  const boomAfter = (mutate: (offers: any[]) => void) => {
+    const boom = createStep(`boom-after-trim-${++wfCount}`, async (_r: any, { container }) => {
+      mutate((container.resolve("channelOffers") as any)._offers)
+      throw new Error("boom")
+    })
+    return createWorkflow(`test-trim-then-fail-${wfCount}`, function (input: any) {
+      const r = trimChannelStockStep(transform({ input }, ({ input }) => input))
+      return new WorkflowResponse(boom(r))
+    })
+  }
+
+  it("compensation restores the snapshot when stock is unchanged since", async () => {
+    const t = make({ stocks: { a: 5, b: 2, c: 1 }, available: 5 })
+    ;(t.service as any)._offers = t.offers
+    expect((await boomAfter(() => {})(t.c).run({ input: { variant_id: "v1" }, throwOnError: false })).errors[0].error.message).toBe("boom")
+    expect(stocksOf(t.offers)).toEqual([5, 2, 1])
+    expect(t.movements).toEqual([])
+  })
+
+  it("compensation after a later change adds back at most trimmed, capped by free", async () => {
+    // trim 5,2,1 -> 2,2,1 (available 5). Then channel a is bumped to 4 and
+    // available stays 5: sum 7 > 5, free 0, so nothing may be added back.
+    const t = make({ stocks: { a: 5, b: 2, c: 1 }, available: 5 })
+    ;(t.service as any)._offers = t.offers
+    const r = await boomAfter((offers) => { offers[0].stock = 4 })(t.c).run({
+      input: { variant_id: "v1" },
+      throwOnError: false,
+    })
+    expect(r.errors[0].error.message).toBe("boom")
+    expect(stocksOf(t.offers)).toEqual([4, 2, 1])
+  })
+
+  it("compensation gives back only up to the free room when stock changed", async () => {
+    // after trim 2,2,1; channel a lowered to 1 (sum 4, free 1): give back 1 of the 3 trimmed.
+    const t = make({ stocks: { a: 5, b: 2, c: 1 }, available: 5 })
+    ;(t.service as any)._offers = t.offers
+    const r = await boomAfter((offers) => { offers[0].stock = 1 })(t.c).run({
+      input: { variant_id: "v1" },
+      throwOnError: false,
+    })
+    expect(r.errors[0].error.message).toBe("boom")
+    expect(stocksOf(t.offers)).toEqual([2, 2, 1])
   })
 })
 

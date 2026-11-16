@@ -19,6 +19,10 @@ type Applied = {
   variant_id: string
   ref: string
   trimmed: Record<string, number>
+  // Stock per trimmed channel read under the lock before the write, and the
+  // value this step wrote.
+  previous: Record<string, number>
+  after: Record<string, number>
 }
 
 // Ids only.
@@ -30,13 +34,32 @@ function log(container: Pick<MedusaContainer, "resolve">, message: string) {
   }
 }
 
-// Gives back what was trimmed and drops the trim movements.
-async function undo(offers: ChannelOffersModuleService, entry: Applied) {
+// Restores the snapshot for channels nobody changed since; for a channel that
+// changed meanwhile, gives back at most the trimmed units, capped by what is
+// still free (available - sum) so the sum never exceeds the available total.
+async function undo(
+  container: Pick<MedusaContainer, "resolve">,
+  offers: ChannelOffersModuleService,
+  entry: Applied
+) {
   const rows = await offers.listForVariant(entry.variant_id)
+  const sum = rows.reduce((s, r) => s + r.stock, 0)
+  let free: number | undefined
   const next: Record<string, number> = {}
   for (const row of rows) {
-    const t = entry.trimmed[row.sales_channel_id]
-    if (t) next[row.sales_channel_id] = row.stock + t
+    const id = row.sales_channel_id
+    if (!(id in entry.trimmed)) continue
+    if (row.stock === entry.after[id]) {
+      next[id] = entry.previous[id]
+      continue
+    }
+    if (free === undefined) {
+      const variant = await readVariantStock(container, entry.variant_id)
+      free = Math.max(0, variant.available - sum)
+    }
+    const give = Math.min(entry.trimmed[id], free)
+    free -= give
+    if (give > 0) next[id] = row.stock + give
   }
   if (Object.keys(next).length) {
     await offers.setStocks(entry.variant_id, next)
@@ -86,9 +109,17 @@ export const trimChannelStockStep = createStep(
         if (!ids.length) return
 
         const ref = `trim:${randomUUID()}`
-        applied.push({ variant_id: variantId, ref, trimmed })
+        const after = Object.fromEntries(ids.map((id) => [id, next[id]]))
         // Stock first, movement second (see apply-order-to-channel-stock).
-        await offers.setStocks(variantId, Object.fromEntries(ids.map((id) => [id, next[id]])))
+        // Recorded for rollback only once the stock write succeeded.
+        await offers.setStocks(variantId, after)
+        applied.push({
+          variant_id: variantId,
+          ref,
+          trimmed,
+          previous: Object.fromEntries(ids.map((id) => [id, stocks[id]])),
+          after,
+        })
         for (const id of ids) {
           await offers.markSync(variantId, id, { state: "pending" })
           const ok = await offers.applyMovement({
@@ -108,7 +139,7 @@ export const trimChannelStockStep = createStep(
       log(container, `Channel stock: failed trimming variant ${variantId}, rolling back`)
       for (const entry of [...applied].reverse()) {
         try {
-          await locking.execute([channelOfferLockKey(entry.variant_id)], () => undo(offers, entry))
+          await locking.execute([channelOfferLockKey(entry.variant_id)], () => undo(container, offers, entry))
         } catch {
           log(container, `Channel stock: rollback failed for variant ${entry.variant_id}`)
         }
@@ -123,7 +154,7 @@ export const trimChannelStockStep = createStep(
     const offers = container.resolve<ChannelOffersModuleService>(CHANNEL_OFFERS_MODULE)
     const locking = container.resolve(Modules.LOCKING)
     for (const entry of [...applied].reverse()) {
-      await locking.execute([channelOfferLockKey(entry.variant_id)], () => undo(offers, entry))
+      await locking.execute([channelOfferLockKey(entry.variant_id)], () => undo(container, offers, entry))
     }
   }
 )
