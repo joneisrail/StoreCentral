@@ -82,6 +82,20 @@ medusaIntegrationTestRunner({
         expect(movements[0]).toMatchObject({ kind: "edit", delta: 6, sales_channel_id: ch })
       })
 
+      it("an edit that changes nothing writes no movement and keeps the sync state", async () => {
+        const ch = await createChannel("A")
+        const v = await createVariant({ manage_inventory: true, stocked: 10 })
+        await post(v, ch, { stock: 4, price: 8 })
+        const svc = getContainer().resolve(CHANNEL_OFFERS_MODULE) as any
+        await svc.markSync(v, ch, { state: "synced", price: 8, stock: 4 })
+        const res = await post(v, ch, { stock: 4, price: 8 })
+        expect(res.status).toBe(200)
+        expect(res.data.kind).toBeNull()
+        expect(res.data.offer).toMatchObject({ stock: 4, price: 8 })
+        expect((await rows(v))[0].sync_state).toBe("synced")
+        expect(await svc.listChannelStockMovements({ variant_id: v })).toHaveLength(1)
+      })
+
       it("allows price null", async () => {
         const ch = await createChannel("A")
         const v = await createVariant({ manage_inventory: true, stocked: 5 })

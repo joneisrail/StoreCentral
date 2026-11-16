@@ -1,6 +1,7 @@
 import {
   createWorkflow,
   transform,
+  when,
   WorkflowResponse,
 } from "@medusajs/framework/workflows-sdk"
 import { emitEventStep } from "@medusajs/medusa/core-flows"
@@ -17,26 +18,29 @@ export const CHANNEL_OFFER_CHANGED_EVENT = "channel-offer.changed"
 export const updateChannelOfferWorkflow = createWorkflow(
   "update-channel-offer",
   function (input: UpdateChannelOfferInput) {
-    const validated = validateChannelOfferEditStep(input)
-    applyChannelOfferEditStep(input)
+    validateChannelOfferEditStep(input)
+    const applied = applyChannelOfferEditStep(input)
 
-    // Staged by Medusa and only released once the whole workflow succeeded, so
-    // an emission problem can never undo or fail the committed edit.
-    emitEventStep({
-      eventName: CHANNEL_OFFER_CHANGED_EVENT,
-      data: transform({ input, validated }, ({ input, validated }) => ({
-        variant_id: input.variant_id,
-        sales_channel_id: input.channel_id,
-        kind: validated.kind,
-        manual: true,
-      })),
+    // Only a real change is announced. Staged by Medusa and released once the
+    // whole workflow succeeded, so emission cannot undo the committed edit.
+    when({ applied }, ({ applied }) => applied.kind !== null).then(() => {
+      emitEventStep({
+        eventName: CHANNEL_OFFER_CHANGED_EVENT,
+        data: transform({ input, applied }, ({ input, applied }) => ({
+          variant_id: input.variant_id,
+          sales_channel_id: input.channel_id,
+          kind: applied.kind,
+          manual: true,
+        })),
+      })
     })
 
     return new WorkflowResponse(
-      transform({ input, validated }, ({ input, validated }) => ({
+      transform({ input, applied }, ({ input, applied }) => ({
         variant_id: input.variant_id,
         sales_channel_id: input.channel_id,
-        kind: validated.kind,
+        kind: applied.kind,
+        offer: applied.offer,
       }))
     )
   }

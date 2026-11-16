@@ -220,6 +220,35 @@ describe("applyChannelOfferEditStep", () => {
     expect(stockOf(m.offers, "sc_a")).toBe(2)
   })
 
+  it("reports the real kind of change", async () => {
+    const run = async (body: any) => {
+      const m = make({ offers: fresh() })
+      return (await applyWf(m.c).run({ input: { ...base, ...body } })).result.kind
+    }
+    expect(await run({ stock: 4 })).toBe("stock")
+    expect(await run({ price: 7 })).toBe("price")
+    expect(await run({ stock: 4, price: 7 })).toBe("both")
+    expect(await run({ stock: 3, price: 7 })).toBe("price")
+    expect(await run({ stock: 4, price: null })).toBe("stock")
+  })
+
+  it("treats identical stock and price as a no-op", async () => {
+    const o = fresh()
+    o[0].price = 9.5
+    const m = make({ offers: o })
+    const { result } = await applyWf(m.c).run({
+      input: { ...base, stock: 3, price: 9.5 },
+    })
+    expect(result.kind).toBeNull()
+    expect(m.movements).toHaveLength(0)
+    expect(m.service.setStocks).not.toHaveBeenCalled()
+    expect(m.service.setPrice).not.toHaveBeenCalled()
+    expect(m.service.markSync).not.toHaveBeenCalled()
+    expect(m.offers[0].sync_state).toBe("synced")
+    const n = make({ offers: fresh() })
+    expect((await applyWf(n.c).run({ input: { ...base, price: null } })).result.kind).toBeNull()
+  })
+
   it("uses the variant lock key", async () => {
     const m = make({ offers: fresh() })
     const execute = jest.fn(async (_k: string[], fn: any) => fn())
