@@ -59,6 +59,65 @@ describe("schemas", () => {
   })
 })
 
+describe("auto_sync_price", () => {
+  it("save accepts the flag alone, with credentials, and rejects non-booleans", () => {
+    expect(SaveConnectionSchema.safeParse({ auto_sync_price: true }).success).toBe(true)
+    expect(SaveConnectionSchema.safeParse({ auto_sync_price: false, access_token: "t" }).success).toBe(true)
+    expect(SaveConnectionSchema.safeParse({ access_token: "t" }).success).toBe(true)
+    expect(SaveConnectionSchema.safeParse({ auto_sync_price: "true" }).success).toBe(false)
+    expect(SaveConnectionSchema.safeParse({ auto_sync_price: 1 }).success).toBe(false)
+    expect(SaveConnectionSchema.safeParse({ auto_sync_price: true, nope: "x" }).success).toBe(false)
+  })
+
+  it("create does not take the flag (it defaults to false)", () => {
+    expect(
+      CreateConnectionSchema.safeParse({ marketplace: "amazon", name: "A", auto_sync_price: true }).success
+    ).toBe(false)
+  })
+
+  it("a flag-only save forwards exactly the flag and nothing else", async () => {
+    mocked.mockResolvedValue({ status: 200, body: { ok: true, connection: { auto_sync_price: true }, test: null } })
+    const res = makeRes()
+    await edit(makeReq("c1", { auto_sync_price: true }), res)
+    expect(mocked).toHaveBeenCalledTimes(1)
+    expect(mocked.mock.calls[0]!.slice(0, 3)).toEqual(["PUT", "/internal/connections/c1", { auto_sync_price: true }])
+    expect(res.payload.connection.auto_sync_price).toBe(true)
+  })
+
+  it("a false flag is forwarded (not dropped like a blank)", async () => {
+    mocked.mockResolvedValue({ status: 200, body: { ok: true } })
+    await edit(makeReq("c1", { auto_sync_price: false }), makeRes())
+    expect(mocked.mock.calls[0]![2]).toEqual({ auto_sync_price: false })
+  })
+
+  it("credentials-only saves are unchanged (no flag key)", async () => {
+    mocked.mockResolvedValue({ status: 200, body: { ok: true } })
+    await edit(makeReq("c1", { access_token: "tok", webhook_secret: "" }), makeRes())
+    expect(mocked).toHaveBeenCalledWith("PUT", "/internal/connections/c1", { access_token: "tok" }, { timeoutMs: 120_000 })
+  })
+
+  it("credentials plus the flag forward both with the long timeout", async () => {
+    mocked.mockResolvedValue({ status: 200, body: { ok: true } })
+    await edit(makeReq("c1", { access_token: "tok", auto_sync_price: true }), makeRes())
+    expect(mocked).toHaveBeenCalledWith(
+      "PUT",
+      "/internal/connections/c1",
+      { access_token: "tok", auto_sync_price: true },
+      { timeoutMs: 120_000 }
+    )
+  })
+
+  it("the list response carries the field through", async () => {
+    mocked.mockResolvedValue({
+      status: 200,
+      body: { connections: [{ id: "a", sales_channel_id: "sc_1", auto_sync_price: true }] },
+    })
+    const res = makeRes()
+    await GET({ query: { sales_channel_id: "sc_1" } } as any, res)
+    expect(res.payload.connections[0].auto_sync_price).toBe(true)
+  })
+})
+
 describe("attach to an existing sales channel", () => {
   const body = { marketplace: "shopify", sales_channel_id: "sc_9", shop_domain: "a.myshopify.com", access_token: "topsecret" }
 

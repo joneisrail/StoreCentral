@@ -42,6 +42,7 @@ export type ConnectionRow = {
   shopDomain: string | null
   shopifyLocationId: string | null
   apiKeyPresent: boolean
+  autoSyncPrice: boolean
 }
 
 /** Thrown when a required connection field is missing or invalid. Never carries values. */
@@ -135,6 +136,7 @@ type ListRow = {
   shop_domain: string | null
   shopify_location_id: string | null
   api_key_present: boolean
+  auto_sync_price: boolean | null
 }
 
 /**
@@ -150,7 +152,8 @@ export const listConnectionRows = async (pool: Pool): Promise<ConnectionRow[]> =
               WHERE l.integration_account_id = a.id) AS linked_listings,
             ${HAS_CREDENTIALS_SQL} AS has_stored_credentials,
             a.shop_domain, a.shopify_location_id,
-            (a.api_key IS NOT NULL) AS api_key_present
+            (a.api_key IS NOT NULL) AS api_key_present,
+            a.auto_sync_price
      FROM seller_hub.integration_account a
      ORDER BY a.managed DESC, a.created_at`
   )
@@ -170,7 +173,13 @@ export const listConnectionRows = async (pool: Pool): Promise<ConnectionRow[]> =
     shopDomain: r.shop_domain,
     shopifyLocationId: r.shopify_location_id,
     apiKeyPresent: r.api_key_present,
+    autoSyncPrice: r.auto_sync_price === true,
   }))
+}
+
+/** Persists the per-connection "push channel price changes automatically" flag. */
+export const setAutoSyncPriceById = async (pool: Pool, id: string, value: boolean): Promise<void> => {
+  await pool.query(`UPDATE seller_hub.integration_account SET auto_sync_price = $1 WHERE id = $2`, [value, id])
 }
 
 /** Best-effort rollback of a row created moments ago (no listings can be attached yet). */

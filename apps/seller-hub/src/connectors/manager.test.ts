@@ -130,6 +130,22 @@ describe("connector manager", () => {
     expect(state.statuses.at(-1)).toEqual({ id: "a", status: "connected", lastError: null })
   })
 
+  it("a managed woocommerce row is launched with its own sales channel", async () => {
+    const { mgr, startWooCommerce } = setup()
+    state.rows = [row("w", "woocommerce")]
+    state.stored.w = { siteUrl: "https://w.example", consumerKey: "k", consumerSecret: "s", webhookSecret: "h" }
+    expect(await mgr.apply("w")).toEqual({ started: true })
+    expect(startWooCommerce.mock.calls[0]![0]).toMatchObject({ accountId: "w", salesChannelId: "sc_w" })
+  })
+
+  it("a legacy row (null sales channel) launched through apply gets salesChannelId null", async () => {
+    const { mgr, startShopify } = setup()
+    state.rows = [row("l", "shopify", { managed: false, displayName: null, salesChannelId: null })]
+    state.legacy.shopify = cfg("env")
+    expect(await mgr.apply("l")).toEqual({ started: true })
+    expect(startShopify.mock.calls[0]![0].salesChannelId).toBeNull()
+  })
+
   it("two shopify connections start independently with distinct runtimes", async () => {
     const { mgr } = setup()
     state.rows = [row("a", "shopify"), row("b", "shopify")]
@@ -338,6 +354,7 @@ describe("connector manager", () => {
     await mgr.applyAll()
     const call = startShopify.mock.calls[0]![0]
     expect(call.accountId).toBeUndefined()
+    expect(call.salesChannelId).toBeNull()
     expect(call.config.accessToken).toBe("env")
     expect(mgr.get("l")).toMatchObject({ id: "l", marketplace: "shopify" })
   })

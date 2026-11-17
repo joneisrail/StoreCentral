@@ -37,7 +37,7 @@ const shopifyRow = (over: Partial<AccountRow> = {}): AccountRow => ({
   webhook_secret_encrypted: encrypt(SHOPIFY_WH, KEY),
   ...over,
 })
-const wooRow = (): AccountRow => ({
+const wooRow = (over: Partial<AccountRow> = {}): AccountRow => ({
   id: WOO_ID,
   marketplace: "woocommerce",
   managed: true,
@@ -48,6 +48,7 @@ const wooRow = (): AccountRow => ({
   api_key: "ck_key",
   access_token_encrypted: encrypt(WOO_SECRET, KEY),
   webhook_secret_encrypted: encrypt(WOO_WH, KEY),
+  ...over,
 })
 const legacyRow = (): AccountRow => ({
   id: LEGACY_ID,
@@ -223,6 +224,7 @@ test("list never contains any secret value and shows non-secret fields", async (
       "last_synced_at",
       "linked_listings",
       "sales_channel_id",
+      "auto_sync_price",
       "managed",
       "read_only",
       "credentials_source",
@@ -241,6 +243,71 @@ test("list never contains any secret value and shows non-secret fields", async (
   expect(s.fields).toEqual({ shop_domain: "shop.myshopify.com", location_id: "123" })
   expect(w.fields).toEqual({ site_url: "https://woo.example.com", consumer_key_set: true })
   expect(w.sync_live).toBe(false)
+})
+
+test("list includes auto_sync_price as a boolean, false by default (legacy rows too)", async () => {
+  await start([shopifyRow(), wooRow({ auto_sync_price: true }), legacyRow()])
+  const r = await call("GET", "/internal/connections")
+  expect(r.json.connections.map((c: any) => c.auto_sync_price)).toEqual([false, true, false])
+})
+
+test("PUT with only auto_sync_price saves the flag without testing or applying", async () => {
+  await start()
+  const r = await call("PUT", `/internal/connections/${SHOPIFY_ID}`, { auto_sync_price: true })
+  expect(r.status).toBe(200)
+  expect(r.json.ok).toBe(true)
+  expect(r.json.test).toBeNull()
+  expect(r.json.connection.auto_sync_price).toBe(true)
+  expect(rows.find((x) => x.id === SHOPIFY_ID)!.auto_sync_price).toBe(true)
+  expect(testShopify).not.toHaveBeenCalled()
+  expect(manager.apply).not.toHaveBeenCalled()
+  expect(manager.withLock).not.toHaveBeenCalled()
+  const w = writes()
+  expect(w).toHaveLength(1)
+  expect(w[0]!.sql).toMatch(/auto_sync_price = \$1/)
+  expect(w[0]!.params).toEqual([true, SHOPIFY_ID])
+  const off = await call("PUT", `/internal/connections/${SHOPIFY_ID}`, { auto_sync_price: false })
+  expect(off.json.connection.auto_sync_price).toBe(false)
+  expect(rows.find((x) => x.id === SHOPIFY_ID)!.auto_sync_price).toBe(false)
+})
+
+test("PUT with credentials and the flag follows the credential path and saves the flag", async () => {
+  await start()
+  const r = await call("PUT", `/internal/connections/${SHOPIFY_ID}`, { access_token: NEW_TOKEN, auto_sync_price: true })
+  expect(r.status).toBe(200)
+  expect(testShopify).toHaveBeenCalledTimes(1)
+  expect(manager.apply).toHaveBeenCalledWith(SHOPIFY_ID)
+  expect(r.json.connection.auto_sync_price).toBe(true)
+  expect(rows.find((x) => x.id === SHOPIFY_ID)!.auto_sync_price).toBe(true)
+  expectNoSecrets(r.text)
+})
+
+test("PUT without the flag leaves it untouched", async () => {
+  await start([shopifyRow({ auto_sync_price: true })])
+  await call("PUT", `/internal/connections/${SHOPIFY_ID}`, { access_token: NEW_TOKEN })
+  expect(rows.find((x) => x.id === SHOPIFY_ID)!.auto_sync_price).toBe(true)
+  expect(writes().some((c) => /auto_sync_price/.test(c.sql))).toBe(false)
+})
+
+test("PUT with a non-boolean auto_sync_price is 400 and writes nothing", async () => {
+  await start()
+  for (const v of ["true", 1, null, {}]) {
+    const r = await call("PUT", `/internal/connections/${SHOPIFY_ID}`, { auto_sync_price: v })
+    expect(r.status).toBe(400)
+    expect(r.json).toEqual({ error: "invalid_input", fields: ["auto_sync_price"] })
+  }
+  const mixed = await call("PUT", `/internal/connections/${SHOPIFY_ID}`, { access_token: NEW_TOKEN, auto_sync_price: "yes" })
+  expect(mixed.status).toBe(400)
+  expect(writes()).toHaveLength(0)
+  expect(testShopify).not.toHaveBeenCalled()
+})
+
+test("PUT auto_sync_price on a legacy read_only row is 400 read_only", async () => {
+  await start([legacyRow()])
+  const r = await call("PUT", `/internal/connections/${LEGACY_ID}`, { auto_sync_price: true })
+  expect(r.status).toBe(400)
+  expect(r.json).toEqual({ error: "read_only" })
+  expect(writes()).toHaveLength(0)
 })
 
 test("webhook_url includes the marketplace and the id", async () => {

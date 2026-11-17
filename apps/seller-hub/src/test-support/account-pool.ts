@@ -81,6 +81,7 @@ export const accountPool = (seed: AccountRow[] = []) => {
             shop_domain: r.shop_domain ?? null,
             shopify_location_id: r.shopify_location_id ?? null,
             api_key_present: r.api_key != null,
+            auto_sync_price: r.auto_sync_price === true,
           })),
         }
       }

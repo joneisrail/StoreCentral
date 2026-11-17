@@ -12,6 +12,7 @@ import {
   mergeWooInput,
   resolveLegacyConfig,
   saveConnectionById,
+  setAutoSyncPriceById,
   setStatusById,
   type AmazonConfig,
   type ConnectionRow,
@@ -154,6 +155,7 @@ export const createInternalHandler = (deps: InternalHandlerDeps) => {
       last_synced_at: row.lastSyncedAt,
       linked_listings: row.linkedListings,
       sales_channel_id: row.salesChannelId,
+      auto_sync_price: row.autoSyncPrice,
       managed: row.managed,
       read_only: !row.managed,
       credentials_source: !row.managed ? "environment" : row.hasStoredCredentials ? "database" : "none",
@@ -338,7 +340,17 @@ export const createInternalHandler = (deps: InternalHandlerDeps) => {
     const raw = (await readJsonBody(req, res)) as Record<string, unknown>
     const b = stringKeys(raw, true)
     if (!b) return send(res, 400, { error: "invalid_input", fields: [] })
+    const flag = raw.auto_sync_price
+    if (flag !== undefined && typeof flag !== "boolean") {
+      return send(res, 400, { error: "invalid_input", fields: ["auto_sync_price"] })
+    }
     const marketplace = row.marketplace as Marketplace
+    // Flag only: nothing credential-related changes, so no test, restart or credential error.
+    // The webhook reads the flag at event time, so it is effective immediately.
+    if (typeof flag === "boolean" && Object.keys(b).length === 0) {
+      await setAutoSyncPriceById(deps.pool, id, flag)
+      return send(res, 200, { ok: true, connection: await viewOf(id), test: null })
+    }
 
     let stored: Config | null
     try {
@@ -364,6 +376,9 @@ export const createInternalHandler = (deps: InternalHandlerDeps) => {
       }
       throw err
     }
+    // Credentials plus the flag: the flag is independent of the credential test, so it is saved
+    // once the input is valid (it also lets the response show the new value).
+    if (typeof flag === "boolean") await setAutoSyncPriceById(deps.pool, id, flag)
     // A failed Test sets status `error` without stopping the runtime, so a live
     // runtime also counts as a working connection worth protecting.
     await saveAndApply(res, id, marketplace, config, row.status === "connected" || deps.manager.get(id) !== null)

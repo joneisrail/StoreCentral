@@ -41,7 +41,12 @@ export const CreateConnectionSchema = z
   )
 export type CreateConnectionSchema = z.infer<typeof CreateConnectionSchema>
 
-export const SaveConnectionSchema = z.strictObject(credentialFields)
+// An edit may carry credentials, the auto_sync_price flag, or both. The flag is not a credential:
+// it is not part of credentialFields (so create does not take it; new connections default to false).
+export const SaveConnectionSchema = z.strictObject({
+  ...credentialFields,
+  auto_sync_price: z.boolean().optional(),
+})
 export type SaveConnectionSchema = z.infer<typeof SaveConnectionSchema>
 
 export const marketplaceConnectionMiddlewares: MiddlewareRoute[] = [
