@@ -115,3 +115,24 @@ export async function GET(
   })
 }
 ```
+
+## channelOffers (per-channel price and stock)
+
+`src/modules/channel-offers` (module key `channelOffers`, `CHANNEL_OFFERS_MODULE`) keeps one price and one stock number per variant and sales channel. Marketplaces are pushed their own channel's values; the web store and POS keep reading the variant's base prices.
+
+Tables (migration `Migration20261117120000`):
+
+- `channel_offer`: `variant_id`, `sales_channel_id`, `price` (null = use the base price), `stock`, `last_synced_price`, `last_synced_stock`, `last_synced_at`, `sync_state` (`synced` | `pending` | `failed`), `last_error`, `channel_order`. Unique on (`variant_id`, `sales_channel_id`).
+- `channel_stock_movement`: append-only audit log with `kind`, `variant_id`, `sales_channel_id`, `delta`, `ref`. Unique on (`kind`, `ref`, `variant_id`, `sales_channel_id`), which makes order, cancel and receipt applications idempotent.
+
+Movement kinds: `order`, `cancel`, `receipt`, `edit`, `rebalance`, `trim`.
+
+Service (`ChannelOffersModuleService`): `ensureOffers`, `listForVariant`, `applyMovement`, `setStocks`, `setPrice`, `markSync`. `channel_order` is assigned when a channel first gets offer rows and defines "earliest-created channel" for remainders.
+
+Rules (`rules.ts`, pure functions): `splitEqually` (remainder to the earliest channels), `resplitPool`, `deduct` (never below 0), `trimToTotal` (takes from the largest channel first).
+
+Invariants: the sum of channel stock never exceeds the available stock, and stock is never negative.
+
+Setting: `store.metadata.share_stock_after_sale` (boolean, default off). When on, stock left after a sale is re-split equally across channels instead of only being deducted from the selling channel. Read with `readShareStockSetting`, changed through `/admin/channel-stock-settings` (`updateChannelStockSettingsWorkflow`).
+
+The one-time split of existing stock is `src/scripts/split-existing-stock.ts` (dry run by default; see the Rollout section of `docs/superpowers/specs/2026-11-17-channel-pricing-inventory-design.md`).

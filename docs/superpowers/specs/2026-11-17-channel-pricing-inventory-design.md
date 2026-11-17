@@ -181,6 +181,21 @@ channel gets an equal share.
 - A marketplace or seller-hub outage never fails a Medusa action.
 - Existing order, receipt and sync behaviour is unchanged.
 
+## Rollout
+
+Run in this order. Nothing here pushes anything to a marketplace by itself.
+
+1. From `apps/backend`: `npx medusa db:migrate` (creates `channel_offer` and `channel_stock_movement`).
+2. Restart the backend and seller-hub. Seller-hub adds `integration_account.auto_sync_price` by itself at startup (`ADD COLUMN IF NOT EXISTS`).
+3. One-time split of existing stock, first as a dry run (the default; it only counts):
+   `npx medusa exec ./src/scripts/split-existing-stock.ts`
+4. Then, in a quiet period (no orders or stock edits in flight), apply it. The word `apply` must be positional:
+   `npx medusa exec ./src/scripts/split-existing-stock.ts apply`
+   Safe to re-run; a variant that already has channel stock is left alone.
+5. The script emits no events and pushes nothing. To get values onto a marketplace, press the channel's sync icon (forces price and stock), or wait for the next stock change (stock auto-pushes; price only if the connection has auto sync price on).
+6. The web store and POS keep reading the variant base prices; only marketplaces get channel prices.
+7. The grid lives at `/app/products/channel-pricing`.
+
 ## Open assumptions
 
 - Orders placed by seller-hub carry the channel's sales channel id; the plan's

@@ -79,3 +79,13 @@ export async function GET(
   res.send(result)
 }
 ```
+
+## Channel pricing and inventory workflows
+
+- `update-channel-offer`: manual grid edit of one channel's price and/or stock; emits `channel-offer.changed` (`manual: true`) only for a real change.
+- `apply-order-to-channel-stock`: applies a placed or canceled order to channel stock (idempotent per order line). Run by the `channel-stock-orders` subscriber.
+- `trim-channel-stock`: lowers channel stock when it exceeds the available total. Run by the `channel-stock-trim` subscriber.
+- `ensure-channel-offers`: creates missing offer rows for a variant or sales channel. Run by the `channel-offers-ensure` subscriber.
+- `request-channel-sync`: the sync icon; emits `channel-offer.changed` with `kind: "both"` and `force: true`.
+- `update-channel-stock-settings`: writes `store.metadata.share_stock_after_sale`.
+- `receive-purchase-goods` (existing) gains `splitReceivedStockAcrossChannelsStep`, which splits the received quantity across the channels and emits `channel-offer.changed` for each affected channel.

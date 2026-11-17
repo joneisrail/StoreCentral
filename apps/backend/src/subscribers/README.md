@@ -66,3 +66,23 @@ export const config: SubscriberConfig = {
 
 - `inventory-level.updated`, `product-variant.updated`: `data` is forwarded unchanged (`{ id }`).
 - `shipment.created`: Medusa emits `{ id: <fulfillment id>, no_notification }`. The subscriber resolves the owning order via the `order_fulfillment` link (Query graph) and forwards `data: { id, order_id, no_notification }` (`no_notification` defaults to `false`). If the order cannot be resolved the event is logged and dropped.
+- `channel-offer.changed`: see below.
+
+### `channel-offer.changed` and the legacy-forward rule
+
+`channel-offer.changed` is emitted by the update-channel-offer, apply-order-to-channel-stock, receive-purchase-goods, trim-channel-stock and request-channel-sync workflows. It is forwarded as `{ variant_id, sales_channel_id, kind, force, manual? }`:
+
+- `kind` is `"stock"`, `"price"` or `"both"`; a payload with a missing id or another kind is logged and dropped.
+- `force` is `true` only for the sync icon (request-channel-sync); anything but `true` is forwarded as `false`.
+- `manual: true` is added only when the event came from a manual grid edit.
+- The backend always forwards. Seller Hub decides what to push (stock always; price only when `force` or the connection has `auto_sync_price`).
+
+Legacy forward rule: `inventory-level.updated` and `product-variant.updated` are still forwarded unchanged, but only while at least one affected variant has no `channel_offer` rows (so nothing regresses before the one-time split). Variants that have offer rows sync through `channel-offer.changed` instead, so the legacy event is dropped. If the lookup fails, the legacy event is forwarded (fail open).
+
+## Channel offer subscribers
+
+All three are best-effort: they never throw and log only ids.
+
+- `channel-stock-orders.ts`: on `order.placed` and `order.canceled` runs `applyOrderToChannelStockWorkflow` (`mode` `placed` or `canceled`). Idempotent per order line, so a redelivered event changes stock once.
+- `channel-offers-ensure.ts`: on `product-variant.created` and `sales-channel.created` runs `ensureChannelOffersWorkflow` so every variant has an offer row for every channel. Idempotent.
+- `channel-stock-trim.ts`: on `inventory-level.updated` finds the linked variants and runs `trimChannelStockWorkflow` for each, lowering channel stock when it now exceeds the available total. Our own channel stock writes never change Medusa's total, so this cannot loop.

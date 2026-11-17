@@ -227,6 +227,20 @@ Limits of this slice:
   example a rejected tracking number) is recorded on the `sync_job` row with a
   generic message and is not retried.
 
+## Per-channel price and stock push
+
+Seller Hub pushes each marketplace its own channel's price and stock, not the variant total. The backend's `seller-hub-sync` subscriber forwards `channel-offer.changed` (`{ variant_id, sales_channel_id, kind, force, manual? }`) to `POST /webhooks/medusa`.
+
+- **Routing.** The event goes only to the live Shopify/WooCommerce connection(s) serving that sales channel. If none is live it is logged and ignored.
+- **Price rule.** Stock is always pushed. A price is pushed only when `force || auto_sync_price` (`decideKind`): `force` comes from the sync icon, `auto_sync_price` is a per-connection flag. Otherwise a `both` event is reduced to `stock` and a `price` event is dropped.
+- **`auto_sync_price` column.** `seller_hub.integration_account.auto_sync_price BOOLEAN NOT NULL DEFAULT false`, added with `ADD COLUMN IF NOT EXISTS` in `src/db/schema.ts`. `SCHEMA_SQL` runs at every startup (`src/db/migrate.ts`), so no manual step is needed; restart seller-hub. It is saved and exposed through the marketplace connections API.
+- **Queue and job ids.** One queue per connection, `<marketplace>-channel-push<suffix>` (for example `shopify-channel-push`). The job id is `channel-<variantId>-<salesChannelId>`.
+- **Coalescing.** A still-waiting job with the same id is merged: `kind` widened to the union (stock + price = both) and `force` OR-ed. A running job already read its values, so a change that arrives meanwhile goes to a follow-up job `<id>-next` (merged the same way), and if that is busy too to `<id>-next-<timestamp>`. The worker runs one job at a time (concurrency 1), so a follow-up always runs after the base job.
+- **Values.** The worker reads the channel's own stock and effective price from the backend (push-values route), applies the connection's `price_rule`, and pushes.
+- **Sync-result reporting.** After the push the worker reports back to the backend (sync-result route): `synced` with the pushed values, or `failed` with an error. A permanent failure (4xx other than 429, or a variant that is not listed) is reported `failed` at once and not retried. A transient failure is retried by BullMQ and reported `failed` only on the final attempt. A lost report never fails the job.
+- **One worker instance per account.** Coalescing and the one-job-at-a-time ordering assume a single seller-hub worker per account. Do not run two instances against the same Redis and account.
+- **Amazon.** Per-channel push is not wired for Amazon (`amazon-channel-push` is only a reserved queue name). Amazon keeps its existing variant-level push until Amazon goes live; its per-channel push is deferred until then.
+
 ## Managing connections from the admin
 
 Several Shopify and WooCommerce stores (and one or more Amazon accounts) can be
