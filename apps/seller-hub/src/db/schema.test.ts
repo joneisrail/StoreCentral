@@ -34,3 +34,10 @@ test("schema adds the marketplace connection columns idempotently", () => {
     expect(SCHEMA_SQL.split(stmt)).toHaveLength(2)
   }
 })
+
+test("schema adds the per-connection auto_sync_price flag idempotently", () => {
+  const stmt =
+    "ALTER TABLE seller_hub.integration_account ADD COLUMN IF NOT EXISTS auto_sync_price BOOLEAN NOT NULL DEFAULT false;"
+  expect(SCHEMA_SQL).toContain(stmt)
+  expect(SCHEMA_SQL.split(stmt)).toHaveLength(2)
+})

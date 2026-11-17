@@ -61,9 +61,9 @@ test("stop closes every worker and queue, removes the repeatable job, and is ide
   const rt = await startShopify(deps)
   await rt.stop()
   await rt.stop()
-  expect(Object.keys(workers)).toHaveLength(4)
+  expect(Object.keys(workers)).toHaveLength(5)
   for (const w of Object.values(workers)) expect(w.close).toHaveBeenCalledTimes(1)
-  expect(queues).toHaveLength(4)
+  expect(queues).toHaveLength(5)
   for (const q of queues) expect(q.close).toHaveBeenCalledTimes(1)
   const inv = queues.find((q) => q.name === "shopify-inventory-sync")
   expect(inv.removeRepeatable).toHaveBeenCalledTimes(1)
@@ -124,6 +124,7 @@ test("queue names include the account id", async () => {
   const { deps, queues, workers } = setup({ accountId: "acc-9" })
   await startShopify(deps)
   expect(queues.map((q) => q.name).sort()).toEqual([
+    "shopify-channel-push-acc-9",
     "shopify-inventory-sync-acc-9",
     "shopify-order-sync-acc-9",
     "shopify-price-sync-acc-9",
@@ -145,6 +146,7 @@ test("legacy start without accountId keeps the old queue names", async () => {
   const { deps, queues } = setup()
   await startShopify(deps)
   expect(queues.map((q) => q.name).sort()).toEqual([
+    "shopify-channel-push",
     "shopify-inventory-sync",
     "shopify-order-sync",
     "shopify-price-sync",
@@ -202,4 +204,33 @@ test("the tracking worker runs processTrackingJob with the injected push", async
     { fulfillmentId: "f", orderId: "o", noNotification: false },
     expect.objectContaining({ integrationAccountId: "acct-9", marketplace: "shopify", push })
   )
+})
+
+test("a channel-push queue and worker are created and exposed on the webhook deps", async () => {
+  const { deps, queues, workers } = setup({ accountId: "acct-9", salesChannelId: "sc_9" })
+  const rt = await startShopify(deps)
+  expect(queues.map((q) => q.name)).toContain("shopify-channel-push-acct-9")
+  expect(workers["shopify-channel-push-acct-9"]).toBeDefined()
+  expect((rt.webhook.channelPushQueue as any).name).toBe("shopify-channel-push-acct-9")
+  expect(rt.webhook.salesChannelId).toBe("sc_9")
+  await rt.stop()
+  const q = queues.find((x) => x.name === "shopify-channel-push-acct-9")
+  expect(q.close).toHaveBeenCalledTimes(1)
+})
+
+test("the legacy channel-push queue name has no suffix", async () => {
+  const { deps, queues } = setup()
+  await startShopify(deps)
+  expect(queues.map((q) => q.name)).toContain("shopify-channel-push")
+})
+
+test("autoSyncPrice reads integration_account.auto_sync_price at call time", async () => {
+  const rows = [{ auto_sync_price: false }]
+  const query = vi.fn(async (..._a: unknown[]) => ({ rows: [...rows] }))
+  const { deps } = setup({ accountId: "acct-9", pool: { query } as unknown as Pool })
+  const rt = await startShopify(deps)
+  expect(await rt.webhook.autoSyncPrice!()).toBe(false)
+  rows[0]!.auto_sync_price = true
+  expect(await rt.webhook.autoSyncPrice!()).toBe(true)
+  expect(query).toHaveBeenCalledWith(expect.stringContaining("auto_sync_price"), ["acct-9"])
 })

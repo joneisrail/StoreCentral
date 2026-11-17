@@ -1,7 +1,9 @@
 import type { Redis as IORedis } from "ioredis"
 import type { Pool } from "pg"
 import type { MedusaAdminClient } from "../medusa/admin-client.js"
-import { createSyncQueue, createSyncWorker } from "../queue/queues.js"
+import { createSyncQueue, createSyncWorker, PermanentSyncError } from "../queue/queues.js"
+import { processChannelPushJob } from "../sync/channel-push.js"
+import type { ChannelPushJobData } from "../sync/channel-push-enqueue.js"
 import { processTrackingJob } from "../sync/tracking/processor.js"
 import { createShopifyTrackingPush } from "../sync/tracking/shopify-push.js"
 import type { TrackingJobData, TrackingPush } from "../sync/tracking/types.js"
@@ -25,7 +27,9 @@ import type { ShopifyWebhookDeps } from "../webhook/server.js"
 import { resolveShopifyAccount } from "./account.js"
 import { ShopifyClient } from "./client.js"
 import type { ShopifyConfig } from "./config.js"
+import { setShopifyAvailable } from "./inventory.js"
 import { fetchShopifyOrder, fetchShopifyOrdersSince } from "./orders.js"
+import { updateShopifyVariantPrice } from "./products.js"
 
 /** Name of the repeatable job that triggers the Shopify drift/order scan. */
 export const RECONCILE_SHOPIFY_JOB = "reconcile-shopify"
@@ -138,7 +142,9 @@ export const startShopify = async (
   const priceQueue = createQueue(`shopify-price-sync${suffix}`, redisConnection)
   const trackingQueue = createQueue(`shopify-tracking-sync${suffix}`, redisConnection)
 
-  const queues = [orderQueue, inventoryQueue, priceQueue, trackingQueue]
+  const channelPushQueue = createQueue(`shopify-channel-push${suffix}`, redisConnection)
+
+  const queues = [orderQueue, inventoryQueue, priceQueue, trackingQueue, channelPushQueue]
   const workers: Array<{ close: () => Promise<void> }> = []
 
   let cachedSalesChannelId: string | null = null
@@ -237,6 +243,49 @@ export const startShopify = async (
       console.log(`[seller-hub] shopify-tracking-sync: ${result.status}`)
     }
   ))
+  // Per-channel push: the channel's own stock/price (not the variant total).
+  workers.push(createWorker<ChannelPushJobData>(
+    `shopify-channel-push${suffix}`,
+    redisConnection,
+    async (job: JobLike<ChannelPushJobData>) => {
+      await processChannelPushJob(job.data, {
+        pool,
+        medusaClient,
+        integrationAccountId,
+        pushStock: async (listing, stock) => {
+          if (!listing.external_inventory_item_id) {
+            throw new PermanentSyncError(
+              `channel_listing ${listing.id} has no Shopify inventory item id`
+            )
+          }
+          await setShopifyAvailable(shopifyClient, {
+            inventoryItemId: listing.external_inventory_item_id,
+            locationId: account.locationId,
+            quantity: stock,
+          })
+        },
+        pushPrice: async (listing, price) => {
+          if (!listing.external_variant_id) {
+            throw new PermanentSyncError(
+              `channel_listing ${listing.id} has no Shopify variant id`
+            )
+          }
+          // Shopify prices carry no currency, so a non-USD store price is a
+          // permanent failure rather than a silently wrong amount.
+          const pricing = await medusaClient.getVariantPricing(listing.medusa_variant_id)
+          if (pricing.currencyCode.toLowerCase() !== "usd") {
+            throw new PermanentSyncError(
+              `Medusa price for variant ${listing.medusa_variant_id} is in ${pricing.currencyCode}; only USD is supported for Shopify`
+            )
+          }
+          await updateShopifyVariantPrice(shopifyClient, {
+            variantId: listing.external_variant_id,
+            price: price.toFixed(2),
+          })
+        },
+      })
+    }
+  ))
   console.log("[seller-hub] Shopify queues and workers started")
 
   // Added directly (not via scheduleReconciliation's `shopify` option, which
@@ -282,6 +331,15 @@ export const startShopify = async (
       priceQueue,
       trackingQueue,
       integrationAccountId,
+      channelPushQueue,
+      salesChannelId: deps.salesChannelId ?? null,
+      autoSyncPrice: async () => {
+        const { rows } = await pool.query<{ auto_sync_price: boolean }>(
+          `SELECT auto_sync_price FROM seller_hub.integration_account WHERE id = $1`,
+          [integrationAccountId]
+        )
+        return rows[0]?.auto_sync_price === true
+      },
     },
     linked,
     relink: () => runLink(),

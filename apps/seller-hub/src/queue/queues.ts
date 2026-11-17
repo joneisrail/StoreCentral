@@ -21,6 +21,8 @@ export type SyncQueueName =
   // Per-account queues of managed connections: `<marketplace>-<kind>-sync[-<account id>]`.
   | `shopify-${"order" | "inventory" | "price" | "tracking"}-sync${string}`
   | `woocommerce-${"order" | "inventory" | "price" | "tracking"}-sync${string}`
+  // Per-channel push queues (`channel-offer.changed`), one per connection.
+  | `${"shopify" | "woocommerce" | "amazon"}-channel-push${string}`
 
 const DEFAULT_ATTEMPTS = 5
 // `jitter` is required by the plan's Global Constraints section

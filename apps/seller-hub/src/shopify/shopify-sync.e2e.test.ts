@@ -524,6 +524,7 @@ test("the Shopify reconcile is scheduled on the Shopify inventory queue only and
   expect(queues.get("shopify-order-sync")!.added).toHaveLength(0)
   expect(queues.get("shopify-price-sync")!.added).toHaveLength(0)
   expect([...queues.keys()].sort()).toEqual([
+    "shopify-channel-push",
     "shopify-inventory-sync",
     "shopify-order-sync",
     "shopify-price-sync",

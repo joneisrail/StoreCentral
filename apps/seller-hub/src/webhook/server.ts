@@ -1,6 +1,11 @@
 import http from "node:http"
 import type { Queue } from "bullmq"
 import { verifyShopifyHmac } from "../shopify/webhook.js"
+import {
+  decideKind,
+  enqueueChannelPush,
+  type ChannelPushKind,
+} from "../sync/channel-push-enqueue.js"
 import type { TrackingJobData } from "../sync/tracking/types.js"
 import { verifyWooSignature } from "../woocommerce/webhook.js"
 
@@ -13,6 +18,12 @@ export type ShopifyWebhookDeps = {
   trackingQueue: Queue
   /** The connection's integration_account id (suffix of the tracking job id). */
   integrationAccountId: string
+  /** Per-channel push queue (`channel-offer.changed`); connections without one are skipped. */
+  channelPushQueue?: Queue
+  /** The Medusa sales channel this connection serves. */
+  salesChannelId?: string | null
+  /** Read at event time: whether channel price changes push without the sync icon. */
+  autoSyncPrice?: () => boolean | Promise<boolean>
 }
 
 export type WooCommerceWebhookDeps = {
@@ -24,6 +35,12 @@ export type WooCommerceWebhookDeps = {
   trackingQueue: Queue
   /** The connection's integration_account id (suffix of the tracking job id). */
   integrationAccountId: string
+  /** Per-channel push queue (`channel-offer.changed`); connections without one are skipped. */
+  channelPushQueue?: Queue
+  /** The Medusa sales channel this connection serves. */
+  salesChannelId?: string | null
+  /** Read at event time: whether channel price changes push without the sync icon. */
+  autoSyncPrice?: () => boolean | Promise<boolean>
 }
 
 export type WebhookMarketplace = "shopify" | "woocommerce"
@@ -331,6 +348,19 @@ const handleRequestBody = async (
     respondBadRequest(res, "Missing required field: event")
     return
   }
+  if (webhookBody.event === CHANNEL_OFFER_EVENT) {
+    const parsed = parseChannelOfferData(webhookBody.data)
+    if (!parsed) {
+      respondBadRequest(res, "Invalid channel-offer.changed data")
+      return
+    }
+    await routeChannelOffer(parsed, [...queues.shopify, ...queues.woocommerce])
+    res.writeHead(200, { "Content-Type": "application/json" }).end(
+      JSON.stringify({ received: true })
+    )
+    return
+  }
+
   if (typeof webhookBody.data?.id !== "string" || !webhookBody.data.id) {
     respondBadRequest(res, "Missing required field: data.id")
     return
@@ -383,6 +413,63 @@ const handleRequestBody = async (
   res.writeHead(200, { "Content-Type": "application/json" }).end(
     JSON.stringify({ received: true })
   )
+}
+
+const CHANNEL_OFFER_EVENT = "channel-offer.changed"
+
+type ChannelOfferData = {
+  variantId: string
+  salesChannelId: string
+  kind: ChannelPushKind
+  force: boolean
+}
+
+/** Validates the per-channel event; unknown extra keys (e.g. `manual`) are ignored. */
+const parseChannelOfferData = (data: unknown): ChannelOfferData | null => {
+  if (typeof data !== "object" || data === null) return null
+  const d = data as Record<string, unknown>
+  if (typeof d.variant_id !== "string" || !d.variant_id) return null
+  if (typeof d.sales_channel_id !== "string" || !d.sales_channel_id) return null
+  if (d.kind !== "stock" && d.kind !== "price" && d.kind !== "both") return null
+  if (typeof d.force !== "boolean") return null
+  return {
+    variantId: d.variant_id,
+    salesChannelId: d.sales_channel_id,
+    kind: d.kind,
+    force: d.force,
+  }
+}
+
+/**
+ * `channel-offer.changed` goes ONLY to the live connection(s) serving that
+ * sales channel, one coalesced job each. Per-connection failures are isolated
+ * and logged (class name only).
+ */
+const routeChannelOffer = async (
+  data: ChannelOfferData,
+  targets: Array<ShopifyWebhookDeps | WooCommerceWebhookDeps>
+): Promise<void> => {
+  const matching = targets.filter(
+    (t) => t.channelPushQueue && t.salesChannelId === data.salesChannelId
+  )
+  if (matching.length === 0) {
+    console.log(
+      `[webhook] ignoring "${CHANNEL_OFFER_EVENT}": no live connection for sales channel ${data.salesChannelId}`
+    )
+    return
+  }
+  for (const target of matching) {
+    try {
+      const auto = data.force ? false : ((await target.autoSyncPrice?.()) ?? false)
+      const kind = decideKind(data.kind, data.force, auto)
+      if (!kind) continue
+      await enqueueChannelPush(target.channelPushQueue!, { ...data, kind })
+    } catch (err) {
+      console.error(
+        `[webhook] failed to enqueue channel push for event "${CHANNEL_OFFER_EVENT}" (${errName(err)})`
+      )
+    }
+  }
 }
 
 const routeWooCommerceEvent = async (

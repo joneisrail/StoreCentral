@@ -27,6 +27,32 @@ export type VariantPricing = {
   currencyCode: string
 }
 
+export type ChannelPushValues = {
+  price: number | null
+  effective_price: number
+  stock: number
+}
+
+export type ChannelSyncResult = {
+  state: "synced" | "failed"
+  error?: string
+  price?: number
+  stock?: number
+}
+
+const MAX_SYNC_ERROR_LENGTH = 500
+
+/** Strips obvious credentials from marketplace error text, then caps its length. */
+export const sanitizeSyncError = (message: string): string =>
+  message
+    .replace(/bearer\s+[\w.~+/=-]+/gi, "Bearer [redacted]")
+    .replace(
+      /((?:access[_-]?token|token|secret|password|api[_-]?key|authorization|consumer[_-]?(?:key|secret))["']?\s*[:=]\s*["']?)[^\s"',;&}]+/gi,
+      "$1[redacted]"
+    )
+    .replace(/\b(?:shpat|shpca|shpss|ck|cs)_\w+/g, "[redacted]")
+    .slice(0, MAX_SYNC_ERROR_LENGTH)
+
 export type VariantInventory = {
   quantity: number
 }
@@ -502,6 +528,40 @@ export class MedusaAdminClient {
       if (body.variants.length === 0 || offset >= (body.count ?? 0)) break
     }
     return out
+  }
+
+  /**
+   * Reads what to push to one channel for a variant: the channel's own stock,
+   * its explicit price (null = base) and the effective price (before any
+   * connection price_rule).
+   */
+  async getChannelPushValues(
+    variantId: string,
+    salesChannelId: string
+  ): Promise<ChannelPushValues> {
+    const response = await this.authedFetch(
+      `/admin/channel-offers/${encodeURIComponent(variantId)}/${encodeURIComponent(salesChannelId)}/push-values`
+    )
+    return (await response.json()) as ChannelPushValues
+  }
+
+  /**
+   * Reports the outcome of a per-channel push. The error text is redacted of
+   * obvious credentials and truncated to 500 chars before it leaves seller-hub.
+   */
+  async reportChannelSyncResult(
+    variantId: string,
+    salesChannelId: string,
+    result: ChannelSyncResult
+  ): Promise<void> {
+    const body: ChannelSyncResult =
+      result.error === undefined
+        ? result
+        : { ...result, error: sanitizeSyncError(result.error) }
+    await this.authedFetch(
+      `/admin/channel-offers/${encodeURIComponent(variantId)}/${encodeURIComponent(salesChannelId)}/sync-result`,
+      { method: "POST", body: JSON.stringify(body) }
+    )
   }
 
   /**

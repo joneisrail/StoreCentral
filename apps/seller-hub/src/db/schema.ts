@@ -90,6 +90,8 @@ UPDATE seller_hub.integration_account SET medusa_sales_channel_id = NULL
       WHERE medusa_sales_channel_id IS NOT NULL
     ) ranked WHERE rn > 1
   );
+-- Per-channel pricing: when true, channel price changes are pushed automatically.
+ALTER TABLE seller_hub.integration_account ADD COLUMN IF NOT EXISTS auto_sync_price BOOLEAN NOT NULL DEFAULT false;
 CREATE UNIQUE INDEX IF NOT EXISTS integration_account_sales_channel_uq
   ON seller_hub.integration_account (medusa_sales_channel_id)
   WHERE medusa_sales_channel_id IS NOT NULL;
