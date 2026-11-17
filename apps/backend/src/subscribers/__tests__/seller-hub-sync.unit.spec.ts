@@ -114,42 +114,56 @@ describe("seller-hub-sync subscriber", () => {
   })
 
   describe("legacy variant-level forwarding", () => {
+    const CHANNELS = ["sc1", "sc2"]
+    const rowsFor = (variant: string, channels: string[]) =>
+      channels.map((c) => ({ variant_id: variant, sales_channel_id: c }))
+    // Graph answers: sales_channel, inventory_level, inventory_item.
+    const graphWith = (variantIds: string[] = [], channels = CHANNELS) =>
+      mockGraph.mockImplementation(async (a: any) => {
+        if (a.entity === "sales_channel") return { data: channels.map((id) => ({ id })) }
+        if (a.entity === "inventory_level")
+          return { data: [{ id: "ilev_1", inventory_item_id: "iitem_1" }] }
+        return { data: [{ id: "iitem_1", variants: variantIds.map((id) => ({ id })) }] }
+      })
+
     it("product-variant.updated is forwarded when the variant has no offer rows", async () => {
+      graphWith()
       await run("product-variant.updated", { id: "variant_1" })
       expect(mockListOffers).toHaveBeenCalledWith({ variant_id: ["variant_1"] }, expect.anything())
       expect(bodies()).toEqual([{ event: "product-variant.updated", data: { id: "variant_1" } }])
     })
 
-    it("product-variant.updated is dropped when the variant has offer rows", async () => {
-      mockListOffers.mockResolvedValue([{ variant_id: "variant_1" }])
+    it("product-variant.updated is dropped when the variant has rows for every channel", async () => {
+      graphWith()
+      mockListOffers.mockResolvedValue(rowsFor("variant_1", CHANNELS))
       await run("product-variant.updated", { id: "variant_1" })
       expect(mockFetch).not.toHaveBeenCalled()
     })
 
-    const levelGraph = (variantIds: string[]) =>
-      mockGraph.mockImplementation(async (a: any) =>
-        a.entity === "inventory_level"
-          ? { data: [{ id: "ilev_1", inventory_item_id: "iitem_1" }] }
-          : { data: [{ id: "iitem_1", variants: variantIds.map((id) => ({ id })) }] }
-      )
+    it("product-variant.updated is forwarded when only some channels have rows", async () => {
+      graphWith()
+      mockListOffers.mockResolvedValue(rowsFor("variant_1", ["sc1"]))
+      await run("product-variant.updated", { id: "variant_1" })
+      expect(bodies()).toEqual([{ event: "product-variant.updated", data: { id: "variant_1" } }])
+    })
 
     it("inventory-level.updated resolves level -> item -> variants and forwards when none has offers", async () => {
-      levelGraph(["va", "vb"])
+      graphWith(["va", "vb"])
       await run("inventory-level.updated", { id: "ilev_1" })
       expect(mockListOffers).toHaveBeenCalledWith({ variant_id: ["va", "vb"] }, expect.anything())
       expect(bodies()).toEqual([{ event: "inventory-level.updated", data: { id: "ilev_1" } }])
     })
 
-    it("inventory-level.updated is dropped when every variant has offer rows", async () => {
-      levelGraph(["va", "vb"])
-      mockListOffers.mockResolvedValue([{ variant_id: "va" }, { variant_id: "vb" }])
+    it("inventory-level.updated is dropped when every variant has rows for every channel", async () => {
+      graphWith(["va", "vb"])
+      mockListOffers.mockResolvedValue([...rowsFor("va", CHANNELS), ...rowsFor("vb", CHANNELS)])
       await run("inventory-level.updated", { id: "ilev_1" })
       expect(mockFetch).not.toHaveBeenCalled()
     })
 
-    it("inventory-level.updated is forwarded once when any variant has no offer rows", async () => {
-      levelGraph(["va", "vb"])
-      mockListOffers.mockResolvedValue([{ variant_id: "va" }])
+    it("inventory-level.updated is forwarded once when any variant is only partially covered", async () => {
+      graphWith(["va", "vb"])
+      mockListOffers.mockResolvedValue([...rowsFor("va", CHANNELS), ...rowsFor("vb", ["sc2"])])
       await run("inventory-level.updated", { id: "ilev_1" })
       expect(bodies()).toEqual([{ event: "inventory-level.updated", data: { id: "ilev_1" } }])
     })
@@ -161,6 +175,7 @@ describe("seller-hub-sync subscriber", () => {
     })
 
     it("a failing lookup falls back to forwarding and never throws", async () => {
+      graphWith()
       mockListOffers.mockRejectedValue(new Error("db down"))
       await expect(run("product-variant.updated", { id: "variant_1" })).resolves.toBeUndefined()
       mockGraph.mockRejectedValue(new Error("db down"))

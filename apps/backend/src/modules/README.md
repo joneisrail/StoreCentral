@@ -136,3 +136,5 @@ Invariants: the sum of channel stock never exceeds the available stock, and stoc
 Setting: `store.metadata.share_stock_after_sale` (boolean, default off). When on, stock left after a sale is re-split equally across channels instead of only being deducted from the selling channel. Read with `readShareStockSetting`, changed through `/admin/channel-stock-settings` (`updateChannelStockSettingsWorkflow`).
 
 The one-time split of existing stock is `src/scripts/split-existing-stock.ts` (dry run by default; see the Rollout section of `docs/superpowers/specs/2026-11-17-channel-pricing-inventory-design.md`).
+
+Rollout notes: run `split-existing-stock.ts apply` immediately after the migration, before any receipts or grid edits, in a quiet period. Base-price edits made in Medusa do NOT propagate to marketplaces for variants with channel offers; use the grid's sync icon (auto sync price does not cover base price changes).

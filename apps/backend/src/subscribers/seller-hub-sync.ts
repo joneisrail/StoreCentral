@@ -46,11 +46,12 @@ function warn(message: string) {
 
 /**
  * Legacy variant-level events (inventory-level.updated, product-variant.updated)
- * are only forwarded while a variant has NO channel offer rows (nothing
- * regresses before the one-time split). Variants with offer rows are synced
- * through channel-offer.changed instead, so the legacy forward is dropped.
+ * are dropped only for variants that have offer rows for EVERY current sales
+ * channel (the one-time split is complete for them); those are synced through
+ * channel-offer.changed instead. A variant with no or only some rows keeps the
+ * legacy forward so channels without a row never miss a Medusa stock update.
  * Returns true when the legacy event should be forwarded: any affected variant
- * without offer rows, no resolvable variant, or a failed lookup (fail open to
+ * not fully covered, no resolvable variant, or a failed lookup (fail open to
  * the old behaviour).
  */
 async function shouldForwardLegacy(
@@ -58,11 +59,11 @@ async function shouldForwardLegacy(
   container: SubscriberArgs<unknown>["container"]
 ): Promise<boolean> {
   try {
+    const query = container.resolve(ContainerRegistrationKeys.QUERY) as any
     let variantIds: string[]
     if (event.name === PRODUCT_VARIANT_UPDATED_EVENT) {
       variantIds = [event.data.id]
     } else {
-      const query = container.resolve(ContainerRegistrationKeys.QUERY) as any
       const { data: levels } = await query.graph({
         entity: "inventory_level",
         fields: ["id", "inventory_item_id"],
@@ -78,13 +79,24 @@ async function shouldForwardLegacy(
       variantIds = (items?.[0]?.variants ?? []).map((v: { id: string }) => v.id)
     }
     if (!variantIds.length) return true
+    const { data: channels } = await query.graph({
+      entity: "sales_channel",
+      fields: ["id"],
+    })
+    const channelIds: string[] = (channels ?? []).map((c: { id: string }) => c.id)
+    if (!channelIds.length) return true
     const offers = container.resolve(CHANNEL_OFFERS_MODULE) as any
-    const rows: { variant_id: string }[] = await offers.listChannelOffers(
-      { variant_id: variantIds },
-      { select: ["variant_id"], take: null }
-    )
-    const withOffers = new Set(rows.map((r) => r.variant_id))
-    return variantIds.some((id) => !withOffers.has(id))
+    const rows: { variant_id: string; sales_channel_id: string }[] =
+      await offers.listChannelOffers(
+        { variant_id: variantIds },
+        { select: ["variant_id", "sales_channel_id"], take: null }
+      )
+    const covered = new Map<string, Set<string>>()
+    for (const r of rows) {
+      if (!covered.has(r.variant_id)) covered.set(r.variant_id, new Set())
+      covered.get(r.variant_id)!.add(r.sales_channel_id)
+    }
+    return variantIds.some((id) => !channelIds.every((c) => covered.get(id)?.has(c)))
   } catch (err) {
     warn(
       `offer lookup failed for event "${event.name}" (${

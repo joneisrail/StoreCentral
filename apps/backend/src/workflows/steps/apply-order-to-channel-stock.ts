@@ -7,7 +7,7 @@ import {
   channelOfferLockKey,
   readVariantStock,
 } from "../../modules/channel-offers/available-stock"
-import { deduct, resplitPool } from "../../modules/channel-offers/rules"
+import { deduct, resplitPool, trimToTotal } from "../../modules/channel-offers/rules"
 import { readShareStockSetting } from "../../modules/channel-offers/settings"
 
 export type ApplyOrderMode = "placed" | "canceled"
@@ -50,7 +50,7 @@ export async function readOrderStockLines(
 }
 
 type MovementKey = {
-  kind: "order" | "cancel" | "rebalance"
+  kind: "order" | "cancel" | "rebalance" | "trim"
   ref: string
   sales_channel_id: string
 }
@@ -184,7 +184,22 @@ export const applyOrderToChannelStockStep = createStep(
           const free = Math.max(0, variant.available - sum)
           direct = { ...before, [channelId]: before[channelId] + Math.min(deducted, free) }
         }
-        const final = share ? resplitPool(direct, ids) : direct
+        const pooled = share ? resplitPool(direct, ids) : direct
+        // The reservation of this order already lowered the available total
+        // (live re-read under the lock): channels together must never promise
+        // more than is available, so trim immediately instead of waiting for a
+        // fulfillment event. Cancel add-back is unaffected (its own cap).
+        let final = pooled
+        let trimmed: Record<string, number> = {}
+        if (input.mode === "placed") {
+          const live = await readVariantStock(container, variantId)
+          const sumNow = Object.values(pooled).reduce((s, v) => s + v, 0)
+          if (live.exists && live.managed && sumNow > live.available) {
+            const t = trimToTotal(pooled, live.available, ids)
+            final = t.stocks
+            trimmed = t.trimmed
+          }
+        }
         const changedIds = ids.filter((id) => final[id] !== before[id])
         const entry: Applied = {
           variant_id: variantId,
@@ -218,7 +233,7 @@ export const applyOrderToChannelStockStep = createStep(
           entry.movements.push({ kind, ref: line.id, sales_channel_id: channelId })
           const rebalanceRef = `${input.mode}:${line.id}`
           for (const id of ids) {
-            const d = final[id] - direct[id]
+            const d = pooled[id] - direct[id]
             if (d === 0) continue
             const rec = await offers.applyMovement({
               kind: "rebalance",
@@ -229,6 +244,19 @@ export const applyOrderToChannelStockStep = createStep(
             })
             if (!rec) throw new Error(`Rebalance movement for line ${line.id} was not recorded`)
             entry.movements.push({ kind: "rebalance", ref: rebalanceRef, sales_channel_id: id })
+          }
+          const trimRef = `placed-trim:${line.id}`
+          for (const id of ids) {
+            if (!(trimmed[id] > 0)) continue
+            const rec = await offers.applyMovement({
+              kind: "trim",
+              variant_id: variantId,
+              sales_channel_id: id,
+              delta: -trimmed[id],
+              ref: trimRef,
+            })
+            if (!rec) throw new Error(`Trim movement for line ${line.id} was not recorded`)
+            entry.movements.push({ kind: "trim", ref: trimRef, sales_channel_id: id })
           }
         } catch (e) {
           log(

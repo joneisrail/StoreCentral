@@ -72,7 +72,7 @@
         },
         "stock": {
           "name": "stock",
-          "type": "int",
+          "type": "integer",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -104,7 +104,7 @@
         },
         "last_synced_stock": {
           "name": "last_synced_stock",
-          "type": "int",
+          "type": "integer",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -168,7 +168,7 @@
         },
         "channel_order": {
           "name": "channel_order",
-          "type": "int",
+          "type": "integer",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -376,7 +376,7 @@
         },
         "delta": {
           "name": "delta",
-          "type": "int",
+          "type": "integer",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,

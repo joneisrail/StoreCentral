@@ -195,6 +195,8 @@ Run in this order. Nothing here pushes anything to a marketplace by itself.
 5. The script emits no events and pushes nothing. To get values onto a marketplace, press the channel's sync icon (forces price and stock), or wait for the next stock change (stock auto-pushes; price only if the connection has auto sync price on).
 6. The web store and POS keep reading the variant base prices; only marketplaces get channel prices.
 7. The grid lives at `/app/products/channel-pricing`.
+8. Run `split-existing-stock.ts apply` immediately after the migration, before any receipts or grid edits, in a quiet period: until a variant is split, only the legacy variant-level forward keeps other channels updated.
+9. Base-price edits made in Medusa do NOT propagate to marketplaces for variants with channel offers: use the grid's sync icon (auto sync price does not cover base price changes).
 
 ## Open assumptions
 

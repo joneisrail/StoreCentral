@@ -140,6 +140,91 @@ const prior = (ref: string, delta: number, channel = "a", variant = "v1") => ({
 
 const order = (items: Line[], sales_channel_id: string | null = "a") => ({ sales_channel_id, items })
 
+describe("applyOrderToChannelStockStep placed trim", () => {
+  it("trims another channel so the sum stays within available (web 0, amazon 10, order of 3)", async () => {
+    const t = make({
+      order: order([{ id: "li_1", variant_id: "v1", quantity: 3 }], "web"),
+      stocks: { v1: { web: 0, amz: 10 } },
+      available: { v1: 7 },
+    })
+    const { result } = await run(t.c)
+    expect(stocksOf(t.offers)).toEqual({ web: 0, amz: 7 })
+    expect(t.movements).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: "trim", ref: "placed-trim:li_1", sales_channel_id: "amz", delta: -3 }),
+      ])
+    )
+    expect(result.changed).toEqual([{ variant_id: "v1", sales_channel_id: "amz" }])
+  })
+
+  it("does not trim when the sum is within available", async () => {
+    const t = make({
+      order: order([{ id: "li_1", variant_id: "v1", quantity: 3 }], "web"),
+      stocks: { v1: { web: 10, amz: 4 } },
+      available: { v1: 20 },
+    })
+    await run(t.c)
+    expect(stocksOf(t.offers)).toEqual({ web: 7, amz: 4 })
+    expect(t.movements.filter((m) => m.kind === "trim")).toHaveLength(0)
+  })
+
+  it("a duplicate delivery does not trim twice", async () => {
+    const t = make({
+      order: order([{ id: "li_1", variant_id: "v1", quantity: 3 }], "web"),
+      stocks: { v1: { web: 0, amz: 10 } },
+      available: { v1: 7 },
+    })
+    await run(t.c)
+    const { result } = await run(t.c)
+    expect(stocksOf(t.offers)).toEqual({ web: 0, amz: 7 })
+    expect(t.movements.filter((m) => m.kind === "trim")).toHaveLength(1)
+    expect(result.changed).toEqual([])
+  })
+
+  it("with the share switch on the re-split pool is trimmed to available", async () => {
+    const t = make({
+      order: order([{ id: "li_1", variant_id: "v1", quantity: 2 }], "web"),
+      stocks: { v1: { web: 5, amz: 5 } },
+      available: { v1: 6 },
+      share: true,
+    })
+    await run(t.c)
+    const s = stocksOf(t.offers)
+    expect(s.web + s.amz).toBeLessThanOrEqual(6)
+    expect(t.movements.some((m) => m.kind === "trim")).toBe(true)
+  })
+
+  it("cancel restores only the line's own deduction, capped by free", async () => {
+    const t = make({
+      order: order([{ id: "li_1", variant_id: "v1", quantity: 3 }], "web"),
+      stocks: { v1: { web: 4, amz: 3 } },
+      available: { v1: 7 },
+      prior: [prior("li_1", -3, "web")],
+    })
+    await run(t.c, "canceled")
+    expect(stocksOf(t.offers)).toEqual({ web: 4, amz: 3 })
+  })
+
+  it("a failed trim movement rolls back the stock and the earlier movements", async () => {
+    const t = make({
+      order: order([{ id: "li_1", variant_id: "v1", quantity: 3 }], "web"),
+      stocks: { v1: { web: 0, amz: 10 } },
+      available: { v1: 7 },
+    })
+    const orig = t.service.applyMovement.getMockImplementation()!
+    t.service.applyMovement.mockImplementation(async (m: any) =>
+      m.kind === "trim" ? false : orig(m)
+    )
+    const r = await wf(t.c).run({
+      input: { order_id: "order_1", mode: "placed" },
+      throwOnError: false,
+    })
+    expect(r.errors[0].error.message).toContain("Trim movement")
+    expect(stocksOf(t.offers)).toEqual({ web: 0, amz: 10 })
+    expect(t.movements).toHaveLength(0)
+  })
+})
+
 describe("applyOrderToChannelStockStep", () => {
   it("placed, switch off: deducts only the order's channel and records an order movement", async () => {
     const t = make({
