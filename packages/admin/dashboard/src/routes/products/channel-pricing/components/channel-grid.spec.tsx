@@ -180,6 +180,73 @@ describe("ChannelGrid", () => {
     expect(document.querySelector(".line-through")).toBeNull()
   })
 
+  it("never shows pending or failed on channels without a connection", () => {
+    ok({
+      rows: [
+        {
+          ...data.rows[0],
+          channels: {
+            ch_ebay: cell({ has_connection: true, sync_state: "failed" }),
+            ch_web: cell({ sync_state: "pending", price: null }),
+          },
+        },
+      ],
+    })
+    renderAt()
+    const states = screen
+      .getAllByTestId("editable-cell")
+      .map((c) => c.getAttribute("data-state"))
+    // eBay price + stock failed; Webstore price readonly, stock idle.
+    expect(states.filter((s) => s === "failed")).toHaveLength(2)
+    expect(states.filter((s) => s === "pending")).toHaveLength(0)
+    expect(document.querySelector(".line-through")).toBeNull()
+  })
+
+  it("keeps the trailing space while typing and joins later words", () => {
+    vi.useFakeTimers()
+    renderAt()
+    const box = screen.getByRole("searchbox") as HTMLInputElement
+    fireEvent.change(box, { target: { value: "red " } })
+    act(() => {
+      vi.advanceTimersByTime(300)
+    })
+    expect(box.value).toBe("red ")
+    fireEvent.change(box, { target: { value: box.value + "shirt" } })
+    act(() => {
+      vi.advanceTimersByTime(300)
+    })
+    expect(box.value).toBe("red shirt")
+    expect(mockUseChannelOffers).toHaveBeenLastCalledWith(
+      expect.objectContaining({ q: "red shirt" })
+    )
+  })
+
+  it("sanitizes q (trimmed, at most 100) and offset (non-negative integer)", () => {
+    renderAt(`/?q=%20%20${"a".repeat(150)}&offset=2.9`)
+    expect(mockUseChannelOffers).toHaveBeenLastCalledWith(
+      expect.objectContaining({ q: "a".repeat(100), offset: 2 })
+    )
+    cleanup()
+    renderAt("/?q=%20%20&offset=-5")
+    expect(mockUseChannelOffers).toHaveBeenLastCalledWith(
+      expect.objectContaining({ q: undefined, offset: 0 })
+    )
+  })
+
+  it("offers Reset filters in the error state when the params are invalid", () => {
+    mockUseChannelOffers.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: true,
+      refetch: vi.fn(),
+    })
+    const router = renderAt("/?q=%20x&offset=-1")
+    fireEvent.click(
+      screen.getByRole("button", { name: "channelPricing.resetFilters" })
+    )
+    expect(router.state.location.search).toBe("")
+  })
+
   it("saves a stock edit through the update route", async () => {
     mockUpdate.mockResolvedValue({})
     renderAt()

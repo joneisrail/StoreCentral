@@ -5,7 +5,7 @@ import { useSaveMarketplaceConnection } from "../../../../../hooks/api/marketpla
 
 type AutoSyncPriceSwitchProps = {
   connectionId: string
-  /** The connection's `auto_sync_price`; absent means off. */
+  /** The connection's `auto_sync_price`; undefined until it has loaded. */
   checked?: boolean
   disabled?: boolean
 }
@@ -17,7 +17,7 @@ type AutoSyncPriceSwitchProps = {
  */
 export const AutoSyncPriceSwitch = ({
   connectionId,
-  checked = false,
+  checked,
   disabled = false,
 }: AutoSyncPriceSwitchProps) => {
   const { t } = useTranslation()
@@ -28,7 +28,10 @@ export const AutoSyncPriceSwitch = ({
       await mutateAsync({ auto_sync_price: next })
       toast.success(t("salesChannels.marketplace.toast.autoSyncPriceSaved"))
     } catch (error) {
-      toast.error((error as { message?: string } | null)?.message ?? "")
+      toast.error(
+        (error as { message?: string } | null)?.message ||
+          t("channelPricing.edit.saveFailed")
+      )
     }
   }
 
@@ -37,8 +40,8 @@ export const AutoSyncPriceSwitch = ({
       <div className="flex items-center gap-x-3">
         <Switch
           id={`auto-sync-price-${connectionId}`}
-          checked={checked}
-          disabled={disabled || isPending}
+          checked={checked === true}
+          disabled={disabled || isPending || checked === undefined}
           onCheckedChange={handleChange}
         />
         <Label

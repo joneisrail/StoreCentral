@@ -87,6 +87,23 @@ describe("ShareStockSetting", () => {
     expect(mocks.toast.success).not.toHaveBeenCalled()
   })
 
+  it("is disabled until the setting has loaded", () => {
+    mocks.settings.data = undefined
+    render(<ShareStockSetting />)
+    expect(screen.getByRole("switch").hasAttribute("disabled")).toBe(true)
+  })
+
+  it("falls back to a translated message when the error has none", async () => {
+    mocks.update.mockRejectedValue({})
+    render(<ShareStockSetting />)
+    fireEvent.click(screen.getByRole("switch"))
+    await waitFor(() =>
+      expect(mocks.toast.error).toHaveBeenCalledWith(
+        "channelPricing.edit.saveFailed"
+      )
+    )
+  })
+
   it("disables the switch while saving", () => {
     mocks.pending = true
     render(<ShareStockSetting />)

@@ -11,7 +11,8 @@ const MAX_VALUE = 1_000_000
 type Parsed = { ok: true; value: number | null } | { ok: false }
 
 const parse = (kind: EditableCellKind, raw: string): Parsed => {
-  const text = raw.trim()
+  // A decimal comma ("12,50") is accepted for prices.
+  const text = kind === "price" ? raw.trim().replace(",", ".") : raw.trim()
   if (kind === "price") {
     // An empty price clears the channel price, so it falls back to the base.
     if (text === "") {

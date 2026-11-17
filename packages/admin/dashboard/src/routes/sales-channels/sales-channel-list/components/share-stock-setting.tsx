@@ -22,7 +22,10 @@ export const ShareStockSetting = () => {
       await mutateAsync({ share_stock_after_sale: next })
       toast.success(t("salesChannels.channelStock.saved"))
     } catch (error) {
-      toast.error((error as { message?: string } | null)?.message ?? "")
+      toast.error(
+        (error as { message?: string } | null)?.message ||
+          t("channelPricing.edit.saveFailed")
+      )
     }
   }
 
@@ -33,7 +36,7 @@ export const ShareStockSetting = () => {
         <Switch
           id="share-stock-after-sale"
           checked={checked}
-          disabled={isPending}
+          disabled={isPending || data === undefined}
           onCheckedChange={handleChange}
         />
         <Label htmlFor="share-stock-after-sale" size="small" weight="plus">

@@ -51,8 +51,15 @@ type SaveFn = (
   value: number | null
 ) => Promise<unknown>
 
-const isPending = (cell: ChannelOfferCell) => cell.sync_state === "pending"
-const isFailed = (cell: ChannelOfferCell) => cell.sync_state === "failed"
+// Only a marketplace with a connection is ever synced by Seller Hub; the
+// offers of web, POS, other and unconnected channels default to "pending" and
+// nothing flips them, so they must never look pending or failed.
+const isPending = (cell: ChannelOfferCell) =>
+  cell.has_connection && cell.sync_state === "pending"
+const isFailed = (cell: ChannelOfferCell) =>
+  cell.has_connection && cell.sync_state === "failed"
+
+const MAX_SEARCH_LENGTH = 100
 
 const OfferCell = ({
   variantId,
@@ -119,9 +126,19 @@ export const ChannelGrid = () => {
   const { t } = useTranslation()
   const [params, setParams] = useSearchParams()
 
-  const q = params.get("q") ?? ""
+  const rawQ = params.get("q") ?? ""
+  const q = rawQ.trim().slice(0, MAX_SEARCH_LENGTH)
   const urlOrder = params.get("order") || DEFAULT_ORDER
-  const offset = Math.max(0, Number(params.get("offset")) || 0)
+  const rawOffset = params.get("offset")
+  const parsedOffset = Number(rawOffset)
+  const offset =
+    rawOffset !== null && Number.isFinite(parsedOffset)
+      ? Math.max(0, Math.floor(parsedOffset))
+      : 0
+  // The URL carried something that had to be cleaned before being sent.
+  const paramsInvalid =
+    (rawQ !== "" && rawQ !== q) ||
+    (rawOffset !== null && rawOffset !== "" && String(offset) !== rawOffset)
   const channelsParam = params.get("channels")
 
   const [searchText, setSearchText] = useState(q)
@@ -132,8 +149,12 @@ export const ChannelGrid = () => {
   const orderIsValid = isKnownOrder(urlOrder, knownChannelIds)
   const order = orderIsValid ? urlOrder : DEFAULT_ORDER
 
+  // The URL holds the trimmed term; only take it over when it differs from
+  // what is typed, or a trailing space would be wiped while typing.
   useEffect(() => {
-    setSearchText(q)
+    setSearchText((current) => {
+      return current.trim() === q ? current : q
+    })
   }, [q])
 
   const update = (changes: Record<string, string | null>) => {
@@ -154,7 +175,7 @@ export const ChannelGrid = () => {
   }
 
   useEffect(() => {
-    if (searchText === q) {
+    if (searchText.trim() === q) {
       return
     }
     const handle = setTimeout(() => {
@@ -381,13 +402,15 @@ export const ChannelGrid = () => {
             <Button size="small" variant="secondary" onClick={() => refetch()}>
               {t("actions.retry")}
             </Button>
-            {params.get("order") && (
+            {(params.get("order") || paramsInvalid) && (
               <Button
                 size="small"
                 variant="secondary"
-                onClick={() => update({ order: null, offset: null })}
+                onClick={() => update({ q: null, order: null, offset: null })}
               >
-                {t("channelPricing.resetSort")}
+                {paramsInvalid
+                  ? t("channelPricing.resetFilters")
+                  : t("channelPricing.resetSort")}
               </Button>
             )}
           </div>

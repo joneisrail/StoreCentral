@@ -1927,6 +1927,9 @@
         "resetSort": {
           "type": "string"
         },
+        "resetFilters": {
+          "type": "string"
+        },
         "sortReset": {
           "type": "string"
         },
@@ -1964,6 +1967,7 @@
         "showing",
         "loading",
         "resetSort",
+        "resetFilters",
         "sortReset",
         "empty",
         "error",

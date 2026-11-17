@@ -82,9 +82,31 @@ const toQuery = (params: ChannelOffersParams) => {
   return query
 }
 
+export const CHANNEL_OFFERS_POLL_MS = 10_000
+
+/**
+ * Seller Hub reports sync results back asynchronously, so a marketplace cell
+ * that is still pending has to be re-read. Only cells of a connected channel
+ * count: other channels' offers default to "pending" and nothing flips them.
+ */
+export const hasPendingConnectedCell = (
+  data: ChannelOffersResponse | undefined
+): boolean =>
+  !!data?.rows.some((row) =>
+    Object.values(row.channels).some(
+      (cell) => cell.has_connection && cell.sync_state === "pending"
+    )
+  )
+
 export const useChannelOffers = (params: ChannelOffersParams) =>
   useQuery<ChannelOffersResponse, FetchError>({
     queryKey: channelOffersQueryKeys.list(params),
+    refetchInterval: (query) => {
+      if (hasPendingConnectedCell(query.state.data)) {
+        return CHANNEL_OFFERS_POLL_MS
+      }
+      return false
+    },
     queryFn: () =>
       sdk.client.fetch<ChannelOffersResponse>("/admin/channel-offers", {
         query: toQuery(params),
@@ -117,7 +139,6 @@ export type UpdateChannelOfferResponse = {
   variant_id: string
   sales_channel_id: string
   kind: "stock" | "price" | "both" | null
-  offer: unknown
 }
 
 export const useUpdateChannelOffer = (

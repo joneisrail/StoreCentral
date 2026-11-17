@@ -62,7 +62,6 @@ export const SyncButton = ({
     }
   }
 
-  const amber = state === "pending" || state === "failed"
   const Icon = busy
     ? ArrowPath
     : state === "failed"
@@ -73,7 +72,7 @@ export const SyncButton = ({
   const tone =
     state === "failed"
       ? "text-ui-fg-error"
-      : amber
+      : state === "pending"
         ? "text-ui-tag-orange-icon"
         : "text-ui-tag-green-icon"
 

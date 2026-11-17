@@ -205,7 +205,7 @@ const ConnectionDetails = ({
       ) : null}
       <AutoSyncPriceSwitch
         connectionId={connection.id}
-        checked={connection.auto_sync_price === true}
+        checked={connection.auto_sync_price}
         disabled={!actionsEnabled}
       />
       {actionsEnabled ? (

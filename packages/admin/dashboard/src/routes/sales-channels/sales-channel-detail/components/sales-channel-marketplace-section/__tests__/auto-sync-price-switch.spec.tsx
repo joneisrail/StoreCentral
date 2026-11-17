@@ -45,7 +45,7 @@ describe("AutoSyncPriceSwitch", () => {
   afterEach(cleanup)
 
   it("is off when the field is absent and shows the helper text", () => {
-    render(<AutoSyncPriceSwitch connectionId="conn_1" />)
+    render(<AutoSyncPriceSwitch connectionId="conn_1" checked={false} />)
     expect(screen.getByRole("switch").getAttribute("aria-checked")).toBe(
       "false"
     )
@@ -60,7 +60,7 @@ describe("AutoSyncPriceSwitch", () => {
   })
 
   it("sends the payload and shows a saved toast", async () => {
-    render(<AutoSyncPriceSwitch connectionId="conn_1" />)
+    render(<AutoSyncPriceSwitch connectionId="conn_1" checked={false} />)
     fireEvent.click(screen.getByRole("switch"))
     await waitFor(() =>
       expect(mocks.save).toHaveBeenCalledWith({ auto_sync_price: true })
@@ -78,9 +78,25 @@ describe("AutoSyncPriceSwitch", () => {
     await waitFor(() => expect(mocks.toast.error).toHaveBeenCalledWith("nope"))
   })
 
+  it("is disabled until the connection value has loaded", () => {
+    render(<AutoSyncPriceSwitch connectionId="conn_1" />)
+    expect(screen.getByRole("switch").hasAttribute("disabled")).toBe(true)
+  })
+
+  it("falls back to a translated message when the error has none", async () => {
+    mocks.save.mockRejectedValue(new Error(""))
+    render(<AutoSyncPriceSwitch connectionId="conn_1" checked={false} />)
+    fireEvent.click(screen.getByRole("switch"))
+    await waitFor(() =>
+      expect(mocks.toast.error).toHaveBeenCalledWith(
+        "channelPricing.edit.saveFailed"
+      )
+    )
+  })
+
   it("disables the switch while saving", () => {
     mocks.pending = true
-    render(<AutoSyncPriceSwitch connectionId="conn_1" />)
+    render(<AutoSyncPriceSwitch connectionId="conn_1" checked={false} />)
     expect(screen.getByRole("switch").hasAttribute("disabled")).toBe(true)
   })
 

@@ -83,6 +83,23 @@ describe("EditableCell", () => {
     expect(onSave).not.toHaveBeenCalled()
   })
 
+  it("accepts a decimal comma and saves 12.5", async () => {
+    const { onSave } = setup()
+    const input = open()
+    fireEvent.change(input, { target: { value: "12,50" } })
+    fireEvent.keyDown(input, { key: "Enter" })
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith(12.5))
+  })
+
+  it("still rejects three decimals with a comma", () => {
+    const { onSave } = setup()
+    const input = open()
+    fireEvent.change(input, { target: { value: "12,505" } })
+    fireEvent.keyDown(input, { key: "Enter" })
+    expect(onSave).not.toHaveBeenCalled()
+    expect(screen.getByRole("alert")).toBeTruthy()
+  })
+
   it("empty price clears the channel price (null)", async () => {
     const { onSave } = setup()
     const input = open()
@@ -98,7 +115,8 @@ describe("EditableCell", () => {
     ["1e3"],
     ["1.234"],
     ["12."],
-    ["12,5"],
+    ["1,2,3"],
+    ["12,505"],
     ["1000001"],
     ["9".repeat(400)],
   ])("rejects invalid price %s inline", (bad) => {
