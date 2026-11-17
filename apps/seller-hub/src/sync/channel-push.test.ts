@@ -236,3 +236,21 @@ test("a failing report on the final attempt does not mask the original error", a
   s.medusaClient.reportChannelSyncResult.mockRejectedValue(new Error("backend down"))
   await expect(processChannelPushJob(job("stock"), { ...s.deps, finalAttempt: true })).rejects.toThrow("503")
 })
+
+test.each([
+  ["missing stock", { price: null, effective_price: 5 }],
+  ["NaN stock", { price: null, effective_price: 5, stock: Number.NaN }],
+  ["string stock", { price: null, effective_price: 5, stock: "7" }],
+  ["null effective price", { price: null, effective_price: null, stock: 7 }],
+  ["string effective price", { price: null, effective_price: "5", stock: 7 }],
+])("a malformed push-values response (%s) is a permanent failure and pushes nothing", async (_n, values) => {
+  const s = setup({ values: values as any })
+  await expect(processChannelPushJob(job("both"), s.deps)).resolves.toBeUndefined()
+  expect(s.pushStock).not.toHaveBeenCalled()
+  expect(s.pushPrice).not.toHaveBeenCalled()
+  expect(s.medusaClient.reportChannelSyncResult).toHaveBeenCalledWith(
+    "variant_1",
+    "sc_1",
+    expect.objectContaining({ state: "failed", error: "unexpected push-values response" })
+  )
+})

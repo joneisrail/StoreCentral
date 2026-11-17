@@ -89,6 +89,16 @@ export const processChannelPushJob = async (
   const pushed: { stock?: number; price?: number } = {}
   try {
     const values = await medusaClient.getChannelPushValues(variantId, salesChannelId)
+    // A malformed backend answer must never push stock 0 (or a NaN price).
+    if (
+      !values ||
+      typeof values.stock !== "number" ||
+      !Number.isFinite(values.stock) ||
+      typeof values.effective_price !== "number" ||
+      !Number.isFinite(values.effective_price)
+    ) {
+      throw new PermanentSyncError("unexpected push-values response")
+    }
 
     if (kind === "stock" || kind === "both") {
       const stock = clampQuantity(values.stock)

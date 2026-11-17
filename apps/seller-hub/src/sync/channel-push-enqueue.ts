@@ -67,6 +67,22 @@ const addJob = (queue: Queue, jobId: string, data: ChannelPushJobData) =>
   })
 
 /**
+ * Puts the change into the job `jobId`: merges into a waiting job, or adds it
+ * and then re-reads the job. Two concurrent webhooks can both see "absent" and
+ * both add the same id; BullMQ keeps only the first, so the second change
+ * would be lost. The re-read merges it into whatever job now holds the id.
+ * false when the id is held by a job that cannot take the change.
+ */
+const place = async (queue: Queue, jobId: string, data: ChannelPushJobData): Promise<boolean> => {
+  const state = await tryMerge(queue, jobId, data)
+  if (state === "merged") return true
+  if (state === "busy") return false
+  await addJob(queue, jobId, data)
+  // "absent" again means the job already ran and was removed: nothing to merge.
+  return (await tryMerge(queue, jobId, data)) !== "busy"
+}
+
+/**
  * Enqueues one push per (variant, channel). A still-waiting job with the same
  * id is merged (kind widened to the union, force OR-ed). BullMQ silently drops
  * an add whose id is active, and the running job already read its values, so a
@@ -80,18 +96,8 @@ export const enqueueChannelPush = async (
   data: ChannelPushJobData
 ): Promise<void> => {
   const baseId = channelPushJobId(data.variantId, data.salesChannelId)
-  const base = await tryMerge(queue, baseId, data)
-  if (base === "merged") return
-  if (base === "absent") {
-    await addJob(queue, baseId, data)
-    return
-  }
+  if (await place(queue, baseId, data)) return
   const nextId = `${baseId}-next`
-  const next = await tryMerge(queue, nextId, data)
-  if (next === "merged") return
-  if (next === "absent") {
-    await addJob(queue, nextId, data)
-    return
-  }
+  if (await place(queue, nextId, data)) return
   await addJob(queue, `${nextId}-${Date.now()}`, data)
 }

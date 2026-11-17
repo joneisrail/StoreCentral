@@ -142,3 +142,42 @@ test("when base and follow-up are both active a uniquely suffixed job is added",
   const opts = (q.add.mock.calls[0] as unknown[])[2] as { jobId: string }
   expect(opts.jobId).toMatch(/^channel-v1-sc1-next-\d+$/)
 })
+
+test("a lost concurrent add is merged into the job that won the id", async () => {
+  // Two webhooks both saw "absent"; BullMQ kept the first job (stock, no force).
+  const winner = { ...data }
+  const updateData = vi.fn(async () => {})
+  let added = false
+  const queue = {
+    add: vi.fn(async () => {
+      added = true
+      return {}
+    }),
+    // absent before our add, then the other webhook's job after it
+    getJob: vi.fn(async () =>
+      added ? { data: winner, getState: async () => "waiting", updateData } : null
+    ),
+  }
+  await enqueueChannelPush(queue as unknown as Queue, { ...data, kind: "price", force: true })
+  expect(queue.add).toHaveBeenCalledTimes(1)
+  expect(updateData).toHaveBeenCalledWith({ ...data, kind: "both", force: true })
+})
+
+test("a lost add whose winner was picked up meanwhile goes to the follow-up job", async () => {
+  const jobs: Record<string, { state: string; data: any }> = {}
+  const queue = {
+    add: vi.fn(async (_n: string, d: any, o: any) => {
+      // base id is taken by a job that is already active (the other webhook's)
+      if (o.jobId.endsWith("-next") || o.jobId.includes("-next-")) jobs[o.jobId] = { state: "waiting", data: d }
+      else jobs[o.jobId] = jobs[o.jobId] ?? { state: "active", data }
+      return {}
+    }),
+    getJob: vi.fn(async (id: string) => {
+      const j = jobs[id]
+      return j ? { data: j.data, getState: async () => j.state, updateData: async () => {} } : null
+    }),
+  }
+  await enqueueChannelPush(queue as unknown as Queue, { ...data, kind: "price", force: true })
+  expect(queue.add).toHaveBeenCalledTimes(2)
+  expect(jobs["channel-v1-sc1-next"].data).toEqual({ ...data, kind: "price", force: true })
+})
