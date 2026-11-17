@@ -11,9 +11,10 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
   // nonBlank drops everything but non-empty strings, so the boolean flag is forwarded explicitly
   // (false included).
   const creds = nonBlank(credentials)
-  const flag = typeof auto_sync_price === "boolean" ? { auto_sync_price } : {}
+  const hasFlag = typeof auto_sync_price === "boolean"
+  const flag = hasFlag ? { auto_sync_price } : {}
   // A flag-only save never tests or restarts the connection, so it needs no long timeout.
-  const credentialSave = Object.keys(creds).length > 0 || Object.keys(flag).length === 0
+  const credentialSave = Object.keys(creds).length > 0 || !hasFlag
   await respond(res, () =>
     callSellerHub(
       "PUT",

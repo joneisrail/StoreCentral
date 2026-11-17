@@ -511,6 +511,31 @@ test("edit of a connected connection with failing test returns 422 and changes n
   expect(manager.apply).not.toHaveBeenCalled()
 })
 
+test("credentials + auto_sync_price with a failing credential test: 422, flag saved, credentials unchanged", async () => {
+  await start()
+  testShopify.mockResolvedValueOnce({ ok: false, message: "credentials rejected" })
+  const credsBefore = JSON.stringify({
+    t: rows[0]!.access_token_encrypted,
+    w: rows[0]!.webhook_secret_encrypted,
+    d: rows[0]!.shop_domain,
+  })
+  const r = await call("PUT", `/internal/connections/${SHOPIFY_ID}`, { access_token: NEW_TOKEN, auto_sync_price: true })
+  expect(r.status).toBe(422)
+  expect(r.json).toEqual({ error: "test_failed", message: "credentials rejected" })
+  // Intentional: the flag is independent of the credential test and is NOT rolled back.
+  const w = writes()
+  expect(w).toHaveLength(1)
+  expect(w[0]!.sql).toMatch(/auto_sync_price = \$1/)
+  expect(w[0]!.params).toEqual([true, SHOPIFY_ID])
+  expect(rows[0]!.auto_sync_price).toBe(true)
+  expect(JSON.stringify({
+    t: rows[0]!.access_token_encrypted,
+    w: rows[0]!.webhook_secret_encrypted,
+    d: rows[0]!.shop_domain,
+  })).toBe(credsBefore)
+  expect(manager.apply).not.toHaveBeenCalled()
+})
+
 test("a failed Test leaves the runtime live, so a failing edit is still guarded (422, nothing changed)", async () => {
   await start([shopifyRow({ status: "error" }), wooRow()])
   // SHOPIFY_ID still has a live runtime (a failed Test only sets status error).

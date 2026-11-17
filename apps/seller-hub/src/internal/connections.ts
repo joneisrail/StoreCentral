@@ -376,8 +376,9 @@ export const createInternalHandler = (deps: InternalHandlerDeps) => {
       }
       throw err
     }
-    // Credentials plus the flag: the flag is independent of the credential test, so it is saved
-    // once the input is valid (it also lets the response show the new value).
+    // Credentials plus the flag: the flag is persisted independently of the credential test, once
+    // the input is valid. A 422 test_failed below does NOT roll it back: the old working
+    // credentials stay untouched and the flag change still applies (pinned by a test).
     if (typeof flag === "boolean") await setAutoSyncPriceById(deps.pool, id, flag)
     // A failed Test sets status `error` without stopping the runtime, so a live
     // runtime also counts as a working connection worth protecting.

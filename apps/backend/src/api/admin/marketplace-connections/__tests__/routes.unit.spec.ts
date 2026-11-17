@@ -81,6 +81,7 @@ describe("auto_sync_price", () => {
     await edit(makeReq("c1", { auto_sync_price: true }), res)
     expect(mocked).toHaveBeenCalledTimes(1)
     expect(mocked.mock.calls[0]!.slice(0, 3)).toEqual(["PUT", "/internal/connections/c1", { auto_sync_price: true }])
+    expect(mocked.mock.calls[0]![3]).toBeUndefined()
     expect(res.payload.connection.auto_sync_price).toBe(true)
   })
 
