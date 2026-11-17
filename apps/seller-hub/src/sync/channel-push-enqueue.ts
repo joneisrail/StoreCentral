@@ -36,29 +36,62 @@ export const decideKind = (
 
 const WAITING_STATES = new Set(["waiting", "delayed", "prioritized", "waiting-children"])
 
-/**
- * Enqueues one push per (variant, channel). A still-waiting job with the same
- * id is merged (kind widened to the union, force OR-ed) instead of duplicated;
- * otherwise a fresh job is added (BullMQ itself ignores an id that is active).
- */
-export const enqueueChannelPush = async (
+/** Merges `data` into a waiting job; false when it cannot be merged (not waiting, or it was picked up meanwhile). */
+const tryMerge = async (
   queue: Queue,
+  jobId: string,
   data: ChannelPushJobData
-): Promise<void> => {
-  const jobId = channelPushJobId(data.variantId, data.salesChannelId)
+): Promise<"merged" | "absent" | "busy"> => {
   const existing = await queue.getJob(jobId)
-  if (existing && WAITING_STATES.has(await existing.getState())) {
+  if (!existing) return "absent"
+  try {
+    if (!WAITING_STATES.has(await existing.getState())) return "busy"
     const current = existing.data as ChannelPushJobData
     const kind = widenKind(current.kind, data.kind)
     const force = current.force || data.force
     if (kind !== current.kind || force !== current.force) {
       await existing.updateData({ ...current, kind, force })
     }
-    return
+    return "merged"
+  } catch {
+    // The worker took the job between the state read and the update.
+    return "busy"
   }
-  await queue.add(CHANNEL_PUSH_JOB_NAME, data, {
+}
+
+const addJob = (queue: Queue, jobId: string, data: ChannelPushJobData) =>
+  queue.add(CHANNEL_PUSH_JOB_NAME, data, {
     jobId,
     removeOnComplete: true,
     removeOnFail: true,
   })
+
+/**
+ * Enqueues one push per (variant, channel). A still-waiting job with the same
+ * id is merged (kind widened to the union, force OR-ed). BullMQ silently drops
+ * an add whose id is active, and the running job already read its values, so a
+ * non-mergeable (active) base job sends the change to a follow-up job
+ * `<id>-next` (merged the same way). If that one is busy too, a uniquely
+ * suffixed job is added. The worker runs one job at a time (BullMQ concurrency
+ * 1 in createSyncWorker), so a follow-up always runs after the base job.
+ */
+export const enqueueChannelPush = async (
+  queue: Queue,
+  data: ChannelPushJobData
+): Promise<void> => {
+  const baseId = channelPushJobId(data.variantId, data.salesChannelId)
+  const base = await tryMerge(queue, baseId, data)
+  if (base === "merged") return
+  if (base === "absent") {
+    await addJob(queue, baseId, data)
+    return
+  }
+  const nextId = `${baseId}-next`
+  const next = await tryMerge(queue, nextId, data)
+  if (next === "merged") return
+  if (next === "absent") {
+    await addJob(queue, nextId, data)
+    return
+  }
+  await addJob(queue, `${nextId}-${Date.now()}`, data)
 }

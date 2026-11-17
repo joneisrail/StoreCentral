@@ -460,7 +460,15 @@ const routeChannelOffer = async (
   }
   for (const target of matching) {
     try {
-      const auto = data.force ? false : ((await target.autoSyncPrice?.()) ?? false)
+      let auto = false
+      if (!data.force) {
+        try {
+          auto = (await target.autoSyncPrice?.()) ?? false
+        } catch (err) {
+          // Stock must still go out; price falls back to the non-auto rule.
+          console.error(`[webhook] autoSyncPrice lookup failed (${errName(err)})`)
+        }
+      }
       const kind = decideKind(data.kind, data.force, auto)
       if (!kind) continue
       await enqueueChannelPush(target.channelPushQueue!, { ...data, kind })

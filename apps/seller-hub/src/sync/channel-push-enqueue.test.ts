@@ -74,3 +74,71 @@ test("a non-waiting existing job falls through to add", async () => {
   expect(updateData).not.toHaveBeenCalled()
   expect(q.add).toHaveBeenCalledTimes(1)
 })
+
+const twoSlotQueue = (jobs: Record<string, { state: string; data: any; failUpdate?: boolean }>) => {
+  const updates: Record<string, any> = {}
+  const queue = {
+    add: vi.fn(async () => ({})),
+    getJob: vi.fn(async (id: string) => {
+      const j = jobs[id]
+      if (!j) return null
+      return {
+        data: j.data,
+        getState: async () => j.state,
+        updateData: async (d: any) => {
+          if (j.failUpdate) throw new Error("gone")
+          updates[id] = d
+        },
+      }
+    }),
+  }
+  return { queue: queue as unknown as Queue, q: queue, updates }
+}
+
+test("an active base job sends the change to the -next follow-up", async () => {
+  const { queue, q } = twoSlotQueue({ "channel-v1-sc1": { state: "active", data } })
+  await enqueueChannelPush(queue, { ...data, kind: "price", force: true })
+  expect(q.add).toHaveBeenCalledWith(
+    "channel-offer.changed",
+    { ...data, kind: "price", force: true },
+    { jobId: "channel-v1-sc1-next", removeOnComplete: true, removeOnFail: true }
+  )
+})
+
+test("a waiting follow-up is widened (kind union, force OR) while base is active", async () => {
+  const { queue, q, updates } = twoSlotQueue({
+    "channel-v1-sc1": { state: "active", data },
+    "channel-v1-sc1-next": { state: "waiting", data },
+  })
+  await enqueueChannelPush(queue, { ...data, kind: "price", force: true })
+  expect(q.add).not.toHaveBeenCalled()
+  expect(updates["channel-v1-sc1-next"]).toEqual({ ...data, kind: "both", force: true })
+})
+
+test("a waiting base is merged and the follow-up is not touched", async () => {
+  const { queue, q, updates } = twoSlotQueue({ "channel-v1-sc1": { state: "waiting", data } })
+  await enqueueChannelPush(queue, { ...data, kind: "price" })
+  expect(updates["channel-v1-sc1"]).toMatchObject({ kind: "both" })
+  expect(q.getJob).toHaveBeenCalledTimes(1)
+  expect(q.add).not.toHaveBeenCalled()
+})
+
+test("a failing update (worker took the job) falls back to the follow-up id", async () => {
+  const { queue, q } = twoSlotQueue({ "channel-v1-sc1": { state: "waiting", data, failUpdate: true } })
+  await enqueueChannelPush(queue, { ...data, kind: "price" })
+  expect(q.add).toHaveBeenCalledWith(
+    "channel-offer.changed",
+    expect.objectContaining({ kind: "price" }),
+    expect.objectContaining({ jobId: "channel-v1-sc1-next" })
+  )
+})
+
+test("when base and follow-up are both active a uniquely suffixed job is added", async () => {
+  const { queue, q } = twoSlotQueue({
+    "channel-v1-sc1": { state: "active", data },
+    "channel-v1-sc1-next": { state: "active", data },
+  })
+  await enqueueChannelPush(queue, data)
+  const opts = (q.add.mock.calls[0] as unknown[])[2] as { jobId: string }
+  expect(opts.jobId).toMatch(/^channel-v1-sc1-next-\d+$/)
+})

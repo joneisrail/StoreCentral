@@ -28,6 +28,8 @@ export type ChannelPushDeps = {
   pushPrice: (listing: ChannelPushListing, price: number) => Promise<void>
   /** Defaults to the channel_listing row of this account for the variant. */
   findListing?: (variantId: string) => Promise<ChannelPushListing | null>
+  /** True on the job's last BullMQ attempt: a transient failure is then reported failed. */
+  finalAttempt?: boolean
 }
 
 export const findChannelListing = async (
@@ -119,6 +121,12 @@ export const processChannelPushJob = async (
       console.error(`[channel-push] permanent failure for channel ${salesChannelId}`)
       await report({ state: "failed", error: toThrow.message })
       return
+    }
+    if (deps.finalAttempt) {
+      await report({
+        state: "failed",
+        error: "Marketplace unreachable; will retry on next change",
+      })
     }
     throw toThrow
   }

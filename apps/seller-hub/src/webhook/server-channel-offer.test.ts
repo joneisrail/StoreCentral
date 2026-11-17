@@ -205,3 +205,20 @@ test("woocommerce connections for the channel are also targeted", async () => {
   await post(url, evt({}))
   expect(w.channelPush.add).toHaveBeenCalledTimes(1)
 })
+
+test("a throwing autoSyncPrice still enqueues the stock part", async () => {
+  const a = makeConn("acct-a", "sc1")
+  ;(a.deps as any).autoSyncPrice = async () => {
+    throw new TypeError("db secret-detail")
+  }
+  const err = vi.spyOn(console, "error").mockImplementation(() => {})
+  const { url } = start([a])
+  expect((await post(url, evt({ kind: "both" }))).status).toBe(200)
+  expect(a.channelPush.add).toHaveBeenCalledWith(
+    "channel-offer.changed",
+    expect.objectContaining({ kind: "stock" }),
+    expect.anything()
+  )
+  expect(JSON.stringify(err.mock.calls)).toContain("TypeError")
+  expect(JSON.stringify(err.mock.calls)).not.toContain("secret-detail")
+})

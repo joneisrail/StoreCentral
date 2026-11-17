@@ -71,7 +71,16 @@ export type ShopifyRuntime = {
   stop: () => Promise<void>
 }
 
-type JobLike<T> = { name: string; data: T }
+type JobLike<T> = {
+  name: string
+  data: T
+  attemptsMade?: number
+  opts?: { attempts?: number }
+}
+
+const isFinalAttempt = (job: JobLike<unknown>): boolean =>
+  job.opts?.attempts !== undefined &&
+  (job.attemptsMade ?? 0) + 1 >= job.opts.attempts
 
 /**
  * Starts the Shopify side of the service: resolves the Shopify account,
@@ -252,6 +261,7 @@ export const startShopify = async (
         pool,
         medusaClient,
         integrationAccountId,
+        finalAttempt: isFinalAttempt(job),
         pushStock: async (listing, stock) => {
           if (!listing.external_inventory_item_id) {
             throw new PermanentSyncError(
@@ -270,6 +280,8 @@ export const startShopify = async (
               `channel_listing ${listing.id} has no Shopify variant id`
             )
           }
+          // Assumption: push-values carries no currency, so channel/effective
+          // prices are taken to be in the store base currency, checked below.
           // Shopify prices carry no currency, so a non-USD store price is a
           // permanent failure rather than a silently wrong amount.
           const pricing = await medusaClient.getVariantPricing(listing.medusa_variant_id)

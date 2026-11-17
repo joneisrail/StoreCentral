@@ -208,3 +208,31 @@ test("logs never include secrets from the values or the pool", async () => {
     expect(out).not.toMatch(/token|secret|password/i)
   }
 })
+
+const transient = () => {
+  throw new Error("Shopify request failed with status 503")
+}
+
+test("a non-final transient failure rethrows without reporting", async () => {
+  const s = setup({ pushStock: transient as never })
+  await expect(processChannelPushJob(job("stock"), { ...s.deps, finalAttempt: false })).rejects.toThrow("503")
+  expect(s.medusaClient.reportChannelSyncResult).not.toHaveBeenCalled()
+})
+
+test("a final-attempt transient failure reports failed, then rethrows", async () => {
+  const s = setup({ pushStock: transient as never })
+  await expect(processChannelPushJob(job("stock"), { ...s.deps, finalAttempt: true })).rejects.toThrow("503")
+  expect(s.medusaClient.reportChannelSyncResult).toHaveBeenCalledWith("variant_1", "sc_1", {
+    state: "failed",
+    error: "Marketplace unreachable; will retry on next change",
+  })
+  expect(s.medusaClient.reportChannelSyncResult).not.toHaveBeenCalledWith(
+    expect.anything(), expect.anything(), expect.objectContaining({ state: "synced" })
+  )
+})
+
+test("a failing report on the final attempt does not mask the original error", async () => {
+  const s = setup({ pushStock: transient as never })
+  s.medusaClient.reportChannelSyncResult.mockRejectedValue(new Error("backend down"))
+  await expect(processChannelPushJob(job("stock"), { ...s.deps, finalAttempt: true })).rejects.toThrow("503")
+})
