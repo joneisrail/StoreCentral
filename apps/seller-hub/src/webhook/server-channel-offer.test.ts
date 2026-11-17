@@ -222,3 +222,45 @@ test("a throwing autoSyncPrice still enqueues the stock part", async () => {
   expect(JSON.stringify(err.mock.calls)).toContain("TypeError")
   expect(JSON.stringify(err.mock.calls)).not.toContain("secret-detail")
 })
+
+test("an event for a Woo channel goes to the Woo connection only, not to a Shopify one of another channel", async () => {
+  const woo = makeConn("woo-1", "sc_woo")
+  const shop = makeConn("shop-1", "sc_shop")
+  const amazon = {
+    inventoryQueue: { add: vi.fn() } as unknown as Queue,
+    priceQueue: { add: vi.fn() } as unknown as Queue,
+  }
+  const connectors = {
+    get: () => null,
+    all: (m: string) => (m === "woocommerce" ? [woo.deps] : m === "shopify" ? [shop.deps] : []),
+  }
+  const server = createWebhookServer({ ...amazon, connectors })
+  server.listen(0)
+  servers.push(server)
+  const url = `http://localhost:${(server.address() as AddressInfo).port}/webhooks/medusa`
+  expect((await post(url, evt({ sales_channel_id: "sc_woo" }))).status).toBe(200)
+  expect(woo.channelPush.add).toHaveBeenCalledTimes(1)
+  expect(shop.channelPush.add).not.toHaveBeenCalled()
+  expect(amazon.inventoryQueue.add).not.toHaveBeenCalled()
+})
+
+test("a channel with no live connection (e.g. only the legacy Amazon account) produces no job and still returns 200", async () => {
+  const woo = makeConn("woo-1", "sc_woo")
+  const { url, amazon } = start([woo], "woocommerce")
+  vi.spyOn(console, "log").mockImplementation(() => {})
+  expect((await post(url, evt({ sales_channel_id: "sc_amazon" }))).status).toBe(200)
+  expect(woo.channelPush.add).not.toHaveBeenCalled()
+  expect(amazon.inventoryQueue.add).not.toHaveBeenCalled()
+  expect(amazon.priceQueue.add).not.toHaveBeenCalled()
+})
+
+test("woo: price is dropped without force when auto sync is off and kept with auto or force", async () => {
+  const off = makeConn("woo-off", "sc1", { auto: false })
+  const on = makeConn("woo-on", "sc1", { auto: true })
+  const { url } = start([off, on], "woocommerce")
+  await post(url, evt({ kind: "price" }))
+  expect(off.channelPush.add).not.toHaveBeenCalled()
+  expect(on.channelPush.add).toHaveBeenCalledTimes(1)
+  await post(url, evt({ kind: "price", force: true }))
+  expect(off.channelPush.add).toHaveBeenCalledTimes(1)
+})

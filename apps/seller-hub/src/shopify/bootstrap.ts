@@ -2,6 +2,7 @@ import type { Redis as IORedis } from "ioredis"
 import type { Pool } from "pg"
 import type { MedusaAdminClient } from "../medusa/admin-client.js"
 import { createSyncQueue, createSyncWorker, PermanentSyncError } from "../queue/queues.js"
+import { readAutoSyncPrice } from "../sync/auto-sync-price.js"
 import { processChannelPushJob } from "../sync/channel-push.js"
 import type { ChannelPushJobData } from "../sync/channel-push-enqueue.js"
 import { processTrackingJob } from "../sync/tracking/processor.js"
@@ -345,13 +346,7 @@ export const startShopify = async (
       integrationAccountId,
       channelPushQueue,
       salesChannelId: deps.salesChannelId ?? null,
-      autoSyncPrice: async () => {
-        const { rows } = await pool.query<{ auto_sync_price: boolean }>(
-          `SELECT auto_sync_price FROM seller_hub.integration_account WHERE id = $1`,
-          [integrationAccountId]
-        )
-        return rows[0]?.auto_sync_price === true
-      },
+      autoSyncPrice: () => readAutoSyncPrice(pool, integrationAccountId),
     },
     linked,
     relink: () => runLink(),

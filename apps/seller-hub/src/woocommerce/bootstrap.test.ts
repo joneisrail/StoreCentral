@@ -7,7 +7,13 @@ const mocks = vi.hoisted(() => ({
   processTracking: vi.fn(),
   link: vi.fn(),
   processOrder: vi.fn(),
+  channelPush: vi.fn(),
+  setStock: vi.fn(),
+  setPrice: vi.fn(),
 }))
+
+vi.mock("../sync/channel-push.js", () => ({ processChannelPushJob: mocks.channelPush }))
+vi.mock("./products.js", () => ({ setWooStock: mocks.setStock, setWooPrice: mocks.setPrice }))
 
 vi.mock("../sync/tracking/processor.js", async (orig) => ({
   ...(await orig<typeof import("../sync/tracking/processor.js")>()),
@@ -54,6 +60,9 @@ beforeEach(() => {
   vi.spyOn(console, "log").mockImplementation(() => {})
   mocks.link.mockReset().mockResolvedValue(linkResult)
   mocks.processOrder.mockReset().mockResolvedValue({ status: "created" })
+  mocks.channelPush.mockReset().mockResolvedValue(undefined)
+  mocks.setStock.mockReset().mockResolvedValue(undefined)
+  mocks.setPrice.mockReset().mockResolvedValue(undefined)
 })
 
 test("stop closes every worker and queue, removes the repeatable job, and is idempotent", async () => {
@@ -61,9 +70,9 @@ test("stop closes every worker and queue, removes the repeatable job, and is ide
   const rt = await startWooCommerce(deps)
   await rt.stop()
   await rt.stop()
-  expect(Object.keys(workers)).toHaveLength(4)
+  expect(Object.keys(workers)).toHaveLength(5)
   for (const w of Object.values(workers)) expect(w.close).toHaveBeenCalledTimes(1)
-  expect(queues).toHaveLength(4)
+  expect(queues).toHaveLength(5)
   for (const q of queues) expect(q.close).toHaveBeenCalledTimes(1)
   const inv = queues.find((q) => q.name === "woocommerce-inventory-sync")
   expect(inv.removeRepeatable).toHaveBeenCalledTimes(1)
@@ -112,6 +121,7 @@ test("queue names include the account id", async () => {
   const { deps, queues, workers } = setup({ accountId: "acc-9" })
   await startWooCommerce(deps)
   expect(queues.map((q) => q.name).sort()).toEqual([
+    "woocommerce-channel-push-acc-9",
     "woocommerce-inventory-sync-acc-9",
     "woocommerce-order-sync-acc-9",
     "woocommerce-price-sync-acc-9",
@@ -133,6 +143,7 @@ test("legacy start without accountId keeps the old queue names", async () => {
   const { deps, queues } = setup()
   await startWooCommerce(deps)
   expect(queues.map((q) => q.name).sort()).toEqual([
+    "woocommerce-channel-push",
     "woocommerce-inventory-sync",
     "woocommerce-order-sync",
     "woocommerce-price-sync",
@@ -197,4 +208,90 @@ test("without an injected push the tracking worker gets the WooCommerce push bou
     noNotification: false,
   })
   expect(urls[0]).toBe("https://s.example/wp-json/wc/v3/orders/55")
+})
+
+test("a channel-push queue and worker are created, exposed on the webhook deps and closed on stop", async () => {
+  const { deps, queues, workers } = setup({ accountId: "acct-9", salesChannelId: "sc_9" })
+  const rt = await startWooCommerce(deps)
+  expect((rt.webhook.channelPushQueue as any).name).toBe("woocommerce-channel-push-acct-9")
+  expect(workers["woocommerce-channel-push-acct-9"]).toBeDefined()
+  expect(rt.webhook.salesChannelId).toBe("sc_9")
+  await rt.stop()
+  expect(queues.find((x) => x.name === "woocommerce-channel-push-acct-9").close).toHaveBeenCalledTimes(1)
+  expect(workers["woocommerce-channel-push-acct-9"].close).toHaveBeenCalledTimes(1)
+})
+
+test("autoSyncPrice reads integration_account.auto_sync_price at call time", async () => {
+  const rows = [{ auto_sync_price: false }]
+  const query = vi.fn(async (..._a: unknown[]) => ({ rows: [...rows] }))
+  const { deps } = setup({ accountId: "acct-9", pool: { query } as unknown as Pool })
+  const rt = await startWooCommerce(deps)
+  expect(await rt.webhook.autoSyncPrice!()).toBe(false)
+  rows[0]!.auto_sync_price = true
+  expect(await rt.webhook.autoSyncPrice!()).toBe(true)
+  expect(query).toHaveBeenCalledWith(expect.stringContaining("auto_sync_price"), ["acct-9"])
+})
+
+const runChannelPush = async (
+  extra: Partial<StartWooCommerceDeps>,
+  job: Record<string, unknown> = { attemptsMade: 0, opts: { attempts: 3 } }
+) => {
+  const ctx = setup({ accountId: "acct-9", ...extra })
+  await startWooCommerce(ctx.deps)
+  await ctx.workers["woocommerce-channel-push-acct-9"].processor({
+    name: "channel-offer.changed",
+    data: { variantId: "v1", salesChannelId: "sc_9", kind: "both", force: false },
+    ...job,
+  })
+  return { ...ctx, passed: mocks.channelPush.mock.calls[0]![1] }
+}
+
+const listing = (over: Record<string, unknown> = {}) => ({
+  id: "cl1", medusa_variant_id: "v1", external_sku: "S", external_variant_id: "77",
+  external_inventory_item_id: null, external_parent_id: null, price_rule: null, ...over,
+})
+
+test("the channel-push worker runs processChannelPushJob for the account and flags the final attempt", async () => {
+  const { passed } = await runChannelPush({}, { attemptsMade: 2, opts: { attempts: 3 } })
+  expect(mocks.channelPush.mock.calls[0]![0]).toEqual({ variantId: "v1", salesChannelId: "sc_9", kind: "both", force: false })
+  expect(passed).toMatchObject({ integrationAccountId: "acct-9", finalAttempt: true })
+  mocks.channelPush.mockClear()
+  const again = await runChannelPush({}, { attemptsMade: 0, opts: { attempts: 3 } })
+  expect(again.passed.finalAttempt).toBe(false)
+})
+
+test("pushStock sets the WooCommerce stock of a simple product", async () => {
+  const { passed } = await runChannelPush({})
+  await passed.pushStock(listing(), 4)
+  expect(mocks.setStock).toHaveBeenCalledWith(expect.anything(), { id: 77, parentId: null, quantity: 4 })
+})
+
+test("pushStock addresses a variation through external_parent_id", async () => {
+  const { passed } = await runChannelPush({})
+  await passed.pushStock(listing({ external_parent_id: "50" }), 2)
+  expect(mocks.setStock).toHaveBeenCalledWith(expect.anything(), { id: 77, parentId: 50, quantity: 2 })
+})
+
+test("pushStock and pushPrice fail permanently without a WooCommerce id or with a bad id", async () => {
+  const { passed } = await runChannelPush({})
+  for (const bad of [{ external_variant_id: null }, { external_variant_id: "abc" }, { external_parent_id: "x" }]) {
+    await expect(passed.pushStock(listing(bad), 1)).rejects.toMatchObject({ name: "PermanentSyncError" })
+    await expect(passed.pushPrice(listing(bad), 1)).rejects.toMatchObject({ name: "PermanentSyncError" })
+  }
+  expect(mocks.setStock).not.toHaveBeenCalled()
+  expect(mocks.setPrice).not.toHaveBeenCalled()
+})
+
+test("pushPrice sends the channel price as a 2-decimal string when the store currency is USD", async () => {
+  const { passed, medusa } = await runChannelPush({})
+  ;(medusa as any).getVariantPricing = vi.fn(async () => ({ amount: 1, currencyCode: "USD" }))
+  await passed.pushPrice(listing({ external_parent_id: "50" }), 12.5)
+  expect(mocks.setPrice).toHaveBeenCalledWith(expect.anything(), { id: 77, parentId: 50, price: "12.50" })
+})
+
+test("pushPrice is a permanent failure for a non-USD store currency and pushes nothing", async () => {
+  const { passed, medusa } = await runChannelPush({})
+  ;(medusa as any).getVariantPricing = vi.fn(async () => ({ amount: 1, currencyCode: "eur" }))
+  await expect(passed.pushPrice(listing(), 12.5)).rejects.toMatchObject({ name: "PermanentSyncError" })
+  expect(mocks.setPrice).not.toHaveBeenCalled()
 })

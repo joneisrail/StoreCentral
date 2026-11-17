@@ -528,6 +528,7 @@ test("the WooCommerce reconcile is scheduled on the WooCommerce inventory queue 
   expect(queues.get("woocommerce-order-sync")!.added).toHaveLength(0)
   expect(queues.get("woocommerce-price-sync")!.added).toHaveLength(0)
   expect([...queues.keys()].sort()).toEqual([
+    "woocommerce-channel-push",
     "woocommerce-inventory-sync",
     "woocommerce-order-sync",
     "woocommerce-price-sync",

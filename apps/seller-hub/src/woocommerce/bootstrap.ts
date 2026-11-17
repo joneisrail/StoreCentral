@@ -1,7 +1,10 @@
 import type { Redis as IORedis } from "ioredis"
 import type { Pool } from "pg"
 import type { MedusaAdminClient } from "../medusa/admin-client.js"
-import { createSyncQueue, createSyncWorker } from "../queue/queues.js"
+import { createSyncQueue, createSyncWorker, PermanentSyncError } from "../queue/queues.js"
+import { readAutoSyncPrice } from "../sync/auto-sync-price.js"
+import { processChannelPushJob } from "../sync/channel-push.js"
+import type { ChannelPushJobData } from "../sync/channel-push-enqueue.js"
 import { processTrackingJob } from "../sync/tracking/processor.js"
 import { createWooCommerceTrackingPush } from "../sync/tracking/woocommerce-push.js"
 import type { TrackingJobData, TrackingPush } from "../sync/tracking/types.js"
@@ -30,6 +33,7 @@ import { resolveWooCommerceAccount } from "./account.js"
 import { WooCommerceClient } from "./client.js"
 import type { WooCommerceConfig } from "./config.js"
 import { fetchWooOrder, fetchWooOrdersModifiedSince } from "./orders.js"
+import { setWooPrice, setWooStock } from "./products.js"
 
 export { RECONCILE_WOOCOMMERCE_JOB }
 
@@ -70,7 +74,45 @@ export type WooCommerceRuntime = {
   stop: () => Promise<void>
 }
 
-type JobLike<T> = { name: string; data: T }
+type JobLike<T> = {
+  name: string
+  data: T
+  attemptsMade?: number
+  opts?: { attempts?: number }
+}
+
+const isFinalAttempt = (job: JobLike<unknown>): boolean =>
+  job.opts?.attempts !== undefined &&
+  (job.attemptsMade ?? 0) + 1 >= job.opts.attempts
+
+// WooCommerce ids are stored as strings on channel_listing; REST paths need integers.
+const parseWooId = (value: string, what: string, listingId: string): number => {
+  const n = Number(value)
+  if (!/^\d+$/.test(value) || !Number.isSafeInteger(n)) {
+    throw new PermanentSyncError(
+      `channel_listing ${listingId} has an invalid WooCommerce ${what} "${value}"`
+    )
+  }
+  return n
+}
+
+/** Product/variation address of a listing: id plus optional parent id. */
+const wooTarget = (listing: {
+  id: string
+  external_variant_id: string | null
+  external_parent_id: string | null
+}): { id: number; parentId: number | null } => {
+  if (!listing.external_variant_id) {
+    throw new PermanentSyncError(`channel_listing ${listing.id} has no WooCommerce id`)
+  }
+  return {
+    id: parseWooId(listing.external_variant_id, "id", listing.id),
+    parentId:
+      listing.external_parent_id === null
+        ? null
+        : parseWooId(listing.external_parent_id, "parent id", listing.id),
+  }
+}
 
 /**
  * Starts the WooCommerce side of the service: resolves the account, builds the
@@ -142,7 +184,9 @@ export const startWooCommerce = async (
   const priceQueue = createQueue(`woocommerce-price-sync${suffix}`, redisConnection)
   const trackingQueue = createQueue(`woocommerce-tracking-sync${suffix}`, redisConnection)
 
-  const queues = [orderQueue, inventoryQueue, priceQueue, trackingQueue]
+  const channelPushQueue = createQueue(`woocommerce-channel-push${suffix}`, redisConnection)
+
+  const queues = [orderQueue, inventoryQueue, priceQueue, trackingQueue, channelPushQueue]
   const workers: Array<{ close: () => Promise<void> }> = []
 
   let cachedSalesChannelId: string | null = null
@@ -239,6 +283,37 @@ export const startWooCommerce = async (
       console.log(`[seller-hub] woocommerce-tracking-sync: ${result.status}`)
     }
   ))
+  // Per-channel push: the channel's own stock/price (not the variant total).
+  workers.push(createWorker<ChannelPushJobData>(
+    `woocommerce-channel-push${suffix}`,
+    redisConnection,
+    async (job: JobLike<ChannelPushJobData>) => {
+      await processChannelPushJob(job.data, {
+        pool,
+        medusaClient,
+        integrationAccountId,
+        finalAttempt: isFinalAttempt(job),
+        pushStock: async (listing, stock) => {
+          const target = wooTarget(listing)
+          await setWooStock(wooClient, { ...target, quantity: stock })
+        },
+        pushPrice: async (listing, price) => {
+          const target = wooTarget(listing)
+          // Assumption: push-values carries no currency, so channel/effective
+          // prices are taken to be in the store base currency, checked here.
+          // WooCommerce prices carry no currency, so a non-USD store price is a
+          // permanent failure rather than a silently wrong amount.
+          const pricing = await medusaClient.getVariantPricing(listing.medusa_variant_id)
+          if (pricing.currencyCode.toLowerCase() !== "usd") {
+            throw new PermanentSyncError(
+              `Medusa price for variant ${listing.medusa_variant_id} is in ${pricing.currencyCode}; only USD is supported for WooCommerce`
+            )
+          }
+          await setWooPrice(wooClient, { ...target, price: price.toFixed(2) })
+        },
+      })
+    }
+  ))
   console.log("[seller-hub] WooCommerce queues and workers started")
 
   // Added directly (not via scheduleReconciliation, which also adds the Amazon
@@ -283,6 +358,9 @@ export const startWooCommerce = async (
       priceQueue,
       trackingQueue,
       integrationAccountId,
+      channelPushQueue,
+      salesChannelId: deps.salesChannelId ?? null,
+      autoSyncPrice: () => readAutoSyncPrice(pool, integrationAccountId),
     },
     linked,
     relink: () => runLink(),
