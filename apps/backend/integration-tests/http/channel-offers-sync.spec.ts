@@ -181,6 +181,8 @@ medusaIntegrationTestRunner({
         const ch = await createChannel("Amz")
         const v = await createVariant()
         await svc().ensureOffers([v], [ch])
+        await svc().setStocks(v, { [ch]: 3 })
+        await svc().setPrice(v, ch, 12.5)
         const res = await post(`${base(v, ch)}/sync-result`, { state: "synced", price: 12.5, stock: 3 })
         expect(res.status).toBe(200)
         const row = await offerOf(v, ch)
@@ -191,6 +193,21 @@ medusaIntegrationTestRunner({
           last_error: null,
         })
         expect(row.last_synced_at).toBeTruthy()
+      })
+
+      it("a stock-only synced report keeps an unpushed channel price pending", async () => {
+        const ch = await createChannel("Amz")
+        const v = await createVariant()
+        await svc().ensureOffers([v], [ch])
+        await svc().setStocks(v, { [ch]: 3 })
+        await svc().setPrice(v, ch, 12.5)
+        const res = await post(`${base(v, ch)}/sync-result`, { state: "synced", stock: 3 })
+        expect(res.status).toBe(200)
+        expect(await offerOf(v, ch)).toMatchObject({
+          sync_state: "pending",
+          last_synced_stock: 3,
+          last_synced_price: null,
+        })
       })
 
       it("records a failed result and truncates the error to 500 characters", async () => {

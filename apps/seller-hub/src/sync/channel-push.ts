@@ -119,7 +119,11 @@ export const processChannelPushJob = async (
       await deps.pushPrice(listing, price)
       await markSyncJobSucceeded(pool, activeSyncJobId)
       activeSyncJobId = null
-      pushed.price = price
+      // Reported to the backend as ITS OWN value (effective price before the
+      // connection's price_rule): the backend compares the report with the
+      // offer's channel price. The rule-adjusted price is the marketplace's
+      // and is tracked locally in last_synced_price below.
+      pushed.price = values.effective_price
       await recordLastSynced(pool, listing.id, "last_synced_price", price)
     }
   } catch (err) {

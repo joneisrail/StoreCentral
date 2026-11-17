@@ -204,6 +204,19 @@ class ChannelOffersModuleService extends MedusaService({
     if (row) await this.updateChannelOffers({ id: row.id, price } as any)
   }
 
+  /**
+   * Records the outcome of a marketplace push.
+   *
+   * "synced" reports carry only the parts that were actually pushed: a price
+   * is stored as last_synced_price and a stock as last_synced_stock, an absent
+   * part is left untouched (a stock-only push never marks the price as
+   * pushed). The reported price is the BACKEND value (the channel's
+   * effective_price from push-values, before the connection's price_rule),
+   * so it compares against the offer's own `price`. The state is then derived:
+   * "synced" only when the stock equals last_synced_stock AND the channel
+   * price is null (base-price fallback) or equals last_synced_price; otherwise
+   * the offer stays "pending". "failed" is stored as reported.
+   */
   async markSync(
     variantId: string,
     channelId: string,
@@ -211,15 +224,27 @@ class ChannelOffersModuleService extends MedusaService({
   ): Promise<void> {
     const row = await this.findOffer(variantId, channelId)
     if (!row) return
-    const patch: Record<string, unknown> = {
-      id: row.id,
-      sync_state: r.state,
-      last_error: r.state === "failed" ? r.error ?? null : null,
-    }
-    if (r.state === "synced") {
+    const patch: Record<string, unknown> = { id: row.id }
+    if (r.state === "failed") {
+      patch.sync_state = "failed"
+      patch.last_error = r.error ?? null
+    } else if (r.state === "pending") {
+      patch.sync_state = "pending"
+      patch.last_error = null
+    } else {
       patch.last_synced_at = new Date()
+      patch.last_error = null
       if (r.price !== undefined) patch.last_synced_price = r.price
       if (r.stock !== undefined) patch.last_synced_stock = r.stock
+      const lastStock =
+        r.stock !== undefined ? r.stock : toNumber(row.last_synced_stock)
+      const lastPrice =
+        r.price !== undefined ? r.price : toNumber(row.last_synced_price)
+      const price = toNumber(row.price)
+      const stockOk = lastStock !== null && Number(row.stock) === lastStock
+      const priceOk =
+        price === null || (lastPrice !== null && Math.abs(price - lastPrice) < 0.005)
+      patch.sync_state = stockOk && priceOk ? "synced" : "pending"
     }
     await this.updateChannelOffers(patch as any)
   }
@@ -229,8 +254,22 @@ class ChannelOffersModuleService extends MedusaService({
       { variant_id: variantId, sales_channel_id: channelId },
       { take: 1 }
     )
-    return row as { id: string } | undefined
+    return row as
+      | {
+          id: string
+          stock: number
+          price: unknown
+          last_synced_stock: number | null
+          last_synced_price: unknown
+        }
+      | undefined
   }
 }
 
 export default ChannelOffersModuleService
+
+function toNumber(v: unknown): number | null {
+  if (v === null || v === undefined) return null
+  const n = Number(v as any)
+  return Number.isFinite(n) ? n : null
+}

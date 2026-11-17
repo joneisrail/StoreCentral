@@ -114,7 +114,8 @@ test("price push applies the price_rule to the effective price", async () => {
   expect(s.synced.price).toBe(22)
   expect(s.medusaClient.reportChannelSyncResult).toHaveBeenCalledWith("variant_1", "sc_1", {
     state: "synced",
-    price: 22,
+    // The backend's own value (before the price_rule), not the 22 pushed.
+    price: 20,
   })
 })
 
@@ -253,4 +254,12 @@ test.each([
     "sc_1",
     expect.objectContaining({ state: "failed", error: "unexpected push-values response" })
   )
+})
+
+test("a stock push reports stock but never a price", async () => {
+  const s = setup()
+  await processChannelPushJob(job("stock"), s.deps)
+  const body = s.medusaClient.reportChannelSyncResult.mock.calls[0][2] as Record<string, unknown>
+  expect(body).toEqual({ state: "synced", stock: 7 })
+  expect("price" in body).toBe(false)
 })

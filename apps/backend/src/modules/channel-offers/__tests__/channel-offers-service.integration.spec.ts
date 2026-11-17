@@ -128,6 +128,56 @@ moduleIntegrationTestRunner<ChannelOffersModuleService>({
         expect(row.price).toBeNull()
       })
 
+      describe("markSync derives the state from what was actually pushed", () => {
+        const stateOf = async (v: string) => (await service.listForVariant(v))[0]
+
+        it("a stock-only synced report keeps a pending price edit pending", async () => {
+          await service.ensureOffers(["variant_ms1"], ["sc_a"])
+          await service.setStocks("variant_ms1", { sc_a: 5 })
+          await service.setPrice("variant_ms1", "sc_a", 12)
+          await service.markSync("variant_ms1", "sc_a", { state: "pending" })
+          await service.markSync("variant_ms1", "sc_a", { state: "synced", stock: 5 })
+          const row = await stateOf("variant_ms1")
+          expect(row.sync_state).toBe("pending")
+          expect(row.last_synced_stock).toBe(5)
+          expect(row.last_synced_price).toBeNull()
+        })
+
+        it("a price and stock report makes it synced and clears the error", async () => {
+          await service.ensureOffers(["variant_ms2"], ["sc_a"])
+          await service.setStocks("variant_ms2", { sc_a: 5 })
+          await service.setPrice("variant_ms2", "sc_a", 12)
+          await service.markSync("variant_ms2", "sc_a", { state: "failed", error: "x" })
+          await service.markSync("variant_ms2", "sc_a", { state: "synced", price: 12, stock: 5 })
+          const row = await stateOf("variant_ms2")
+          expect(row).toMatchObject({ sync_state: "synced", last_error: null })
+        })
+
+        it("a null channel price (base fallback) with synced stock is synced", async () => {
+          await service.ensureOffers(["variant_ms3"], ["sc_a"])
+          await service.setStocks("variant_ms3", { sc_a: 2 })
+          await service.markSync("variant_ms3", "sc_a", { state: "synced", stock: 2 })
+          expect((await stateOf("variant_ms3")).sync_state).toBe("synced")
+        })
+
+        it("a report for a stale stock stays pending", async () => {
+          await service.ensureOffers(["variant_ms4"], ["sc_a"])
+          await service.setStocks("variant_ms4", { sc_a: 9 })
+          await service.markSync("variant_ms4", "sc_a", { state: "synced", stock: 5 })
+          expect((await stateOf("variant_ms4")).sync_state).toBe("pending")
+        })
+
+        it("a price-only report is synced once stock was already synced", async () => {
+          await service.ensureOffers(["variant_ms5"], ["sc_a"])
+          await service.setStocks("variant_ms5", { sc_a: 4 })
+          await service.markSync("variant_ms5", "sc_a", { state: "synced", stock: 4 })
+          await service.setPrice("variant_ms5", "sc_a", 7.5)
+          await service.markSync("variant_ms5", "sc_a", { state: "pending" })
+          await service.markSync("variant_ms5", "sc_a", { state: "synced", price: 7.5 })
+          expect((await stateOf("variant_ms5")).sync_state).toBe("synced")
+        })
+      })
+
       it("setStocks and markSync persist", async () => {
         await service.ensureOffers(["variant_5"], ["sc_a", "sc_b"])
         await service.setStocks("variant_5", { sc_a: 3, sc_b: 4 })
