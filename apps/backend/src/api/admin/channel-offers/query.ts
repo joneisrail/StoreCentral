@@ -135,6 +135,44 @@ export function channelKind(
   return "other"
 }
 
+// The one effective-price rule: web/POS channels always use the variant base
+// price; every other channel uses its own price when set, else the base price.
+export function effectivePrice(kind: ChannelKind, price: number | null, base: number): number {
+  return kind === "web" || kind === "pos" ? base : price ?? base
+}
+
+export type PushValuesDeps = {
+  query: GridDeps["query"]
+  offers: { listChannelOffers: (filters: any, config?: any) => Promise<any[]> }
+  connectedChannelIds: () => Promise<Set<string>>
+}
+
+// Values seller-hub pushes to a marketplace for one (variant, channel): the
+// channel price (null when unset), the effective price and the channel stock.
+// Read only. Unknown channel or variant: NOT_FOUND (404).
+export async function loadPushValues(deps: PushValuesDeps, variantId: string, channelId: string) {
+  const [{ data: channels }, { data: variants }] = await Promise.all([
+    deps.query.graph({ entity: "sales_channel", fields: ["id", "name", "metadata"], filters: { id: channelId } }),
+    deps.query.graph({ entity: "product_variant", fields: ["id"], filters: { id: variantId } }),
+  ])
+  if (!channels[0]) throw new MedusaError(MedusaError.Types.NOT_FOUND, `Sales channel ${channelId} was not found`)
+  if (!variants[0]) throw new MedusaError(MedusaError.Types.NOT_FOUND, `Variant ${variantId} was not found`)
+  const [{ data: stores }, connected, currency, offerRows] = await Promise.all([
+    deps.query.graph({ entity: "store", fields: ["id", "default_sales_channel_id"] }),
+    deps.connectedChannelIds(),
+    loadDefaultCurrency(deps),
+    deps.offers.listChannelOffers({ variant_id: variantId, sales_channel_id: channelId }, { take: 1 }),
+  ])
+  const kind = channelKind(channels[0], stores[0]?.default_sales_channel_id ?? null, connected.has(channelId))
+  const base = (await loadBasePrices(deps, [variantId], currency)).get(variantId) ?? 0
+  const price = num(offerRows[0]?.price)
+  return {
+    price,
+    effective_price: effectivePrice(kind, price, base),
+    stock: Number(offerRows[0]?.stock ?? 0),
+  }
+}
+
 async function loadChannels(deps: GridDeps): Promise<GridChannel[]> {
   const [{ data: channels }, { data: stores }, connected] = await Promise.all([
     deps.query.graph({
@@ -154,7 +192,7 @@ async function loadChannels(deps: GridDeps): Promise<GridChannel[]> {
 
 // Default store currency: the store's default supported currency, else its
 // first one. Base price is the variant's price in that currency with no rules.
-async function loadDefaultCurrency(deps: GridDeps): Promise<string | null> {
+export async function loadDefaultCurrency(deps: Pick<GridDeps, "query">): Promise<string | null> {
   const { data } = await deps.query.graph({
     entity: "store",
     fields: ["id", "supported_currencies.currency_code", "supported_currencies.is_default"],
@@ -296,8 +334,8 @@ async function loadAvailable(deps: GridDeps, variantIds: string[]): Promise<Map<
   return out
 }
 
-async function loadBasePrices(
-  deps: GridDeps,
+export async function loadBasePrices(
+  deps: Pick<GridDeps, "query">,
   variantIds: string[],
   currency: string | null
 ): Promise<Map<string, number>> {
@@ -483,7 +521,7 @@ export async function loadGrid(deps: GridDeps, params: GridParams, overrides: Pa
       const price = o?.price ?? null
       perChannel[ch.id] = {
         price,
-        effective_price: ch.kind === "web" || ch.kind === "pos" ? effectiveBase : price ?? effectiveBase,
+        effective_price: effectivePrice(ch.kind, price, effectiveBase),
         stock: o?.stock ?? 0,
         sync_state: o?.sync_state ?? "pending",
         last_synced_at: o?.last_synced_at ?? null,

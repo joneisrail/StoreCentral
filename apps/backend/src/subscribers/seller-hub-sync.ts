@@ -1,5 +1,6 @@
 import type { SubscriberArgs, SubscriberConfig } from "@medusajs/framework"
 import { ContainerRegistrationKeys } from "@medusajs/framework/utils"
+import { CHANNEL_OFFERS_MODULE } from "../modules/channel-offers"
 
 /**
  * The Medusa event names this subscriber forwards to Seller Hub's
@@ -28,6 +29,71 @@ export const PRODUCT_VARIANT_UPDATED_EVENT = "product-variant.updated"
  * order<->fulfillment link and sent along.
  */
 export const SHIPMENT_CREATED_EVENT = "shipment.created"
+/**
+ * Per-channel stock/price change (emitted by the channel offer edit, order,
+ * receipt, trim and sync-request workflows). Forwarded as
+ * `{ variant_id, sales_channel_id, kind, force, manual? }`. The backend
+ * ALWAYS forwards; Seller Hub decides what to push: stock changes always,
+ * price changes only when `force` is true (sync icon) or the connection has
+ * auto_sync_price on.
+ */
+export const CHANNEL_OFFER_CHANGED_EVENT = "channel-offer.changed"
+const OFFER_KINDS = new Set(["stock", "price", "both"])
+
+function warn(message: string) {
+  console.error(`[seller-hub-sync] ${message}`)
+}
+
+/**
+ * Legacy variant-level events (inventory-level.updated, product-variant.updated)
+ * are only forwarded while a variant has NO channel offer rows (nothing
+ * regresses before the one-time split). Variants with offer rows are synced
+ * through channel-offer.changed instead, so the legacy forward is dropped.
+ * Returns true when the legacy event should be forwarded: any affected variant
+ * without offer rows, no resolvable variant, or a failed lookup (fail open to
+ * the old behaviour).
+ */
+async function shouldForwardLegacy(
+  event: { name: string; data: { id: string } },
+  container: SubscriberArgs<unknown>["container"]
+): Promise<boolean> {
+  try {
+    let variantIds: string[]
+    if (event.name === PRODUCT_VARIANT_UPDATED_EVENT) {
+      variantIds = [event.data.id]
+    } else {
+      const query = container.resolve(ContainerRegistrationKeys.QUERY) as any
+      const { data: levels } = await query.graph({
+        entity: "inventory_level",
+        fields: ["id", "inventory_item_id"],
+        filters: { id: event.data.id },
+      })
+      const itemId = levels?.[0]?.inventory_item_id
+      if (!itemId) return true
+      const { data: items } = await query.graph({
+        entity: "inventory_item",
+        fields: ["id", "variants.id"],
+        filters: { id: itemId },
+      })
+      variantIds = (items?.[0]?.variants ?? []).map((v: { id: string }) => v.id)
+    }
+    if (!variantIds.length) return true
+    const offers = container.resolve(CHANNEL_OFFERS_MODULE) as any
+    const rows: { variant_id: string }[] = await offers.listChannelOffers(
+      { variant_id: variantIds },
+      { select: ["variant_id"], take: null }
+    )
+    const withOffers = new Set(rows.map((r) => r.variant_id))
+    return variantIds.some((id) => !withOffers.has(id))
+  } catch (err) {
+    warn(
+      `offer lookup failed for event "${event.name}" (${
+        err instanceof Error ? err.name : typeof err
+      }) -- forwarding the legacy event`
+    )
+    return true
+  }
+}
 
 /**
  * Resolves the order that owns a fulfillment through the order<->fulfillment
@@ -58,7 +124,7 @@ export async function resolveOrderIdForFulfillment(
 export default async function sellerHubSyncHandler({
   event,
   container,
-}: SubscriberArgs<{ id: string; no_notification?: boolean }>) {
+}: SubscriberArgs<any>) {
   const webhookBaseUrl = process.env.SELLER_HUB_WEBHOOK_URL
   if (!webhookBaseUrl) {
     console.error(
@@ -69,6 +135,29 @@ export default async function sellerHubSyncHandler({
 
   try {
     let data: Record<string, unknown> = event.data
+    if (event.name === CHANNEL_OFFER_CHANGED_EVENT) {
+      const d = event.data ?? {}
+      if (
+        typeof d.variant_id !== "string" ||
+        typeof d.sales_channel_id !== "string" ||
+        !OFFER_KINDS.has(d.kind)
+      ) {
+        warn(`malformed payload -- dropping event "${event.name}"`)
+        return
+      }
+      data = {
+        variant_id: d.variant_id,
+        sales_channel_id: d.sales_channel_id,
+        kind: d.kind,
+        force: d.force === true,
+        ...(d.manual === true ? { manual: true } : {}),
+      }
+    } else if (
+      event.name === INVENTORY_LEVEL_UPDATED_EVENT ||
+      event.name === PRODUCT_VARIANT_UPDATED_EVENT
+    ) {
+      if (!(await shouldForwardLegacy(event, container))) return
+    }
     if (event.name === SHIPMENT_CREATED_EVENT) {
       const query = container.resolve(ContainerRegistrationKeys.QUERY)
       const orderId = await resolveOrderIdForFulfillment(query, event.data.id)
@@ -110,5 +199,6 @@ export const config: SubscriberConfig = {
     INVENTORY_LEVEL_UPDATED_EVENT,
     PRODUCT_VARIANT_UPDATED_EVENT,
     SHIPMENT_CREATED_EVENT,
+    CHANNEL_OFFER_CHANGED_EVENT,
   ],
 }
