@@ -140,7 +140,7 @@ createdb -h localhost -U <user> hub_test
 | backend integration | `DB_HOST`, `DB_USERNAME`, `DB_PASSWORD` | A local or CI Postgres. Medusa creates and drops its own `medusa-<id>-integration-<n>` databases on it, so give it a role that may create databases. Optional `DB_TEMP_NAME` must start with `medusa-` or end in `_test` |
 | backend Redis lock spec | `REDIS_TEST_URL` | For example `redis://localhost:6379/15`; the spec is skipped when unset |
 
-CI sets all of these on throwaway service containers (see `.github/workflows/ci.yml`). Tests known to fail in CI are listed in `deploy/ci-known-failures.md`.
+CI sets all of these on throwaway service containers (see `.github/workflows/ci.yml`). Tests that still need CI verification are listed in `deploy/ci-watchlist.md`.
 
 ## Known unverified items
 

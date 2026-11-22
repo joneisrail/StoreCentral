@@ -175,3 +175,9 @@ test("no step prints environment values", () => {
     assert.doesNotMatch(run, /set -x|xtrace/, `${job}: xtrace`)
   }
 })
+
+test("ci.yml excludes no tests and tolerates no failing job", () => {
+  const raw = readFileSync(workflowUrl, "utf8")
+  assert.doesNotMatch(raw, /--exclude/, "ci.yml must not use --exclude")
+  assert.doesNotMatch(raw, /continue-on-error/, "ci.yml must not use continue-on-error")
+})
