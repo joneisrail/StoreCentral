@@ -42,6 +42,7 @@ const LITERAL_ALLOWLIST = new Set([
   "HOSTNAME",
   "WEBHOOK_PORT",
   "NEXT_TELEMETRY_DISABLED",
+  "NODE_OPTIONS",
 ])
 
 test("the expected services exist", () => {
@@ -120,9 +121,50 @@ test("restart policy and memory placeholder", () => {
     } else {
       assert.equal(svc.restart, "unless-stopped", `${name} restart`)
     }
-    assert.equal(svc.mem_limit, "1g", `${name} mem_limit`)
   }
-  assert.match(read("./docker-compose.yml"), /mem_limit: 1g\s+# set by Task 9/)
+})
+
+const toMb = (limit) => {
+  const m = /^(\d+)([mg])$/.exec(String(limit))
+  assert.ok(m, `unparseable mem_limit ${limit}`)
+  return Number(m[1]) * (m[2] === "g" ? 1024 : 1)
+}
+
+const MEM_FLOORS_MB = {
+  backend: 1024,
+  migrate: 1024,
+  storefront: 512,
+  "seller-hub": 384,
+  pos: 128,
+  caddy: 128,
+  postgres: 512,
+  redis: 128,
+}
+
+test("every service has a mem_limit at or above its floor", () => {
+  for (const [name, svc] of Object.entries(services)) {
+    assert.ok(svc.mem_limit, `${name} needs a mem_limit`)
+    assert.ok(
+      toMb(svc.mem_limit) >= MEM_FLOORS_MB[name],
+      `${name} mem_limit ${svc.mem_limit} is below its floor`,
+    )
+  }
+  const text = read("./docker-compose.yml")
+  assert.doesNotMatch(text, /set by Task 9/)
+  assert.match(text, /measured dev peak \+ 25 percent, floor applied/)
+})
+
+test("every node service caps the heap below its mem_limit", () => {
+  for (const name of NODE_SERVICES) {
+    const svc = services[name]
+    const env = Object.fromEntries(toList(svc.environment))
+    const m = /--max-old-space-size=(\d+)/.exec(String(env.NODE_OPTIONS ?? ""))
+    assert.ok(m, `${name} must set NODE_OPTIONS=--max-old-space-size=<MB>`)
+    assert.ok(
+      Number(m[1]) < toMb(svc.mem_limit),
+      `${name} heap cap ${m[1]} must be below mem_limit ${svc.mem_limit}`,
+    )
+  }
 })
 
 test("dependency conditions", () => {

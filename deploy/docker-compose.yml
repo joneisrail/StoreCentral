@@ -21,6 +21,7 @@ x-backend-build: &backend-build
 
 x-backend-environment: &backend-environment
   NODE_ENV: production
+  NODE_OPTIONS: "--max-old-space-size=768"
   BACKEND_REDIS_MODULES: "true"
   # sslmode=disable: vendored Medusa forces SSL for any non-localhost URL
   # (load-module-database-config.ts). Traffic stays on the private compose network.
@@ -46,7 +47,8 @@ services:
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
-    mem_limit: 1g  # set by Task 9
+    # measured dev peak + 25 percent, floor applied; revisit after the first compose run (docs/ops/memory.md)
+    mem_limit: 512m
     environment:
       POSTGRES_USER: "${POSTGRES_USER:-postgres}"
       POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}"
@@ -71,7 +73,8 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    mem_limit: 1g  # set by Task 9
+    # measured dev peak + 25 percent, floor applied; revisit after the first compose run (docs/ops/memory.md)
+    mem_limit: 128m
     # BullMQ requires noeviction. The password comes from the environment.
     command: ["sh", "-c", "exec redis-server --appendonly yes --maxmemory-policy noeviction --requirepass \"$$REDIS_PASSWORD\""]
     environment:
@@ -92,7 +95,8 @@ services:
     image: storecentral/backend:local
     pull_policy: never
     restart: "no"
-    mem_limit: 1g  # set by Task 9
+    # measured dev peak + 25 percent, floor applied; revisit after the first compose run (docs/ops/memory.md)
+    mem_limit: 1g
     command: ["sh", "-c", "node deploy/check-env.mjs backend && exec medusa db:migrate"]
     environment: *backend-environment
     depends_on:
@@ -106,7 +110,8 @@ services:
     build: *backend-build
     image: storecentral/backend:local
     restart: unless-stopped
-    mem_limit: 1g  # set by Task 9
+    # measured dev peak + 25 percent, floor applied; revisit after the first compose run (docs/ops/memory.md)
+    mem_limit: 1g
     command: ["sh", "-c", "node deploy/check-env.mjs backend && exec medusa start"]
     environment: *backend-environment
     depends_on:
@@ -130,10 +135,12 @@ services:
       dockerfile: deploy/seller-hub.Dockerfile
     image: storecentral/seller-hub:local
     restart: unless-stopped
-    mem_limit: 1g  # set by Task 9
+    # measured dev peak + 25 percent, floor applied; revisit after the first compose run (docs/ops/memory.md)
+    mem_limit: 384m
     command: ["sh", "-c", "node deploy/check-env.mjs seller-hub && exec node dist/index.js"]
     environment:
       NODE_ENV: production
+      NODE_OPTIONS: "--max-old-space-size=288"
       WEBHOOK_PORT: "7005"
       DATABASE_URL: "postgres://seller_hub:${SELLER_HUB_DB_PASSWORD:?SELLER_HUB_DB_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-storecentral}"
       REDIS_URL: "redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379"
@@ -176,10 +183,12 @@ services:
         NEXT_PUBLIC_STRIPE_KEY: "${NEXT_PUBLIC_STRIPE_KEY:-}"
     image: storecentral/storefront:local
     restart: unless-stopped
-    mem_limit: 1g  # set by Task 9
+    # measured dev peak + 25 percent, floor applied; revisit after the first compose run (docs/ops/memory.md)
+    mem_limit: 512m
     command: ["sh", "-c", "node deploy/check-env.mjs storefront && exec node server.js"]
     environment:
       NODE_ENV: production
+      NODE_OPTIONS: "--max-old-space-size=384"
       PORT: "8000"
       HOSTNAME: 0.0.0.0
       NEXT_PUBLIC_MEDUSA_BACKEND_URL: "${NEXT_PUBLIC_MEDUSA_BACKEND_URL:?NEXT_PUBLIC_MEDUSA_BACKEND_URL is required}"
@@ -204,10 +213,12 @@ services:
       dockerfile: deploy/pos.Dockerfile
     image: storecentral/pos:local
     restart: unless-stopped
-    mem_limit: 1g  # set by Task 9
+    # measured dev peak + 25 percent, floor applied; revisit after the first compose run (docs/ops/memory.md)
+    mem_limit: 128m
     command: ["sh", "-c", "node deploy/check-env.mjs pos && exec node pos/server.js"]
     environment:
       NODE_ENV: production
+      NODE_OPTIONS: "--max-old-space-size=96"
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8001/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 15s
@@ -219,7 +230,8 @@ services:
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
-    mem_limit: 1g  # set by Task 9
+    # measured dev peak + 25 percent, floor applied; revisit after the first compose run (docs/ops/memory.md)
+    mem_limit: 128m
     ports:
       - "80:80"
       - "443:443"
