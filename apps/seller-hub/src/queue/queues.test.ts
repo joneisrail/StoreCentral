@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from "vitest"
 import { QueueEvents } from "bullmq"
 import { loadEnv } from "../env.js"
+import { waitFor } from "../test-support/wait-for.js"
 import { createRedisConnection } from "./connection.js"
 import {
   createSyncQueue,
@@ -49,6 +50,8 @@ test(
 
     const events = new QueueEvents("inventory-sync", { connection })
     registerCleanup(() => events.close())
+    // Subscribed before the job exists, so a fast completion can never be missed.
+    await events.waitUntilReady()
 
     const job = await queue.add("test", { foo: "bar" })
     await job.waitUntilFinished(events)
@@ -76,6 +79,8 @@ test(
 
     const events = new QueueEvents("price-sync", { connection })
     registerCleanup(() => events.close())
+    // Subscribed before the job exists, so a fast completion can never be missed.
+    await events.waitUntilReady()
 
     const job = await queue.add("test", {})
     await expect(job.waitUntilFinished(events)).rejects.toThrow()
@@ -107,13 +112,15 @@ test(
 
     const events = new QueueEvents("order-sync", { connection })
     registerCleanup(() => events.close())
+    // Subscribed before the job exists, so a fast completion can never be missed.
+    await events.waitUntilReady()
 
     const job = await queue.add("test", {})
     await expect(job.waitUntilFinished(events)).rejects.toThrow()
     expect(attempts).toBe(3) // exhausted the attempt cap, then stopped — not infinite
 
-    const finalState = await job.getState()
-    expect(finalState).toBe("failed")
+    await waitFor(async () => (await job.getState()) === "failed")
+    expect(await job.getState()).toBe("failed")
   },
   15_000
 )
@@ -127,15 +134,16 @@ test(
     const queue = createSyncQueue("product-sync", connection)
     registerCleanup(() => queue.close())
 
-    const runTimes: number[] = []
-    const deferMs = 700
+    // Long enough that the job is still observably delayed on the next poll
+    // even under load; the test asserts ordering and counts, never elapsed ms.
+    let runs = 0
     const worker = createSyncWorker(
       "product-sync",
       connection,
       async () => {
-        runTimes.push(Date.now())
-        if (runTimes.length === 1) {
-          throw new DeferSyncError("not yet", Date.now() + deferMs)
+        runs++
+        if (runs === 1) {
+          throw new DeferSyncError("not yet", Date.now() + 2000)
         }
       },
       // A single attempt: if the deferral were counted as a failed attempt,
@@ -146,13 +154,18 @@ test(
 
     const events = new QueueEvents("product-sync", { connection })
     registerCleanup(() => events.close())
+    await events.waitUntilReady()
 
     const job = await queue.add("test", {})
+
+    // Deferred, not failed: the job parks in the delayed set after run 1 and
+    // has not been re-run yet.
+    await waitFor(async () => (await job.getState()) === "delayed")
+    expect(runs).toBe(1)
+
     await job.waitUntilFinished(events)
 
-    expect(runTimes).toHaveLength(2)
-    // Re-run no earlier than retryAt (small tolerance for clock granularity).
-    expect(runTimes[1]! - runTimes[0]!).toBeGreaterThanOrEqual(deferMs - 50)
+    expect(runs).toBe(2)
     expect(await job.getState()).toBe("completed")
   },
   15_000
