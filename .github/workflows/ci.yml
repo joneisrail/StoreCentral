@@ -159,6 +159,21 @@ jobs:
         working-directory: apps/seller-hub
         run: yarn vitest run
 
+  dashboard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - run: corepack enable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+      - run: yarn install --immutable
+      - name: Tests
+        working-directory: packages/admin/dashboard
+        run: yarn vitest run
+
   images:
     runs-on: ubuntu-latest
     timeout-minutes: 60

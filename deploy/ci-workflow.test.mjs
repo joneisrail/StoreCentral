@@ -35,8 +35,8 @@ test("triggers are pull_request and push to main", () => {
   assert.deepEqual(triggers.push.branches, ["main"])
 })
 
-test("the six jobs exist", () => {
-  for (const name of ["lint", "backend-unit", "backend-integration", "seller-hub", "images", "deploy-config"]) {
+test("the seven jobs exist", () => {
+  for (const name of ["lint", "backend-unit", "backend-integration", "seller-hub", "dashboard", "images", "deploy-config"]) {
     assert.ok(jobs[name], `missing job ${name}`)
   }
 })
@@ -109,6 +109,20 @@ test("deploy-config runs the deploy tests after an install step", () => {
   assert.ok(install >= 0 && test > install)
 })
 
+const storefrontBuildArgs = [
+  "NEXT_PUBLIC_MEDUSA_BACKEND_URL",
+  "NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY",
+  "NEXT_PUBLIC_BASE_URL",
+  "NEXT_PUBLIC_DEFAULT_REGION",
+  "NEXT_PUBLIC_STRIPE_KEY",
+]
+
+const assertStorefrontBuildArgs = (line) => {
+  for (const name of storefrontBuildArgs) {
+    assert.match(line, new RegExp(String.raw`--build-arg ${name}=\S+`), `storefront build is missing --build-arg ${name}`)
+  }
+}
+
 test("images job builds four Dockerfiles from the repo root with no push", () => {
   const runs = stepsOf("images").map((s) => s.run ?? "").join("\n")
   for (const name of ["backend", "seller-hub", "storefront", "pos"]) {
@@ -121,6 +135,36 @@ test("images job builds four Dockerfiles from the repo root with no push", () =>
   assert.match(storefront, /--build-arg NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY=\S+/)
   assert.match(storefront, /--build-arg NEXT_PUBLIC_MEDUSA_BACKEND_URL=\S+/)
   assert.match(runs, /docker compose -f deploy\/docker-compose\.yml --env-file \S+ config -q/)
+})
+
+test("the storefront build-arg assertion fails when any one arg is removed", () => {
+  const runs = stepsOf("images").map((s) => s.run ?? "").join("\n")
+  const storefront = runs.split("\n").find((l) => /storefront\.Dockerfile/.test(l))
+  assertStorefrontBuildArgs(storefront)
+  for (const name of storefrontBuildArgs) {
+    const mutated = storefront.replace(new RegExp(String.raw`--build-arg ${name}=\S+`), "")
+    assert.throws(() => assertStorefrontBuildArgs(mutated), new RegExp(name), `removing ${name} must be detected`)
+  }
+})
+
+test("dashboard job installs with yarn cache, then runs the vitest suite in packages/admin/dashboard", () => {
+  const job = jobs.dashboard
+  assert.ok(job, "missing dashboard job")
+  assert.equal(job["runs-on"], "ubuntu-latest")
+  assert.equal(job["timeout-minutes"], 30)
+  assert.equal(job.needs, undefined)
+  assert.equal(job.services, undefined)
+  const steps = stepsOf("dashboard")
+  const setupNode = steps.find((s) => /^actions\/setup-node@/.test(s.uses ?? ""))
+  assert.ok(setupNode, "setup-node step missing")
+  assert.equal(String(setupNode.with["node-version"]), "22")
+  assert.equal(setupNode.with.cache, "yarn")
+  const corepack = steps.findIndex((s) => /corepack enable/.test(s.run ?? ""))
+  const setup = steps.indexOf(setupNode)
+  const install = steps.findIndex((s) => /yarn install --immutable/.test(s.run ?? ""))
+  const vitest = steps.findIndex((s) => /^yarn vitest run$/.test((s.run ?? "").trim()))
+  assert.ok(corepack >= 0 && setup > corepack && install > setup && vitest > install, "order: corepack, setup-node, install, vitest")
+  assert.equal(steps[vitest]["working-directory"], "packages/admin/dashboard")
 })
 
 test("no step prints environment values", () => {
