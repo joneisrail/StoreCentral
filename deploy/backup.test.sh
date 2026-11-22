@@ -23,7 +23,7 @@ trap cleanup EXIT
 cat > "$COMPOSE_FILE" <<'YAML'
 services:
   postgres:
-    image: postgres:16-alpine
+    image: postgres:15-alpine
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: drill-only-not-a-real-credential

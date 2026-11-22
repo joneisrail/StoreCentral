@@ -21,6 +21,8 @@ Every `docker compose` command below uses `-f deploy/docker-compose.yml`. Compos
    docker compose -f deploy/docker-compose.yml up -d
    ```
 
+   Postgres runs major version 15 (`postgres:15-alpine`, the same major CI uses). Changing the major version later is not an in-place upgrade of the volume: take a dump, start the new version on an empty volume and restore it.
+
    Postgres creates the `medusa` and `seller_hub` roles on its first start only. `migrate` then runs and the backend starts after it completes.
 6. Create the first admin user inside the backend container. Do not type the password on the command line, where it lands in shell history and the process list. Read it from a prompt (or a temporary file readable only by you, deleted afterwards):
 
@@ -30,7 +32,9 @@ Every `docker compose` command below uses `-f deploy/docker-compose.yml`. Compos
    unset ADMIN_PW
    ```
 
-   Use the same email and password as `MEDUSA_ADMIN_EMAIL` and `MEDUSA_ADMIN_PASSWORD` in `deploy/.env`, because seller-hub signs in with them. If you set them after the first start, update `deploy/.env` and run `up -d seller-hub`.
+   The prompt uses `read -s`, which is a bash feature, so run these lines in bash. The password is still briefly visible in the container's process list while `medusa user` runs.
+
+   Use the same email and password as `MEDUSA_ADMIN_EMAIL` and `MEDUSA_ADMIN_PASSWORD` in `deploy/.env`, because seller-hub signs in with them. `MEDUSA_ADMIN_PASSWORD` is a secret with a 32-character minimum; generate it with `openssl rand -hex 32`. `AUTH_MFA_ENCRYPTION_KEY` may be left empty, but if you set it, it must be at least 32 characters. If you set them after the first start, update `deploy/.env` and recreate the service with `docker compose -f deploy/docker-compose.yml up -d seller-hub` (a plain restart does not re-read `.env`).
 7. Until Amazon goes live, seller-hub's SQS poll fails with `CredentialsProviderError` because `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` are empty. This is harmless log noise. Set real keys (or use an instance role) at go-live.
 8. Run the first smoke test below.
 
@@ -94,7 +98,7 @@ Start with `docker compose -f deploy/docker-compose.yml ps` and `logs --tail 100
 | postgres unhealthy | Disk full, damaged volume, memory limit | `logs postgres`; `df -h`; restore from backup if the volume is damaged |
 | redis unhealthy | Wrong password, memory limit | `logs redis`; confirm `REDIS_PASSWORD` |
 | HTTPS fails but containers are healthy | DNS or certificate issuance | `logs caddy`; confirm DNS and ports 80 and 443 |
-| Admin sign-in loops | `COOKIE_SECRET` or the CORS hosts changed | Confirm `STORE_HOST` and `ADMIN_HOST`, restart backend |
+| Admin sign-in loops | `COOKIE_SECRET` or the CORS hosts changed | Confirm `STORE_HOST` and `ADMIN_HOST`, then recreate backend with `docker compose -f deploy/docker-compose.yml up -d backend` (a plain restart does not re-read `.env`) |
 
 ## Backups
 
@@ -121,6 +125,22 @@ A backup that has never been restored is not a backup. Every quarter:
 4. Drop the scratch database:
    `docker compose -f deploy/docker-compose.yml exec postgres sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -h 127.0.0.1 -U "$POSTGRES_USER" -d postgres -c "drop database drill_restore"'`
 5. Record the date and the result. On a machine with Docker, `sh deploy/backup.test.sh` also runs the automated drill against a throwaway container.
+
+## Test databases
+
+Tests never run against the real database. Create a separate database whose name ends in `_test` on a LOCAL or CI Postgres, never on the dev, staging or production database. Example against a local server:
+
+```
+createdb -h localhost -U <user> hub_test
+```
+
+| Suite | Variable | Value |
+| --- | --- | --- |
+| seller-hub (vitest) | `TEST_DATABASE_URL` | `postgres://<user>:<password>@localhost:5432/hub_test`. The name must end in `_test`; otherwise the suite refuses to start. The suite copies it into `DATABASE_URL` for the run and never reads your real `DATABASE_URL` |
+| backend integration | `DB_HOST`, `DB_USERNAME`, `DB_PASSWORD` | A local or CI Postgres. Medusa creates and drops its own `medusa-<id>-integration-<n>` databases on it, so give it a role that may create databases. Optional `DB_TEMP_NAME` must start with `medusa-` or end in `_test` |
+| backend Redis lock spec | `REDIS_TEST_URL` | For example `redis://localhost:6379/15`; the spec is skipped when unset |
+
+CI sets all of these on throwaway service containers (see `.github/workflows/ci.yml`). Tests known to fail in CI are listed in `deploy/ci-known-failures.md`.
 
 ## Known unverified items
 
