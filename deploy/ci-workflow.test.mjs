@@ -132,8 +132,7 @@ test("images job builds four Dockerfiles from the repo root with no push", () =>
   // next.config.js runs check-env-variables.js, which exits when the
   // publishable key is empty, so the storefront build needs dummy build args.
   const storefront = runs.split("\n").find((l) => /storefront\.Dockerfile/.test(l))
-  assert.match(storefront, /--build-arg NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY=\S+/)
-  assert.match(storefront, /--build-arg NEXT_PUBLIC_MEDUSA_BACKEND_URL=\S+/)
+  assertStorefrontBuildArgs(storefront)
   assert.match(runs, /docker compose -f deploy\/docker-compose\.yml --env-file \S+ config -q/)
 })
 
