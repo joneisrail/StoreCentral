@@ -48,6 +48,21 @@ Object.defineProperty(window, "IntersectionObserver", {
   value: MockIntersectionObserver,
 })
 
+// jsdom performs no layout, so every element reports a 0x0 box. Ariakit treats
+// a zero-sized element as not visible, and therefore not focusable, and
+// when the combobox input is not focusable its `virtualFocus` mode falls back
+// to moving real DOM focus onto the active option, which steals focus from the
+// input after the first keystroke. Report a non-zero box so the input is
+// treated as visible, as it is in a real browser.
+Object.defineProperties(HTMLElement.prototype, {
+  offsetWidth: { configurable: true, get: () => 100 },
+  offsetHeight: { configurable: true, get: () => 20 },
+})
+
+// jsdom does not implement scrollIntoView, which Ariakit calls on the active
+// option.
+Element.prototype.scrollIntoView = vi.fn()
+
 afterEach(() => {
   cleanup()
 })
