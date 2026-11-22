@@ -26,6 +26,22 @@ for (const name of ["storecentral", "postgres", "prod_restore_old"]) {
   })
 }
 
+for (const name of ["Prod_restore", "a-b_restore", "-x_restore", "x_restore;y", "x y_restore"]) {
+  test(`restore refuses bypass name ${JSON.stringify(name)}`, { skip }, () => {
+    const dump = "some-secret-location/somefile.dump"
+    const r = runRestore(dump, name)
+    assert.equal(r.status, 2)
+    assert.ok(!r.text.includes(name), "message must not echo the name")
+    assert.ok(!r.text.includes(dump), "message must not echo the dump path")
+  })
+}
+
+test("backup.sh sets an owner-only umask before writing", () => {
+  const text = readFileSync(backup, "utf8")
+  const u = text.indexOf("umask 077")
+  assert.ok(u !== -1 && u < text.indexOf("mkdir -p"))
+})
+
 test("restore with a valid name and a missing dump fails about the dump", { skip }, () => {
   const r = runRestore("no-such-dir/missing.dump", "x_restore")
   assert.notEqual(r.status, 0)
@@ -36,7 +52,7 @@ test("restore with a valid name and a missing dump fails about the dump", { skip
 
 test("restore checks the name before any docker call", () => {
   const text = readFileSync(restore, "utf8")
-  const guard = text.indexOf("_restore")
+  const guard = text.indexOf('case "$target" in')
   const firstDocker = text.indexOf("docker compose")
   assert.ok(guard !== -1 && firstDocker !== -1)
   assert.ok(guard < firstDocker)

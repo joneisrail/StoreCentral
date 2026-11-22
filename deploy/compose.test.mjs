@@ -92,6 +92,13 @@ test("required secrets use the required-variable form", () => {
   }
 })
 
+test("optional AWS keys are references, not literals, and not required", () => {
+  const env = Object.fromEntries(toList(services["seller-hub"].environment))
+  for (const key of ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"]) {
+    assert.equal(env[key], `\${${key}:-}`)
+  }
+})
+
 test("every node service runs check-env then its start command", () => {
   for (const name of NODE_SERVICES) {
     const svc = services[name]

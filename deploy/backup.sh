@@ -20,6 +20,8 @@ out_dir=$1
 here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 compose_file=${COMPOSE_FILE:-"$here/docker-compose.yml"}
 
+# Dumps hold customer data and encrypted credentials: owner-only.
+umask 077
 mkdir -p "$out_dir"
 stamp=$(date -u +%Y%m%dT%H%M%SZ)
 dump="$out_dir/storecentral-$stamp.dump"

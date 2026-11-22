@@ -31,7 +31,8 @@ Every `docker compose` command below uses `-f deploy/docker-compose.yml`. Compos
    ```
 
    Use the same email and password as `MEDUSA_ADMIN_EMAIL` and `MEDUSA_ADMIN_PASSWORD` in `deploy/.env`, because seller-hub signs in with them. If you set them after the first start, update `deploy/.env` and run `up -d seller-hub`.
-7. Run the first smoke test below.
+7. Until Amazon goes live, seller-hub's SQS poll fails with `CredentialsProviderError` because `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` are empty. This is harmless log noise. Set real keys (or use an instance role) at go-live.
+8. Run the first smoke test below.
 
 ## First smoke test
 
@@ -101,7 +102,7 @@ Start with `docker compose -f deploy/docker-compose.yml ps` and `logs --tail 100
 sh deploy/backup.sh /srv/storecentral-backups
 ```
 
-Writes `storecentral-<UTC timestamp>.dump` (pg_dump custom format) and prints its path only. Run it from cron at least daily and copy the dumps off the server. The dump holds encrypted marketplace credentials; keep `ENCRYPTION_KEY` backed up separately and securely, or those credentials cannot be read after a restore.
+Writes `storecentral-<UTC timestamp>.dump` (pg_dump custom format) and prints its path only. Dumps are created owner-only (`umask 077`) because they hold customer data. Run it from cron at least daily and copy the dumps off the server. The dump holds encrypted marketplace credentials; keep `ENCRYPTION_KEY` backed up separately and securely, or those credentials cannot be read after a restore.
 
 Restore into a scratch database. The name must end in `_restore` or `_test`; any other name is refused before any docker or database call:
 
@@ -130,4 +131,5 @@ These were written without a Docker host available. They are verified only by th
 - `medusa start` running from `.medusa/server` in the backend image.
 - Migrations running under the restricted `medusa` database role.
 - The Medusa Redis modules booting with `BACKEND_REDIS_MODULES=true`.
+- AWS credentials for seller-hub: not set until Amazon goes live; the SQS poll logs `CredentialsProviderError` until real keys (or an instance role) are provided.
 - `deploy/backup.test.sh` (the disposable-container drill) has not been executed yet.

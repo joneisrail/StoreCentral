@@ -29,7 +29,7 @@ That gives 64 hex characters, which satisfies the 32-character minimum and needs
 | `AMAZON_LWA_CLIENT_SECRET` | seller-hub | Amazon Login with Amazon client secret | Issued by Amazon (seller developer console) | Amazon calls fail until the new secret is set. Restart seller-hub. |
 | `AMAZON_LWA_CLIENT_ID` | seller-hub | Amazon LWA client id (an identifier, kept private with the rest) | Issued by Amazon | Same as above. |
 | `SQS_QUEUE_URL` | seller-hub | URL of the Amazon notification queue | Created in AWS | Notifications stop until the new URL is set. |
-| AWS credentials | seller-hub | Access to the SQS queue (`AWS_REGION` is configuration, not a secret) | Created in AWS IAM, least privilege for the one queue | Queue reads fail until the new credentials are provided. Compose does not pass AWS access keys today; whatever mechanism supplies them is the owner of this row. |
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | seller-hub | Access to the SQS queue (`AWS_REGION` is configuration, not a secret) | Created in AWS IAM, least privilege for the one queue (or use an instance role and leave empty) | Optional in compose (empty by default). Until set, the SQS poll logs `CredentialsProviderError`, which is harmless. Rotating them: update `deploy/.env`, restart seller-hub. |
 | `NEXT_PUBLIC_STRIPE_KEY` | storefront | Stripe publishable key | Stripe dashboard | Not a secret: it is public by design and baked into the storefront bundle. After changing it, rebuild: `docker compose -f deploy/docker-compose.yml build storefront`. The backend is not configured with a Stripe secret key in this stack; add a row here if that changes. |
 
 ## Rotating `ENCRYPTION_KEY`
