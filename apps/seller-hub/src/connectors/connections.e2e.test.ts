@@ -58,7 +58,10 @@ class FakeQueue {
     this.added.push({ name, data, opts })
     return {}
   }
-  async removeRepeatable() {}
+  removed: unknown[][] = []
+  async removeRepeatable(...args: unknown[]) {
+    this.removed.push(args)
+  }
   async close() {
     this.closed = true
   }
@@ -274,6 +277,15 @@ test("create a Shopify connection with good credentials, then a signed orders/pa
   expect(await sendShopifyWebhook(WH1)).toBe(200)
   expect(orderJobs()).toHaveLength(1)
   expect(orderJobs()[0]!.name).toBe("orders/paid")
+})
+
+test("with no legacy runtime the stale repeatable cleanup runs on each marketplace's inventory queue and closes it", async () => {
+  await boot()
+  expect(cleanupQueues.map((q) => q.name).sort()).toEqual(["shopify-inventory-sync", "woocommerce-inventory-sync"])
+  for (const q of cleanupQueues) {
+    expect(q.removed).toHaveLength(1)
+    expect(q.closed).toBe(true)
+  }
 })
 
 test("create with a bad token saves the connection as error and starts nothing", async () => {
