@@ -22,6 +22,8 @@ x-backend-build: &backend-build
 x-backend-environment: &backend-environment
   NODE_ENV: production
   BACKEND_REDIS_MODULES: "true"
+  # sslmode=disable: vendored Medusa forces SSL for any non-localhost URL
+  # (load-module-database-config.ts). Traffic stays on the private compose network.
   DATABASE_URL: "postgres://medusa:${MEDUSA_DB_PASSWORD:?MEDUSA_DB_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-storecentral}?sslmode=disable"
   REDIS_URL: "redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379"
   JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required}"
@@ -84,8 +86,11 @@ services:
     networks: [internal]
 
   migrate:
-    build: *backend-build
+    # Reuses the image built by the backend service (no build here, so the
+    # same tag is never built twice). Build first: docker compose build, then
+    # docker compose up -d.
     image: storecentral/backend:local
+    pull_policy: never
     restart: "no"
     mem_limit: 1g  # set by Task 9
     command: ["sh", "-c", "node deploy/check-env.mjs backend && exec medusa db:migrate"]
@@ -245,6 +250,9 @@ services:
     networks: [internal]
 
 networks:
+  # A plain bridge, not internal: true. Caddy needs outbound access for ACME
+  # and seller-hub needs it for AWS and marketplaces. Postgres and redis
+  # publish no ports, so they are unreachable from outside the host anyway.
   internal:
 
 volumes:

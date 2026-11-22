@@ -1,7 +1,19 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
 import { readFileSync } from "node:fs"
-import { parse } from "yaml"
+import { createRequire } from "node:module"
+
+// `yaml` is not a declared dependency of this repo. It is a transitive
+// dependency that yarn hoists to the root node_modules, so we resolve it from
+// the repo root and fail with one clear message if it is missing.
+let parse
+try {
+  parse = createRequire(new URL("../package.json", import.meta.url))("yaml").parse
+} catch {
+  throw new Error(
+    "Cannot load the yaml package. Run yarn install at the repo root first: yaml is a transitive dependency hoisted to the root node_modules (CI runs this test after yarn install).",
+  )
+}
 
 const read = (rel) => readFileSync(new URL(rel, import.meta.url), "utf8")
 const compose = parse(read("./docker-compose.yml"))
@@ -156,7 +168,6 @@ test("storefront public URL is a build arg and a runtime env", () => {
 
 test("services build from the repo root with their own Dockerfile", () => {
   for (const [name, file] of [
-    ["migrate", "backend"],
     ["backend", "backend"],
     ["seller-hub", "seller-hub"],
     ["storefront", "storefront"],
@@ -166,6 +177,16 @@ test("services build from the repo root with their own Dockerfile", () => {
     assert.equal(b.context, "..", `${name} context`)
     assert.equal(b.dockerfile, `deploy/${file}.Dockerfile`)
   }
+})
+
+test("exactly one service builds the backend image and migrate reuses it", () => {
+  const builders = Object.entries(services).filter(
+    ([, svc]) => svc.build?.dockerfile === "deploy/backend.Dockerfile",
+  )
+  assert.deepEqual(builders.map(([name]) => name), ["backend"])
+  assert.equal(services.migrate.build, undefined)
+  assert.equal(services.migrate.image, services.backend.image)
+  assert.equal(services.migrate.pull_policy, "never")
 })
 
 test("caddyfile never routes the internal api", () => {
