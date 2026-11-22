@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import {
   cleanup,
+  configure,
   render,
   screen,
   waitFor,
@@ -10,7 +11,7 @@ import userEvent from "@testing-library/user-event"
 import { TooltipProvider } from "@medusajs/ui"
 import type { ReactElement } from "react"
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest"
 
 import type { OrderCarrierRatesResponse } from "../../../../../../hooks/api/orders"
 
@@ -232,6 +233,30 @@ const setOrderRate = (
   }
 }
 
+// Speed: jsdom's getComputedStyle is very slow (~0.7 ms per element warm, far
+// more cold) and testing-library calls it for every element a role query or a
+// pointer action touches. This file does hundreds of those on a table tree,
+// which made it take ~45 s and pushed single tests past the 5 s default under
+// load. Three changes cut that without touching any query or assertion:
+//  - defaultHidden: role queries skip the per-element accessibility check
+//    (getComputedStyle) - same elements are found, only hidden-ness is no
+//    longer evaluated;
+//  - user-event's pointerEventsCheck and inter-action delay are off (the
+//    delay is a real setTimeout between every pointer step);
+//  - the sonner toaster stylesheet that @medusajs/ui injects at import time is
+//    dropped (no Toaster is rendered here; toast.error is mocked), so
+//    getComputedStyle has no rules to match.
+const setupUser = () => userEvent.setup({ pointerEventsCheck: 0, delay: null })
+
+beforeAll(() => {
+  configure({ defaultHidden: true })
+  document.head.querySelectorAll("style").forEach((style) => {
+    if (style.textContent?.includes("data-sonner-toaster")) {
+      style.remove()
+    }
+  })
+})
+
 afterEach(() => {
   cleanup()
   mockUseOrders.mockReset()
@@ -366,7 +391,7 @@ describe("ReadyToShipTable shipping rate / fulfill", () => {
   })
 
   it("renders a disabled Fulfill button with a 'No shipping method' tooltip by default - FulfillConfirmPopover wires the enabled case up itself, this component only ever renders a disabled one", async () => {
-    const user = userEvent.setup()
+    const user = setupUser()
 
     render(
       <TooltipProvider>
@@ -389,7 +414,7 @@ describe("ReadyToShipTable shipping rate / fulfill", () => {
   })
 
   it("renders a distinct 'rate not ready' tooltip when reason is 'noRateYet' - a row with a shipping method whose quote just isn't in yet, not one with no shipping method at all", async () => {
-    const user = userEvent.setup()
+    const user = setupUser()
 
     render(
       <TooltipProvider>
@@ -742,7 +767,7 @@ describe("ReadyToShipTable bulk Fulfill command", () => {
       failed: [],
     })
 
-    const user = userEvent.setup()
+    const user = setupUser()
     renderReadyToShipTable()
 
     // index 0 is the header "select all" checkbox; data rows start at 1.
@@ -790,7 +815,7 @@ describe("ReadyToShipTable bulk Fulfill command", () => {
       failed: [],
     })
 
-    const user = userEvent.setup()
+    const user = setupUser()
     renderReadyToShipTable()
 
     // Re-queried between clicks (rather than reusing one stale snapshot of
@@ -850,7 +875,7 @@ describe("ReadyToShipTable bulk Fulfill command", () => {
       failed: [],
     })
 
-    const user = userEvent.setup()
+    const user = setupUser()
     renderReadyToShipTable()
 
     // Give each row its own Ship From override via the real `ShipFromSelect`
@@ -927,7 +952,7 @@ describe("ReadyToShipTable bulk Fulfill command", () => {
     }
     mockBulkFulfillOrders.mockResolvedValue(result)
 
-    const user = userEvent.setup()
+    const user = setupUser()
     renderReadyToShipTable()
 
     const checkboxes = await screen.findAllByRole("checkbox")
@@ -962,7 +987,7 @@ describe("ReadyToShipTable bulk Fulfill command", () => {
     setOrderRate("order_1", "shp_1", "rate_1")
     mockBulkFulfillOrders.mockRejectedValue(new Error("Network request failed"))
 
-    const user = userEvent.setup()
+    const user = setupUser()
     renderReadyToShipTable()
 
     const checkboxes = await screen.findAllByRole("checkbox")
@@ -994,7 +1019,7 @@ describe("ReadyToShipTable bulk Fulfill command", () => {
     setOrderRate("order_2", "shp_2", "rate_2")
     mockPrompt.mockResolvedValueOnce(false)
 
-    const user = userEvent.setup()
+    const user = setupUser()
     renderReadyToShipTable()
 
     await user.click((await screen.findAllByRole("checkbox"))[1])
@@ -1036,7 +1061,7 @@ describe("ReadyToShipTable bulk Fulfill command", () => {
         })
     )
 
-    const user = userEvent.setup()
+    const user = setupUser()
     renderReadyToShipTable()
 
     await user.click((await screen.findAllByRole("checkbox"))[1])
@@ -1106,7 +1131,7 @@ describe("ReadyToShipTable Fulfill popover - composed tree (regression)", () => 
     // click here at all.
     setOrderRate("order_1", "shp_order_1", "rate_order_1")
 
-    const user = userEvent.setup()
+    const user = setupUser()
     renderComposedReadyToShipTable()
 
     await user.click(
@@ -1133,7 +1158,7 @@ describe("ReadyToShipTable Fulfill popover - composed tree (regression)", () => 
       failed: [],
     })
 
-    const user = userEvent.setup()
+    const user = setupUser()
     renderComposedReadyToShipTable()
 
     await user.click(
@@ -1225,7 +1250,7 @@ describe("ReadyToShipTable bulk row selection - no shipping method guard", () =>
       failed: [],
     })
 
-    const user = userEvent.setup()
+    const user = setupUser()
     renderReadyToShipTable()
 
     const [selectAll] = await screen.findAllByRole("checkbox")
@@ -1294,7 +1319,7 @@ describe("ReadyToShipTable Ship From column", () => {
       ],
     })
 
-    const user = userEvent.setup()
+    const user = setupUser()
     renderReadyToShipTable()
 
     const triggers = await screen.findAllByRole("combobox")
@@ -1384,7 +1409,7 @@ describe("ReadyToShipTable Package column across a row remount", () => {
     }
     mockUseOrders.mockReturnValue(pageWithOrder)
 
-    const user = userEvent.setup()
+    const user = setupUser()
     const { rerender } = renderReadyToShipTable()
 
     await user.click(screen.getByRole("button", { name: "Custom — 1x1x1, 1" }))
@@ -1472,7 +1497,7 @@ describe("ReadyToShipTable rate invalidation on Ship From/Package change", () =>
     })
     setOrderRate("order_1", "shp_1", "rate_1")
 
-    const user = userEvent.setup()
+    const user = setupUser()
     renderReadyToShipTable()
 
     const checkboxBefore = (
@@ -1507,7 +1532,7 @@ describe("ReadyToShipTable rate invalidation on Ship From/Package change", () =>
     })
     setOrderRate("order_1", "shp_1", "rate_1")
 
-    const user = userEvent.setup()
+    const user = setupUser()
     renderReadyToShipTable()
 
     const checkboxBefore = (
@@ -1542,7 +1567,7 @@ describe("ReadyToShipTable rate invalidation on Ship From/Package change", () =>
     })
     setOrderRate("order_1", "shp_1", "rate_1")
 
-    const user = userEvent.setup()
+    const user = setupUser()
     renderReadyToShipTable()
 
     // Give the row an explicit Package selection (away from the computed
@@ -1591,7 +1616,7 @@ describe("ReadyToShipTable rate invalidation on Ship From/Package change", () =>
     })
     setOrderRate("order_1", "shp_1", "rate_1")
 
-    const user = userEvent.setup()
+    const user = setupUser()
     renderReadyToShipTable()
 
     const checkboxBefore = (
@@ -1804,7 +1829,7 @@ describe("ReadyToShipTable alerts, channel, due, delivery, email and tags", () =
       overdueOrder("order_2"),
       overdueOrder("order_3"),
     ])
-    const user = userEvent.setup()
+    const user = setupUser()
 
     renderReadyToShipTable()
 
@@ -1838,7 +1863,7 @@ describe("ReadyToShipTable alerts, channel, due, delivery, email and tags", () =
     setOrderRate("order_1", "shp_1", "rate_1")
     setOrderRate("order_2", "shp_2", "rate_2")
     mockBulkFulfillOrders.mockResolvedValue({ succeeded: [], failed: [] })
-    const user = userEvent.setup()
+    const user = setupUser()
 
     renderReadyToShipTable()
 
@@ -1884,7 +1909,7 @@ describe("ReadyToShipTable alerts, channel, due, delivery, email and tags", () =
       succeeded: ["order_1"],
       failed: [],
     })
-    const user = userEvent.setup()
+    const user = setupUser()
 
     renderReadyToShipTable()
 
@@ -1940,7 +1965,7 @@ describe("ReadyToShipTable stale selection is never fulfilled", () => {
     setOrderRate("order_2", "shp_2", "rate_2")
     mockBulkFulfillOrders.mockResolvedValue({ succeeded: [], failed: [] })
 
-    const user = userEvent.setup()
+    const user = setupUser()
     const { rerender } = renderReadyToShipTable()
 
     await user.click((await screen.findAllByRole("checkbox"))[1])
@@ -1973,7 +1998,7 @@ describe("ReadyToShipTable stale selection is never fulfilled", () => {
     setOrderRate("order_2", "shp_2", "rate_2")
     mockBulkFulfillOrders.mockResolvedValue({ succeeded: [], failed: [] })
 
-    const user = userEvent.setup()
+    const user = setupUser()
     const { rerender } = renderReadyToShipTable()
 
     await user.click((await screen.findAllByRole("checkbox"))[1])
@@ -2012,7 +2037,7 @@ describe("ReadyToShipTable stale selection is never fulfilled", () => {
     setOrderRate("order_2", "shp_2", "rate_2")
     mockBulkFulfillOrders.mockResolvedValue({ succeeded: [], failed: [] })
 
-    const user = userEvent.setup()
+    const user = setupUser()
     renderReadyToShipTable()
 
     await user.click((await screen.findAllByRole("checkbox"))[1])
@@ -2086,7 +2111,7 @@ describe("ReadyToShipTable search and filters", () => {
         ? searchResult({ orderIds: ["order_1", "order_2"] })
         : searchResult()
     }) as any)
-    const user = userEvent.setup()
+    const user = setupUser()
     renderAt("/")
 
     await user.type(
@@ -2136,7 +2161,7 @@ describe("ReadyToShipTable search and filters", () => {
 
   it("offset resets when criteria change", async () => {
     setOrders([], 100)
-    const user = userEvent.setup()
+    const user = setupUser()
     renderAt("/?rts_offset=20")
     expect(lastParams().offset).toBe(20)
 
@@ -2166,7 +2191,7 @@ describe("ReadyToShipTable search and filters", () => {
     const refetch = vi.fn()
     setOrders([makeReadyToShipOrder("order_1")])
     mockUseOrderSearch.mockReturnValue(searchResult({ isError: true, refetch }))
-    const user = userEvent.setup()
+    const user = setupUser()
     renderAt("/?rts_q=smith")
 
     expect(screen.getByText("orders.list.searchError")).toBeTruthy()
@@ -2213,7 +2238,7 @@ describe("ReadyToShipTable search and filters", () => {
     setOrderRate("order_2", "shp_2", "rate_2")
     mockBulkFulfillOrders.mockResolvedValue({ succeeded: [], failed: [] })
 
-    const user = userEvent.setup()
+    const user = setupUser()
     renderAt("/")
 
     await user.click((await screen.findAllByRole("checkbox"))[1])
@@ -2244,7 +2269,7 @@ describe("ReadyToShipTable search and filters", () => {
       succeeded: ["order_1"],
       failed: [],
     })
-    const user = userEvent.setup()
+    const user = setupUser()
     renderAt("/?rts_q=smith")
 
     await user.click((await screen.findAllByRole("checkbox"))[1])
