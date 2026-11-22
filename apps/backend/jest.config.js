@@ -24,6 +24,9 @@ module.exports = {
   testEnvironment: "node",
   moduleFileExtensions: ["js", "ts", "tsx", "json"],
   modulePathIgnorePatterns: ["dist/", "<rootDir>/.medusa/"],
+  // Ignore the compiled copy that `medusa build` writes under .medusa. The
+  // separator class keeps the pattern working on Windows paths too.
+  testPathIgnorePatterns: ["/node_modules/", "[\\/]\\.medusa[\\/]"],
   setupFiles: ["./integration-tests/setup.js"],
 };
 
