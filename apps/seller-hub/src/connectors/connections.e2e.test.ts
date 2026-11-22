@@ -65,9 +65,16 @@ class FakeQueue {
 }
 
 let queues: FakeQueue[]
+/** Queues the manager opens only to clear stale legacy repeatables (not runtime queues). */
+let cleanupQueues: FakeQueue[]
 const fakeCreateQueue = ((name: string) => {
   const q = new FakeQueue(name)
   queues.push(q)
+  return q
+}) as never
+const fakeCreateCleanupQueue = ((name: string) => {
+  const q = new FakeQueue(name)
+  cleanupQueues.push(q)
   return q
 }) as never
 const fakeCreateWorker = (() => ({ close: async () => {} })) as never
@@ -158,6 +165,9 @@ const boot = async (opts: Harness = {}) => {
     redisConnection: {} as IORedis,
     reconcileIntervalMs: 60_000,
     env,
+    // applyAll clears stale legacy repeatables through createQueue; without this
+    // fake it builds a real BullMQ Queue on the dummy connection and waits on Redis.
+    createQueue: fakeCreateCleanupQueue,
     startShopify: (d: StartShopifyDeps) =>
       (ensureLegacyRow(creds.rows, "shopify"), startShopify({
         ...d,
@@ -209,6 +219,7 @@ const boot = async (opts: Harness = {}) => {
 
 beforeEach(() => {
   queues = []
+  cleanupQueues = []
   listings = []
   wooShouldFail = false
   for (const k of ["log", "error", "warn", "info"] as const) vi.spyOn(console, k).mockImplementation(() => {})

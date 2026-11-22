@@ -155,12 +155,9 @@ jobs:
       - name: Type-check and build
         working-directory: apps/seller-hub
         run: yarn build
-      # The excluded file is listed in deploy/ci-known-failures.md.
       - name: Tests
         working-directory: apps/seller-hub
-        run: >-
-          yarn vitest run
-          --exclude src/connectors/connections.e2e.test.ts
+        run: yarn vitest run
 
   images:
     runs-on: ubuntu-latest
