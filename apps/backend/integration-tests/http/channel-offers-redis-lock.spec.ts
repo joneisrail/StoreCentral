@@ -1,4 +1,5 @@
 import { medusaIntegrationTestRunner } from "@medusajs/test-utils"
+import { Modules } from "@medusajs/framework/utils"
 import { adminHeaders, createAdminUser } from "../fixtures/create-admin-user"
 import { CHANNEL_OFFERS_MODULE } from "../../src/modules/channel-offers"
 
@@ -85,9 +86,17 @@ if (!redisTestUrl) {
       }
 
       describe("channel edits with the Redis locking provider", () => {
-        it("uses the Redis modules in this run", () => {
-          expect(process.env.BACKEND_REDIS_MODULES).toBe("true")
-          expect(process.env.REDIS_URL).toBe(redisTestUrl)
+        it("the default locking provider is the Redis one", () => {
+          // Medusa's in-memory provider also serializes inside one process, so
+          // the concurrency test below cannot tell the providers apart. Check
+          // the running app instead. The locking module keeps the default
+          // provider id (the "id" from runtime-modules.ts) in a protected
+          // field; it is the only place the default is observable at runtime.
+          const locking = getContainer().resolve(Modules.LOCKING) as any
+          expect(locking.defaultProviderId).toBe("locking-redis")
+          // The Redis provider is registered and is not the in-memory one.
+          const provider = locking.providerService_.retrieveProviderRegistration("locking-redis")
+          expect(provider.constructor.name).not.toMatch(/in-?memory/i)
         })
 
         it("two concurrent stock edits on one variant and channel end in the sequential outcome", async () => {
