@@ -15,7 +15,9 @@ const { mockFetch, mockBulkFulfill } = vi.hoisted(() => ({
 vi.mock("../../../lib/client", () => ({
   sdk: {
     client: { fetch: (...args: any[]) => mockFetch(...args) },
-    admin: { order: { bulkFulfill: (...args: any[]) => mockBulkFulfill(...args) } },
+    admin: {
+      order: { bulkFulfill: (...args: any[]) => mockBulkFulfill(...args) },
+    },
   },
 }))
 vi.mock("../../../lib/query-client", async () => {
@@ -103,8 +105,7 @@ describe("carrier-rates quotes vs. order mutations", () => {
 
   it("never requests a quote when no ship-from location resolves", async () => {
     const { result } = renderHook(
-      () =>
-        useOrderCarrierRates("order_a", { location_id: null, parcel }),
+      () => useOrderCarrierRates("order_a", { location_id: null, parcel }),
       { wrapper }
     )
 
