@@ -1,8 +1,9 @@
 /**
  * Polls `condition` until it returns true, replacing fixed sleeps in tests.
- * Rejects with "waitFor timed out ..." after `timeoutMs` instead of hanging,
- * and with the condition's own error if it throws. Async conditions are
- * awaited. Its timer is always cleared, so it never keeps the process alive.
+ * Rejects with "waitFor timed out ..." after `timeoutMs` even if the
+ * condition itself never settles, and with the condition's own error if it
+ * throws. Async conditions are awaited. Both the deadline timer and the poll
+ * timer are cleared on every exit path, so it never keeps the process alive.
  */
 export const waitFor = (
   condition: () => boolean | Promise<boolean>,
@@ -10,27 +11,39 @@ export const waitFor = (
 ): Promise<void> => {
   const timeoutMs = opts.timeoutMs ?? 5000
   const intervalMs = opts.intervalMs ?? 10
-  const deadline = Date.now() + timeoutMs
 
   return new Promise<void>((resolve, reject) => {
-    let timer: ReturnType<typeof setTimeout> | undefined
+    let done = false
+    let pollTimer: ReturnType<typeof setTimeout> | undefined
+    let deadlineTimer: ReturnType<typeof setTimeout> | undefined
+
+    const finish = (fn: () => void) => {
+      done = true
+      if (pollTimer !== undefined) clearTimeout(pollTimer)
+      if (deadlineTimer !== undefined) clearTimeout(deadlineTimer)
+      fn()
+    }
+
+    deadlineTimer = setTimeout(() => {
+      finish(() => reject(new Error(`waitFor timed out after ${timeoutMs}ms`)))
+    }, timeoutMs)
 
     const check = async () => {
-      timer = undefined
+      pollTimer = undefined
+      if (done) return
       try {
-        if (await condition()) {
-          resolve()
+        const ok = await condition()
+        if (done) return
+        if (ok) {
+          finish(resolve)
           return
         }
       } catch (err) {
-        reject(err)
+        if (done) return
+        finish(() => reject(err))
         return
       }
-      if (Date.now() >= deadline) {
-        reject(new Error(`waitFor timed out after ${timeoutMs}ms`))
-        return
-      }
-      timer = setTimeout(check, intervalMs)
+      pollTimer = setTimeout(check, intervalMs)
     }
 
     void check()

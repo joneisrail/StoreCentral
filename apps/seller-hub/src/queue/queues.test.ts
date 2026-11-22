@@ -50,7 +50,7 @@ test(
 
     const events = new QueueEvents("inventory-sync", { connection })
     registerCleanup(() => events.close())
-    // Subscribed before the job exists, so a fast completion can never be missed.
+    // Ensures the QueueEvents Redis connection is ready before the job is added.
     await events.waitUntilReady()
 
     const job = await queue.add("test", { foo: "bar" })
@@ -79,7 +79,7 @@ test(
 
     const events = new QueueEvents("price-sync", { connection })
     registerCleanup(() => events.close())
-    // Subscribed before the job exists, so a fast completion can never be missed.
+    // Ensures the QueueEvents Redis connection is ready before the job is added.
     await events.waitUntilReady()
 
     const job = await queue.add("test", {})
@@ -112,7 +112,7 @@ test(
 
     const events = new QueueEvents("order-sync", { connection })
     registerCleanup(() => events.close())
-    // Subscribed before the job exists, so a fast completion can never be missed.
+    // Ensures the QueueEvents Redis connection is ready before the job is added.
     await events.waitUntilReady()
 
     const job = await queue.add("test", {})
@@ -137,14 +137,17 @@ test(
     // Long enough that the job is still observably delayed on the next poll
     // even under load; the test asserts ordering and counts, never elapsed ms.
     let runs = 0
+    let run2At = 0
+    const retryAt = Date.now() + 2000
     const worker = createSyncWorker(
       "product-sync",
       connection,
       async () => {
         runs++
         if (runs === 1) {
-          throw new DeferSyncError("not yet", Date.now() + 2000)
+          throw new DeferSyncError("not yet", retryAt)
         }
+        run2At = Date.now()
       },
       // A single attempt: if the deferral were counted as a failed attempt,
       // the job would end `failed` instead of ever running a second time.
@@ -166,6 +169,9 @@ test(
     await job.waitUntilFinished(events)
 
     expect(runs).toBe(2)
+    // Lower bound only (small tolerance for clock granularity): the deferral
+    // must be honoured. No upper bound, so load cannot flake this.
+    expect(run2At).toBeGreaterThanOrEqual(retryAt - 50)
     expect(await job.getState()).toBe("completed")
   },
   15_000

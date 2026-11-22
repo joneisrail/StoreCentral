@@ -61,6 +61,18 @@ test("a condition that throws rejects with that error", async () => {
     { timeoutMs: 1000, intervalMs: 10 }
   )
   await expect(p).rejects.toBe(boom)
+  expect(vi.getTimerCount()).toBe(0)
+})
+
+test("rejects after timeoutMs when the condition never settles", async () => {
+  const p = waitFor(() => new Promise<boolean>(() => {}), {
+    timeoutMs: 100,
+    intervalMs: 10,
+  })
+  const assertion = expect(p).rejects.toThrow(/^waitFor timed out after 100ms/)
+  await vi.advanceTimersByTimeAsync(150)
+  await assertion
+  expect(vi.getTimerCount()).toBe(0)
 })
 
 test("leaves no pending timers behind", async () => {
