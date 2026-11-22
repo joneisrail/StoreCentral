@@ -113,3 +113,32 @@ test("serves channel push-values and records sync results", async () => {
     },
   ])
 })
+
+test("extra_prices are emitted before the default-currency price", async () => {
+  fake = await startFakeMedusa({
+    variants: [
+      {
+        id: "v1",
+        product_id: "p1",
+        sku: null,
+        price: 10,
+        currency_code: "usd",
+        extra_prices: [{ amount: 9, currency_code: "eur" }],
+        inventory_quantity: 1,
+        inventory_item_id: "ii1",
+        inventory_level_id: "il1",
+      },
+    ],
+  })
+  const token = await login(fake.baseUrl)
+  const response = await fetch(`${fake.baseUrl}/admin/product-variants?id[]=v1`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  const body = (await response.json()) as {
+    variants: { prices: { amount: number; currency_code: string }[] }[]
+  }
+  expect(body.variants[0]!.prices).toEqual([
+    { amount: 9, currency_code: "eur" },
+    { amount: 10, currency_code: "usd" },
+  ])
+})

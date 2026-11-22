@@ -42,6 +42,7 @@ beforeAll(async () => {
         product_id: "prod_pricing",
         sku: "SKU-PRICING",
         price: 29.99,
+        extra_prices: [{ amount: 24.5, currency_code: "eur" }],
         currency_code: "usd",
         inventory_quantity: 12,
         inventory_item_id: "iitem_pricing",

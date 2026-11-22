@@ -8,6 +8,8 @@ export type FakeVariant = {
   /** Price in the store's default currency. */
   price: number
   currency_code: string
+  /** Other-currency prices, emitted before the default one in `prices`. */
+  extra_prices?: { amount: number; currency_code: string }[]
   inventory_quantity: number
   inventory_item_id: string
   inventory_level_id: string
@@ -99,7 +101,10 @@ export const startFakeMedusa = async (
     sku: v.sku,
     manage_inventory: true,
     inventory_quantity: v.inventory_quantity,
-    prices: [{ amount: v.price, currency_code: v.currency_code }],
+    prices: [
+      ...(v.extra_prices ?? []),
+      { amount: v.price, currency_code: v.currency_code },
+    ],
   })
 
   const route = async (
