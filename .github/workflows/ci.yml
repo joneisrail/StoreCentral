@@ -170,8 +170,17 @@ jobs:
         run: docker build -f deploy/backend.Dockerfile .
       - name: Build seller-hub image
         run: docker build -f deploy/seller-hub.Dockerfile .
+      # next.config.js runs check-env-variables.js, which exits when the
+      # publishable key is empty. These are non-secret build placeholders.
       - name: Build storefront image
-        run: docker build -f deploy/storefront.Dockerfile .
+        run: >-
+          docker build -f deploy/storefront.Dockerfile
+          --build-arg NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY=pk_ci_placeholder
+          --build-arg NEXT_PUBLIC_MEDUSA_BACKEND_URL=http://localhost:9000
+          --build-arg NEXT_PUBLIC_BASE_URL=http://localhost:8000
+          --build-arg NEXT_PUBLIC_DEFAULT_REGION=us
+          --build-arg NEXT_PUBLIC_STRIPE_KEY=pk_ci_placeholder
+          .
       - name: Build pos image
         run: docker build -f deploy/pos.Dockerfile .
       # deploy/.env.example has empty values, and compose's ${VAR:?} form

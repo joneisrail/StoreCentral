@@ -114,9 +114,14 @@ test("deploy-config runs the deploy tests after an install step", () => {
 test("images job builds four Dockerfiles from the repo root with no push", () => {
   const runs = stepsOf("images").map((s) => s.run ?? "").join("\n")
   for (const name of ["backend", "seller-hub", "storefront", "pos"]) {
-    assert.match(runs, new RegExp(String.raw`docker build -f deploy/${name}\.Dockerfile \.(\s|$)`))
+    assert.match(runs, new RegExp(String.raw`docker build .*-f deploy/${name}\.Dockerfile .*\.(\s|$)`))
   }
   assert.doesNotMatch(runs, /docker push|--push/)
+  // next.config.js runs check-env-variables.js, which exits when the
+  // publishable key is empty, so the storefront build needs dummy build args.
+  const storefront = runs.split("\n").find((l) => /storefront\.Dockerfile/.test(l))
+  assert.match(storefront, /--build-arg NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY=\S+/)
+  assert.match(storefront, /--build-arg NEXT_PUBLIC_MEDUSA_BACKEND_URL=\S+/)
   assert.match(runs, /docker compose -f deploy\/docker-compose\.yml --env-file \S+ config -q/)
 })
 
