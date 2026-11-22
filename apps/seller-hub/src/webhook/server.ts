@@ -72,6 +72,8 @@ export type CreateWebhookServerDeps = {
     req: http.IncomingMessage,
     res: http.ServerResponse
   ) => void | Promise<void>
+  /** Dependency check behind `GET /health`; when absent the route answers 503. */
+  health?: () => Promise<{ ok: boolean }>
 }
 
 /** Resolves a deps object or getter; null means "configured but not live". */
@@ -194,7 +196,24 @@ export const createWebhookServer = (
     res.writeHead(503).end()
   }
 
+  const respondHealth = async (res: http.ServerResponse) => {
+    let ok = false
+    try {
+      ok = deps.health ? (await deps.health()).ok === true : false
+    } catch (err) {
+      console.error("[webhook] health check failed:", err instanceof Error ? err.name : "error")
+    }
+    res
+      .writeHead(ok ? 200 : 503, { "Content-Type": "application/json" })
+      .end(ok ? '{"status":"ok"}' : '{"status":"unavailable"}')
+  }
+
   return http.createServer((req, res) => {
+    if (req.method === "GET" && req.url?.split("?")[0] === "/health") {
+      void respondHealth(res)
+      return
+    }
+
     if (req.url?.startsWith("/internal/")) {
       if (!internalHandler) {
         res.writeHead(404).end()

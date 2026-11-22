@@ -30,6 +30,7 @@ import {
 import { createConnectorManager } from "./connectors/manager.js"
 import { createInternalHandler } from "./internal/connections.js"
 import { createWebhookRegistry, dbKnownConnection } from "./webhook/registry.js"
+import { checkHealth } from "./webhook/health.js"
 import { createWebhookServer } from "./webhook/server.js"
 
 // SP-API's North America regional endpoint. There's no per-region config
@@ -264,6 +265,15 @@ const main = async (): Promise<void> => {
     // instead of 404 (sender gives up).
     connectors: createWebhookRegistry(manager, dbKnownConnection(pool)),
     ...(internalHandler ? { internalHandler } : {}),
+    health: () =>
+      checkHealth({
+        postgres: async () => {
+          await pool.query("select 1")
+        },
+        redis: async () => {
+          await redisConnection.ping()
+        },
+      }),
   })
   await new Promise<void>((resolve) => {
     webhookServer.listen(WEBHOOK_PORT, () => resolve())
