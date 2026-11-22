@@ -155,12 +155,11 @@ jobs:
       - name: Type-check and build
         working-directory: apps/seller-hub
         run: yarn build
-      # Both excluded files are listed in deploy/ci-known-failures.md.
+      # The excluded file is listed in deploy/ci-known-failures.md.
       - name: Tests
         working-directory: apps/seller-hub
         run: >-
           yarn vitest run
-          --exclude src/medusa/admin-client.test.ts
           --exclude src/connectors/connections.e2e.test.ts
 
   images:
