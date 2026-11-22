@@ -1,0 +1,57 @@
+{
+  "backend": {
+    "required": [
+      "DATABASE_URL",
+      "JWT_SECRET",
+      "COOKIE_SECRET",
+      "STORE_CORS",
+      "ADMIN_CORS",
+      "AUTH_CORS",
+      "SELLER_HUB_INTERNAL_URL",
+      "SELLER_HUB_WEBHOOK_URL",
+      "SELLER_HUB_INTERNAL_SECRET"
+    ],
+    "requiredWhen": [
+      { "name": "REDIS_URL", "when": { "BACKEND_REDIS_MODULES": "true" } }
+    ],
+    "secrets": [
+      "JWT_SECRET",
+      "COOKIE_SECRET",
+      "AUTH_MFA_ENCRYPTION_KEY",
+      "SELLER_HUB_INTERNAL_SECRET"
+    ]
+  },
+  "seller-hub": {
+    "required": [
+      "DATABASE_URL",
+      "REDIS_URL",
+      "MEDUSA_BACKEND_URL",
+      "MEDUSA_ADMIN_EMAIL",
+      "MEDUSA_ADMIN_PASSWORD",
+      "ENCRYPTION_KEY",
+      "AWS_REGION",
+      "SQS_QUEUE_URL",
+      "AMAZON_LWA_CLIENT_ID",
+      "AMAZON_LWA_CLIENT_SECRET"
+    ],
+    "requiredInProduction": ["SELLER_HUB_INTERNAL_SECRET"],
+    "secrets": [
+      "ENCRYPTION_KEY",
+      "SELLER_HUB_INTERNAL_SECRET",
+      "MEDUSA_ADMIN_PASSWORD"
+    ]
+  },
+  "storefront": {
+    "required": [
+      "NEXT_PUBLIC_MEDUSA_BACKEND_URL",
+      "NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY",
+      "NEXT_PUBLIC_BASE_URL",
+      "NEXT_PUBLIC_DEFAULT_REGION"
+    ],
+    "secrets": []
+  },
+  "pos": {
+    "required": [],
+    "secrets": []
+  }
+}
