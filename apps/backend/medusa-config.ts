@@ -1,10 +1,15 @@
 import { loadEnv, defineConfig } from '@medusajs/framework/utils'
+import { buildRuntimeModules } from './src/config/runtime-modules'
 
 loadEnv(process.env.NODE_ENV || 'development', process.cwd())
+
+// Redis event bus / workflow engine / locking, only when BACKEND_REDIS_MODULES=true.
+const runtime = buildRuntimeModules(process.env)
 
 module.exports = defineConfig({
   projectConfig: {
     databaseUrl: process.env.DATABASE_URL,
+    ...(runtime.redisUrl ? { redisUrl: runtime.redisUrl } : {}),
     http: {
       storeCors: process.env.STORE_CORS!,
       adminCors: process.env.ADMIN_CORS!,
@@ -67,5 +72,6 @@ module.exports = defineConfig({
         ],
       },
     },
+    ...runtime.modules,
   ],
 })
