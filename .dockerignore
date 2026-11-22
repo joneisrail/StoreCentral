@@ -1,0 +1,21 @@
+# Keep secrets, VCS data and build output out of every image build context.
+# Env files: ignore all of them, keep only the committed templates.
+**/.env
+**/.env.*
+!**/.env.template
+!**/.env.example
+
+.git
+.worktrees
+.superpowers
+.turbo
+**/.turbo
+.yarn/cache
+
+node_modules
+**/node_modules
+apps/backend/.medusa
+.next
+**/.next
+dist
+**/dist

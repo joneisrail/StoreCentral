@@ -1,0 +1,28 @@
+# Caddy terminates TLS and is the only service that publishes ports.
+# Host names come from the environment (see deploy/.env.example).
+
+{$STORE_HOST} {
+	reverse_proxy storefront:8000
+}
+
+# The Medusa backend, including the admin dashboard and the EasyPost webhooks
+# under its own /webhooks path.
+{$ADMIN_HOST} {
+	reverse_proxy backend:9000
+}
+
+{$POS_HOST} {
+	reverse_proxy pos:8001
+}
+
+# Public webhook receiver of seller-hub. Only webhook paths are proxied;
+# every other path answers 404, so seller-hub's private API and health
+# endpoint stay reachable on the compose network only.
+{$HUB_HOST} {
+	handle /webhooks/* {
+		reverse_proxy seller-hub:7005
+	}
+	handle {
+		respond 404
+	}
+}

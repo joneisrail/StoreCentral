@@ -1,0 +1,254 @@
+# StoreCentral production-style stack.
+# Run from the repository root:
+#   docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build
+# Values come from deploy/.env (copy deploy/.env.example). Nothing secret is
+# written here: secrets are ${VAR} references, and ${VAR:?message} makes
+# compose refuse to start when a required one is unset.
+#
+# Only caddy publishes ports. Every other service is reachable on the
+# internal network only.
+#
+# Each Node service starts with `node deploy/check-env.mjs <service> && exec
+# <start command>` from the app directory that contains deploy/. The check
+# must run exactly like that (it compares its own path with process.argv[1]),
+# and && stops the container start when it exits non-zero.
+
+name: storecentral
+
+x-backend-build: &backend-build
+  context: ..
+  dockerfile: deploy/backend.Dockerfile
+
+x-backend-environment: &backend-environment
+  NODE_ENV: production
+  BACKEND_REDIS_MODULES: "true"
+  DATABASE_URL: "postgres://medusa:${MEDUSA_DB_PASSWORD:?MEDUSA_DB_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-storecentral}?sslmode=disable"
+  REDIS_URL: "redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379"
+  JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required}"
+  COOKIE_SECRET: "${COOKIE_SECRET:?COOKIE_SECRET is required}"
+  AUTH_MFA_ENCRYPTION_KEY: "${AUTH_MFA_ENCRYPTION_KEY:-}"
+  STORE_CORS: "https://${STORE_HOST:?STORE_HOST is required}"
+  ADMIN_CORS: "https://${ADMIN_HOST:?ADMIN_HOST is required}"
+  AUTH_CORS: "https://${STORE_HOST},https://${ADMIN_HOST}"
+  SELLER_HUB_INTERNAL_URL: http://seller-hub:7005
+  SELLER_HUB_WEBHOOK_URL: http://seller-hub:7005
+  SELLER_HUB_INTERNAL_SECRET: "${SELLER_HUB_INTERNAL_SECRET:?SELLER_HUB_INTERNAL_SECRET is required}"
+  EASYPOST_API_KEY: "${EASYPOST_API_KEY:-}"
+  EASYPOST_WEBHOOK_SECRET: "${EASYPOST_WEBHOOK_SECRET:-}"
+  EASYPOST_DEFAULT_PARCEL_WEIGHT: "${EASYPOST_DEFAULT_PARCEL_WEIGHT:-}"
+  EASYPOST_DEFAULT_PARCEL_LENGTH: "${EASYPOST_DEFAULT_PARCEL_LENGTH:-}"
+  EASYPOST_DEFAULT_PARCEL_WIDTH: "${EASYPOST_DEFAULT_PARCEL_WIDTH:-}"
+  EASYPOST_DEFAULT_PARCEL_HEIGHT: "${EASYPOST_DEFAULT_PARCEL_HEIGHT:-}"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    mem_limit: 1g  # set by Task 9
+    environment:
+      POSTGRES_USER: "${POSTGRES_USER:-postgres}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}"
+      POSTGRES_DB: "${POSTGRES_DB:-storecentral}"
+      # Read by init.sh on first start only (empty data directory).
+      MEDUSA_DB_PASSWORD: "${MEDUSA_DB_PASSWORD:?MEDUSA_DB_PASSWORD is required}"
+      SELLER_HUB_DB_PASSWORD: "${SELLER_HUB_DB_PASSWORD:?SELLER_HUB_DB_PASSWORD is required}"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      # init.sh is run by the image; init.sql sits outside initdb.d on purpose
+      # so the image does not also run it without the password variables.
+      - ./postgres/init.sh:/docker-entrypoint-initdb.d/10-init.sh:ro
+      - ./postgres/init.sql:/opt/init/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks: [internal]
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    mem_limit: 1g  # set by Task 9
+    # BullMQ requires noeviction. The password comes from the environment.
+    command: ["sh", "-c", "exec redis-server --appendonly yes --maxmemory-policy noeviction --requirepass \"$$REDIS_PASSWORD\""]
+    environment:
+      REDIS_PASSWORD: "${REDIS_PASSWORD:?REDIS_PASSWORD is required}"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$REDIS_PASSWORD\" redis-cli ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [internal]
+
+  migrate:
+    build: *backend-build
+    image: storecentral/backend:local
+    restart: "no"
+    mem_limit: 1g  # set by Task 9
+    command: ["sh", "-c", "node deploy/check-env.mjs backend && exec medusa db:migrate"]
+    environment: *backend-environment
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks: [internal]
+
+  backend:
+    build: *backend-build
+    image: storecentral/backend:local
+    restart: unless-stopped
+    mem_limit: 1g  # set by Task 9
+    command: ["sh", "-c", "node deploy/check-env.mjs backend && exec medusa start"]
+    environment: *backend-environment
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:9000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    networks: [internal]
+
+  seller-hub:
+    build:
+      context: ..
+      dockerfile: deploy/seller-hub.Dockerfile
+    image: storecentral/seller-hub:local
+    restart: unless-stopped
+    mem_limit: 1g  # set by Task 9
+    command: ["sh", "-c", "node deploy/check-env.mjs seller-hub && exec node dist/index.js"]
+    environment:
+      NODE_ENV: production
+      WEBHOOK_PORT: "7005"
+      DATABASE_URL: "postgres://seller_hub:${SELLER_HUB_DB_PASSWORD:?SELLER_HUB_DB_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-storecentral}"
+      REDIS_URL: "redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379"
+      MEDUSA_BACKEND_URL: http://backend:9000
+      MEDUSA_ADMIN_EMAIL: "${MEDUSA_ADMIN_EMAIL:?MEDUSA_ADMIN_EMAIL is required}"
+      MEDUSA_ADMIN_PASSWORD: "${MEDUSA_ADMIN_PASSWORD:?MEDUSA_ADMIN_PASSWORD is required}"
+      ENCRYPTION_KEY: "${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}"
+      SELLER_HUB_INTERNAL_SECRET: "${SELLER_HUB_INTERNAL_SECRET:?SELLER_HUB_INTERNAL_SECRET is required}"
+      SELLER_HUB_PUBLIC_URL: "https://${HUB_HOST:?HUB_HOST is required}"
+      AWS_REGION: "${AWS_REGION:?AWS_REGION is required}"
+      SQS_QUEUE_URL: "${SQS_QUEUE_URL:?SQS_QUEUE_URL is required}"
+      AMAZON_LWA_CLIENT_ID: "${AMAZON_LWA_CLIENT_ID:?AMAZON_LWA_CLIENT_ID is required}"
+      AMAZON_LWA_CLIENT_SECRET: "${AMAZON_LWA_CLIENT_SECRET:?AMAZON_LWA_CLIENT_SECRET is required}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:7005/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks: [internal]
+
+  storefront:
+    build:
+      context: ..
+      dockerfile: deploy/storefront.Dockerfile
+      # NEXT_PUBLIC_* values are baked into the client bundle at build time.
+      # Changing one needs a rebuild: docker compose build storefront.
+      args:
+        NEXT_PUBLIC_MEDUSA_BACKEND_URL: "${NEXT_PUBLIC_MEDUSA_BACKEND_URL:?NEXT_PUBLIC_MEDUSA_BACKEND_URL is required}"
+        NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY: "${NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY:?NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY is required}"
+        NEXT_PUBLIC_BASE_URL: "${NEXT_PUBLIC_BASE_URL:?NEXT_PUBLIC_BASE_URL is required}"
+        NEXT_PUBLIC_DEFAULT_REGION: "${NEXT_PUBLIC_DEFAULT_REGION:?NEXT_PUBLIC_DEFAULT_REGION is required}"
+        NEXT_PUBLIC_STRIPE_KEY: "${NEXT_PUBLIC_STRIPE_KEY:-}"
+    image: storecentral/storefront:local
+    restart: unless-stopped
+    mem_limit: 1g  # set by Task 9
+    command: ["sh", "-c", "node deploy/check-env.mjs storefront && exec node server.js"]
+    environment:
+      NODE_ENV: production
+      PORT: "8000"
+      HOSTNAME: 0.0.0.0
+      NEXT_PUBLIC_MEDUSA_BACKEND_URL: "${NEXT_PUBLIC_MEDUSA_BACKEND_URL:?NEXT_PUBLIC_MEDUSA_BACKEND_URL is required}"
+      NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY: "${NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY:?NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY is required}"
+      NEXT_PUBLIC_BASE_URL: "${NEXT_PUBLIC_BASE_URL:?NEXT_PUBLIC_BASE_URL is required}"
+      NEXT_PUBLIC_DEFAULT_REGION: "${NEXT_PUBLIC_DEFAULT_REGION:?NEXT_PUBLIC_DEFAULT_REGION is required}"
+      NEXT_PUBLIC_STRIPE_KEY: "${NEXT_PUBLIC_STRIPE_KEY:-}"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8000/').then(r=>process.exit(r.status<500?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks: [internal]
+
+  pos:
+    build:
+      context: ..
+      dockerfile: deploy/pos.Dockerfile
+    image: storecentral/pos:local
+    restart: unless-stopped
+    mem_limit: 1g  # set by Task 9
+    command: ["sh", "-c", "node deploy/check-env.mjs pos && exec node pos/server.js"]
+    environment:
+      NODE_ENV: production
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8001/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks: [internal]
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    mem_limit: 1g  # set by Task 9
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      STORE_HOST: "${STORE_HOST:?STORE_HOST is required}"
+      ADMIN_HOST: "${ADMIN_HOST:?ADMIN_HOST is required}"
+      POS_HOST: "${POS_HOST:?POS_HOST is required}"
+      HUB_HOST: "${HUB_HOST:?HUB_HOST is required}"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      backend:
+        condition: service_healthy
+      seller-hub:
+        condition: service_healthy
+      storefront:
+        condition: service_healthy
+      pos:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:2019/config/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    networks: [internal]
+
+networks:
+  internal:
+
+volumes:
+  postgres-data:
+  redis-data:
+  caddy-data:
+  caddy-config:
