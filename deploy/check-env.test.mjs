@@ -2,6 +2,9 @@ import { test } from "node:test"
 import assert from "node:assert/strict"
 import { spawnSync } from "node:child_process"
 import { fileURLToPath } from "node:url"
+import { mkdtempSync, rmSync, symlinkSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { checkEnv } from "./check-env.mjs"
 
 const script = fileURLToPath(new URL("./check-env.mjs", import.meta.url))
@@ -134,4 +137,34 @@ test("cli: unknown service exits 1", () => {
 test("cli: production with complete env exits 0", () => {
   const r = runCli(["pos"], { NODE_ENV: "production" })
   assert.equal(r.status, 0)
+})
+
+test("cli: runs when invoked by a relative path from another directory", () => {
+  // The main-module guard must compare real paths, not argv[1] text, or a
+  // relative invocation silently does nothing and exits 0.
+  const r = spawnSync(process.execPath, ["../deploy/check-env.mjs", "backend"], {
+    cwd: fileURLToPath(new URL("../docs/", import.meta.url)),
+    env: { SystemRoot: process.env.SystemRoot, PATH: process.env.PATH, NODE_ENV: "production" },
+    encoding: "utf8",
+  })
+  assert.equal(r.status, 1)
+  assert.match(r.stdout + r.stderr, /STORE_CORS: missing/)
+})
+
+test("cli: runs when invoked through a symlink", (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "check-env-link-"))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const link = join(dir, "check-env-link.mjs")
+  try {
+    symlinkSync(script, link)
+  } catch {
+    t.skip("cannot create a symlink on this system")
+    return
+  }
+  const r = spawnSync(process.execPath, [link, "backend"], {
+    env: { SystemRoot: process.env.SystemRoot, PATH: process.env.PATH, NODE_ENV: "production" },
+    encoding: "utf8",
+  })
+  assert.equal(r.status, 1)
+  assert.match(r.stdout + r.stderr, /STORE_CORS: missing/)
 })

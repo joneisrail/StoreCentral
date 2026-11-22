@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs"
+import { readFileSync, realpathSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 
 const MIN_SECRET_LENGTH = 32
@@ -68,6 +68,9 @@ function main() {
   console.warn(`${service}: ${result.problems.length} warning(s), not production`)
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+// Run main() only when this file is the entry point. argv[1] may be relative
+// or a symlink, so compare real paths (import.meta.url is already resolved).
+const entry = process.argv[1]
+if (entry && realpathSync(entry) === fileURLToPath(import.meta.url)) {
   main()
 }
