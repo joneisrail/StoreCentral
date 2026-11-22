@@ -114,7 +114,7 @@ test("postgres and redis have named data volumes", () => {
   assert.ok(services.redis.volumes.some((v) => v.startsWith("redis-data:")))
 })
 
-test("restart policy and memory placeholder", () => {
+test("restart policy", () => {
   for (const [name, svc] of Object.entries(services)) {
     if (name === "migrate") {
       assert.equal(svc.restart, "no")
@@ -151,18 +151,19 @@ test("every service has a mem_limit at or above its floor", () => {
   }
   const text = read("./docker-compose.yml")
   assert.doesNotMatch(text, /set by Task 9/)
-  assert.match(text, /measured dev peak \+ 25 percent, floor applied/)
+  assert.match(text, /# floor value; dev measurement is a lower bound, revisit after the first compose run/)
 })
 
-test("every node service caps the heap below its mem_limit", () => {
+test("every node service caps the heap at 75 percent of its mem_limit", () => {
   for (const name of NODE_SERVICES) {
     const svc = services[name]
     const env = Object.fromEntries(toList(svc.environment))
     const m = /--max-old-space-size=(\d+)/.exec(String(env.NODE_OPTIONS ?? ""))
     assert.ok(m, `${name} must set NODE_OPTIONS=--max-old-space-size=<MB>`)
-    assert.ok(
-      Number(m[1]) < toMb(svc.mem_limit),
-      `${name} heap cap ${m[1]} must be below mem_limit ${svc.mem_limit}`,
+    assert.equal(
+      Number(m[1]),
+      Math.floor(0.75 * toMb(svc.mem_limit)),
+      `${name} heap cap must be 75 percent of mem_limit ${svc.mem_limit}`,
     )
   }
 })

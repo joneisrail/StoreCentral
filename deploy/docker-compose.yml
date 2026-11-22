@@ -47,7 +47,7 @@ services:
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
-    # measured dev peak + 25 percent, floor applied; revisit after the first compose run (docs/ops/memory.md)
+    # floor value; dev measurement is a lower bound, revisit after the first compose run (docs/ops/memory.md)
     mem_limit: 512m
     environment:
       POSTGRES_USER: "${POSTGRES_USER:-postgres}"
@@ -73,7 +73,7 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    # measured dev peak + 25 percent, floor applied; revisit after the first compose run (docs/ops/memory.md)
+    # floor value; dev measurement is a lower bound, revisit after the first compose run (docs/ops/memory.md)
     mem_limit: 128m
     # BullMQ requires noeviction. The password comes from the environment.
     command: ["sh", "-c", "exec redis-server --appendonly yes --maxmemory-policy noeviction --requirepass \"$$REDIS_PASSWORD\""]
@@ -95,7 +95,7 @@ services:
     image: storecentral/backend:local
     pull_policy: never
     restart: "no"
-    # measured dev peak + 25 percent, floor applied; revisit after the first compose run (docs/ops/memory.md)
+    # floor value; dev measurement is a lower bound, revisit after the first compose run (docs/ops/memory.md)
     mem_limit: 1g
     command: ["sh", "-c", "node deploy/check-env.mjs backend && exec medusa db:migrate"]
     environment: *backend-environment
@@ -110,7 +110,7 @@ services:
     build: *backend-build
     image: storecentral/backend:local
     restart: unless-stopped
-    # measured dev peak + 25 percent, floor applied; revisit after the first compose run (docs/ops/memory.md)
+    # floor value; dev measurement is a lower bound, revisit after the first compose run (docs/ops/memory.md)
     mem_limit: 1g
     command: ["sh", "-c", "node deploy/check-env.mjs backend && exec medusa start"]
     environment: *backend-environment
@@ -135,7 +135,7 @@ services:
       dockerfile: deploy/seller-hub.Dockerfile
     image: storecentral/seller-hub:local
     restart: unless-stopped
-    # measured dev peak + 25 percent, floor applied; revisit after the first compose run (docs/ops/memory.md)
+    # floor value; dev measurement is a lower bound, revisit after the first compose run (docs/ops/memory.md)
     mem_limit: 384m
     command: ["sh", "-c", "node deploy/check-env.mjs seller-hub && exec node dist/index.js"]
     environment:
@@ -183,7 +183,7 @@ services:
         NEXT_PUBLIC_STRIPE_KEY: "${NEXT_PUBLIC_STRIPE_KEY:-}"
     image: storecentral/storefront:local
     restart: unless-stopped
-    # measured dev peak + 25 percent, floor applied; revisit after the first compose run (docs/ops/memory.md)
+    # floor value; dev measurement is a lower bound, revisit after the first compose run (docs/ops/memory.md)
     mem_limit: 512m
     command: ["sh", "-c", "node deploy/check-env.mjs storefront && exec node server.js"]
     environment:
@@ -213,7 +213,7 @@ services:
       dockerfile: deploy/pos.Dockerfile
     image: storecentral/pos:local
     restart: unless-stopped
-    # measured dev peak + 25 percent, floor applied; revisit after the first compose run (docs/ops/memory.md)
+    # floor value; dev measurement is a lower bound, revisit after the first compose run (docs/ops/memory.md)
     mem_limit: 128m
     command: ["sh", "-c", "node deploy/check-env.mjs pos && exec node pos/server.js"]
     environment:
@@ -230,7 +230,7 @@ services:
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
-    # measured dev peak + 25 percent, floor applied; revisit after the first compose run (docs/ops/memory.md)
+    # floor value; dev measurement is a lower bound, revisit after the first compose run (docs/ops/memory.md)
     mem_limit: 128m
     ports:
       - "80:80"
