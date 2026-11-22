@@ -1,0 +1,198 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Every job that needs node_modules repeats the same four steps: checkout,
+# corepack enable (Yarn 3.2.1 is vendored under .yarn/releases and selected by
+# .yarnrc.yml), setup-node with the Yarn cache (keyed on yarn.lock by
+# actions/setup-node), and `yarn install --immutable`.
+#
+# UNCERTAIN: the backend jobs build their workspace dependencies first with
+# `yarn turbo run build --filter=@dtc/backend^...` (dependencies only, not the
+# backend itself) because `medusa lint`, `medusa build` and the test runner need
+# packages/cli/medusa-cli and the framework packages built. This filter follows
+# turbo.json (`build` dependsOn `^build`) but could not be run here; if it
+# misses a package, widen it to `--filter=@dtc/backend...`.
+#
+# All credentials below are ephemeral values for throwaway service containers
+# that live only for the job. They are not reused anywhere else.
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - run: corepack enable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+      - run: yarn install --immutable
+      - name: Build backend workspace dependencies
+        run: yarn turbo run build --filter=@dtc/backend^...
+      - name: Lint backend
+        working-directory: apps/backend
+        run: yarn lint
+      - name: Lint storefront
+        working-directory: apps/storefront
+        run: yarn lint
+
+  backend-unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - run: corepack enable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+      - run: yarn install --immutable
+      - name: Build backend workspace dependencies
+        run: yarn turbo run build --filter=@dtc/backend^...
+      - name: Unit tests
+        working-directory: apps/backend
+        run: yarn test:unit
+
+  backend-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: ci_user
+          POSTGRES_PASSWORD: ci-ephemeral-backend-db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci_user"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DB_HOST: localhost
+      DB_USERNAME: ci_user
+      DB_PASSWORD: ci-ephemeral-backend-db
+      # Gates channel-offers-redis-lock.spec.ts, which runs only when set.
+      REDIS_TEST_URL: redis://localhost:6379/15
+    steps:
+      - uses: actions/checkout@v4
+      - run: corepack enable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+      - run: yarn install --immutable
+      - name: Build backend workspace dependencies
+        run: yarn turbo run build --filter=@dtc/backend^...
+      - name: Module integration tests
+        working-directory: apps/backend
+        run: yarn test:integration:modules
+      - name: HTTP integration tests
+        working-directory: apps/backend
+        run: yarn test:integration:http
+
+  seller-hub:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: ci_user
+          POSTGRES_PASSWORD: ci-ephemeral-hub-db
+          POSTGRES_DB: hub_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci_user -d hub_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # The test guard aborts unless the database name ends in _test.
+      TEST_DATABASE_URL: postgres://ci_user:ci-ephemeral-hub-db@localhost:5432/hub_test
+      REDIS_URL: redis://localhost:6379
+    steps:
+      - uses: actions/checkout@v4
+      - run: corepack enable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+      - run: yarn install --immutable
+      - name: Type-check and build
+        working-directory: apps/seller-hub
+        run: yarn build
+      # admin-client.test.ts needs a real local backend; see deploy/ci-known-failures.md.
+      - name: Tests
+        working-directory: apps/seller-hub
+        run: yarn vitest run --exclude src/medusa/admin-client.test.ts
+
+  images:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      # Build only, never push. Context is the repo root.
+      - name: Build backend image
+        run: docker build -f deploy/backend.Dockerfile .
+      - name: Build seller-hub image
+        run: docker build -f deploy/seller-hub.Dockerfile .
+      - name: Build storefront image
+        run: docker build -f deploy/storefront.Dockerfile .
+      - name: Build pos image
+        run: docker build -f deploy/pos.Dockerfile .
+      # deploy/.env.example has empty values, and compose's ${VAR:?} form
+      # rejects empty values. Write a CI-only env file with dummy NON-SECRET
+      # placeholders (never committed, never printed) so `config` can validate
+      # the file structure.
+      - name: Validate compose file
+        run: |
+          sed 's/=$/=ci-placeholder/' deploy/.env.example > "$RUNNER_TEMP/compose-ci.env"
+          docker compose -f deploy/docker-compose.yml --env-file "$RUNNER_TEMP/compose-ci.env" config -q
+
+  deploy-config:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - run: corepack enable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+      # compose.test.mjs resolves `yaml` from the hoisted root node_modules.
+      - run: yarn install --immutable
+      - run: node --test deploy/*.test.mjs
