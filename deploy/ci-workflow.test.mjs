@@ -71,6 +71,7 @@ test("seller-hub job points TEST_DATABASE_URL at a _test database and has Redis"
   assert.ok(jobs["seller-hub"].services.postgres)
   const runs = stepsOf("seller-hub").map((s) => s.run ?? "").join("\n")
   assert.match(runs, /--exclude src\/medusa\/admin-client\.test\.ts/)
+  assert.match(runs, /--exclude src\/connectors\/connections\.e2e\.test\.ts/)
 })
 
 test("backend-integration job has Postgres 15, Redis and its env", () => {

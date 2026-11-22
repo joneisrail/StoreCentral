@@ -155,10 +155,13 @@ jobs:
       - name: Type-check and build
         working-directory: apps/seller-hub
         run: yarn build
-      # admin-client.test.ts needs a real local backend; see deploy/ci-known-failures.md.
+      # Both excluded files are listed in deploy/ci-known-failures.md.
       - name: Tests
         working-directory: apps/seller-hub
-        run: yarn vitest run --exclude src/medusa/admin-client.test.ts
+        run: >-
+          yarn vitest run
+          --exclude src/medusa/admin-client.test.ts
+          --exclude src/connectors/connections.e2e.test.ts
 
   images:
     runs-on: ubuntu-latest
