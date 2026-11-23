@@ -57,6 +57,16 @@ export type VariantInventory = {
   quantity: number
 }
 
+export type CreateDraftProductInput = {
+  title: string
+  sku: string
+  price: number
+  currencyCode: string
+  imageUrl: string | null
+  initialStock: number | null
+  options?: { name: string; value: string }[]
+}
+
 type InventoryItemWithLevelsAndVariants = {
   id: string
   location_levels?: { id: string }[]
@@ -561,6 +571,126 @@ export class MedusaAdminClient {
     await this.authedFetch(
       `/admin/channel-offers/${encodeURIComponent(variantId)}/${encodeURIComponent(salesChannelId)}/sync-result`,
       { method: "POST", body: JSON.stringify(body) }
+    )
+  }
+
+  /**
+   * Creates a one-variant draft product via `POST /admin/products`. The price
+   * is stored exactly as given (Medusa v2 amounts are not in minor units).
+   * With no `options`, the product gets a single `Default` option.
+   *
+   * When `initialStock` is a number the variant manages inventory, and the
+   * stock is set at the first stock location
+   * (`GET /admin/stock-locations?limit=1`) through
+   * `POST /admin/inventory-items/:id/location-levels`. Otherwise the variant
+   * is created with `manage_inventory: false` (Medusa defaults it to true).
+   *
+   * Any failure is rethrown with its message passed through
+   * `sanitizeSyncError`, so credential-looking text from a response body
+   * never reaches callers or logs verbatim.
+   */
+  async createDraftProduct(
+    input: CreateDraftProductInput
+  ): Promise<{ productId: string; variantId: string }> {
+    try {
+      return await this.createDraftProductUnsafe(input)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      throw new Error(sanitizeSyncError(message))
+    }
+  }
+
+  /** The store's default currency code (e.g. `"usd"`). */
+  async getDefaultCurrency(): Promise<string> {
+    return this.resolveDefaultCurrencyCode()
+  }
+
+  private async createDraftProductUnsafe(
+    input: CreateDraftProductInput
+  ): Promise<{ productId: string; variantId: string }> {
+    const options =
+      input.options && input.options.length > 0
+        ? input.options
+        : [{ name: "Default", value: "Default" }]
+    const manageInventory = typeof input.initialStock === "number"
+
+    const body: Record<string, unknown> = {
+      title: input.title,
+      status: "draft",
+      ...(input.imageUrl
+        ? { thumbnail: input.imageUrl, images: [{ url: input.imageUrl }] }
+        : {}),
+      options: options.map((o) => ({ title: o.name, values: [o.value] })),
+      variants: [
+        {
+          title: input.title,
+          sku: input.sku,
+          manage_inventory: manageInventory,
+          prices: [{ currency_code: input.currencyCode, amount: input.price }],
+          options: Object.fromEntries(options.map((o) => [o.name, o.value])),
+        },
+      ],
+    }
+
+    const response = await this.authedFetch("/admin/products", {
+      method: "POST",
+      body: JSON.stringify(body),
+    })
+    const created = (await response.json()) as {
+      product: { id: string; variants?: { id: string }[] | null }
+    }
+    const productId = created.product.id
+    const variantId = created.product.variants?.[0]?.id
+    if (!variantId) {
+      throw new Error(`Medusa created product ${productId} without a variant`)
+    }
+
+    if (manageInventory) {
+      await this.setInitialStock(variantId, input.initialStock as number)
+    }
+
+    return { productId, variantId }
+  }
+
+  private async setInitialStock(
+    variantId: string,
+    quantity: number
+  ): Promise<void> {
+    const variantResponse = await this.authedFetch(
+      `/admin/product-variants?id[]=${encodeURIComponent(variantId)}&fields=id,*inventory_items`
+    )
+    const variantBody = (await variantResponse.json()) as {
+      variants: {
+        id: string
+        inventory_items?: { inventory_item_id: string }[] | null
+      }[]
+    }
+    const inventoryItemId =
+      variantBody.variants[0]?.inventory_items?.[0]?.inventory_item_id
+    if (!inventoryItemId) {
+      throw new Error(`Variant ${variantId} has no inventory item`)
+    }
+
+    const locationResponse = await this.authedFetch(
+      "/admin/stock-locations?limit=1&fields=id"
+    )
+    const locationBody = (await locationResponse.json()) as {
+      stock_locations: { id: string }[]
+    }
+    const locationId = locationBody.stock_locations[0]?.id
+    if (!locationId) {
+      throw new Error("No Medusa stock location found to set initial stock at")
+    }
+
+    await this.authedFetch(
+      `/admin/inventory-items/${encodeURIComponent(inventoryItemId)}/location-levels`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          location_id: locationId,
+          stocked_quantity: quantity,
+        }),
+      }
     )
   }
 

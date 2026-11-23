@@ -13,6 +13,8 @@ export type FakeVariant = {
   inventory_quantity: number
   inventory_item_id: string
   inventory_level_id: string
+  /** Defaults to true; a false variant has no linked inventory item. */
+  manage_inventory?: boolean
 }
 
 export type FakeOrder = {
@@ -40,6 +42,14 @@ export type FakeMedusaState = {
   syncResults: { variantId: string; salesChannelId: string; body: unknown }[]
   /** The next N authenticated requests answer 401 (forces a client re-login). */
   unauthorizedResponses: number
+  /** Bodies received by `POST /admin/products`. */
+  createdProducts: any[]
+  /** Served by `GET /admin/stock-locations`, in order. */
+  stockLocations: { id: string; name: string }[]
+  /** Bodies received by `POST /admin/inventory-items/:id/location-levels`. */
+  locationLevels: { inventoryItemId: string; body: any }[]
+  /** When set, `POST /admin/products` answers 400 with this body. */
+  productCreateError: unknown
 }
 
 export type FakeMedusa = {
@@ -60,6 +70,10 @@ const defaultState = (): FakeMedusaState => ({
   pushValues: {},
   syncResults: [],
   unauthorizedResponses: 0,
+  createdProducts: [],
+  stockLocations: [{ id: "sloc_default", name: "Default warehouse" }],
+  locationLevels: [],
+  productCreateError: undefined,
 })
 
 const readJson = async (req: http.IncomingMessage): Promise<any> => {
@@ -99,8 +113,12 @@ export const startFakeMedusa = async (
     id: v.id,
     product_id: v.product_id,
     sku: v.sku,
-    manage_inventory: true,
+    manage_inventory: v.manage_inventory ?? true,
     inventory_quantity: v.inventory_quantity,
+    inventory_items:
+      v.manage_inventory === false
+        ? []
+        : [{ inventory_item_id: v.inventory_item_id, required_quantity: 1 }],
     prices: [
       ...(v.extra_prices ?? []),
       { amount: v.price, currency_code: v.currency_code },
@@ -221,6 +239,58 @@ export const startFakeMedusa = async (
         inventory_items: page(items, searchParams),
         count: items.length,
       })
+    }
+
+    if (method === "POST" && pathname === "/admin/products") {
+      const body = await readJson(req)
+      state.createdProducts.push(body)
+      if (state.productCreateError !== undefined) {
+        return send(res, 400, state.productCreateError)
+      }
+      const productId = nextId("prod")
+      const variants = ((body.variants ?? []) as any[]).map((v) => {
+        const prices = (v.prices ?? []) as {
+          amount: number
+          currency_code: string
+        }[]
+        const fakeVariant: FakeVariant = {
+          id: nextId("variant"),
+          product_id: productId,
+          sku: v.sku ?? null,
+          price: prices[0]?.amount ?? 0,
+          currency_code: prices[0]?.currency_code ?? state.defaultCurrency,
+          inventory_quantity: 0,
+          inventory_item_id: nextId("iitem"),
+          inventory_level_id: nextId("ilev"),
+          // Medusa defaults `manage_inventory` to true when omitted.
+          manage_inventory: v.manage_inventory ?? true,
+        }
+        state.variants.push(fakeVariant)
+        return { id: fakeVariant.id }
+      })
+      return send(res, 200, { product: { id: productId, variants } })
+    }
+
+    if (method === "GET" && pathname === "/admin/stock-locations") {
+      return send(res, 200, {
+        stock_locations: page(state.stockLocations, searchParams),
+        count: state.stockLocations.length,
+      })
+    }
+
+    const levels = pathname.match(
+      /^\/admin\/inventory-items\/([^/]+)\/location-levels$/
+    )
+    if (method === "POST" && levels) {
+      const inventoryItemId = decodeURIComponent(levels[1]!)
+      const owner = state.variants.find(
+        (v) => v.inventory_item_id === inventoryItemId
+      )
+      if (!owner) return send(res, 404, {})
+      const body = await readJson(req)
+      state.locationLevels.push({ inventoryItemId, body })
+      owner.inventory_quantity = body.stocked_quantity ?? 0
+      return send(res, 200, { inventory_item: { id: inventoryItemId } })
     }
 
     const offer = pathname.match(

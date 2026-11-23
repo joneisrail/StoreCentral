@@ -275,6 +275,221 @@ test("findVariantIdByInventoryLevelId resolves a real inventory level id to its 
   expect(resolvedVariantId).toBe(pricingVariantId)
 })
 
+// --- createDraftProduct / getDefaultCurrency -------------------------------
+//
+// Request shapes confirmed against the vendored Medusa source (2.21.2):
+// - POST /admin/products: `CreateProduct` in
+//   packages/medusa/src/api/admin/products/validators.ts (`.strict()`):
+//   `title`, `status` (ProductStatus, "draft"), `thumbnail` (string),
+//   `images` ([{ url }]), `options` ([{ title, values: string[] }] per
+//   `AdminCreateProductOption` in product-options/validators.ts), `variants`
+//   (`CreateProductVariant`, `.strict()`: `title`, `sku`, `manage_inventory`
+//   (DEFAULTS TO TRUE when omitted, so a no-stock variant must send false),
+//   `prices` ([{ currency_code, amount }]), `options` (Record<option title,
+//   value>)). The response is `{ product }` with `*variants` in its default
+//   fields (products/query-config.ts).
+// - GET /admin/stock-locations: `AdminGetStockLocationsParams`
+//   (stock-locations/validators.ts, `limit` via createFindParams); the route
+//   answers `{ stock_locations, count, offset, limit }`.
+// - Variant -> inventory item: `fields=id,*inventory_items` on the variant
+//   list (as the admin dashboard's product-stock loader does) returns
+//   `inventory_items[].inventory_item_id`.
+// - POST /admin/inventory-items/:id/location-levels:
+//   `AdminCreateInventoryLocationLevel` (inventory-items/validators.ts,
+//   `.strict()`): `location_id` (string), `stocked_quantity` (number >= 0).
+const draftProductInput = (overrides: Record<string, unknown> = {}) => ({
+  title: "Imported Tee",
+  sku: "IMP-TEE-" + Date.now() + Math.random(),
+  price: 12.5,
+  currencyCode: "usd",
+  imageUrl: "https://cdn.example.com/tee.jpg",
+  initialStock: null as number | null,
+  ...overrides,
+})
+
+test("creates a draft product with price as given", async () => {
+  const client = newClient()
+  const input = draftProductInput()
+
+  const created = await client.createDraftProduct(input)
+
+  const body = fake.state.createdProducts.at(-1)
+  expect(body).toEqual({
+    title: "Imported Tee",
+    status: "draft",
+    thumbnail: "https://cdn.example.com/tee.jpg",
+    images: [{ url: "https://cdn.example.com/tee.jpg" }],
+    options: [{ title: "Default", values: ["Default"] }],
+    variants: [
+      {
+        title: "Imported Tee",
+        sku: input.sku,
+        manage_inventory: false,
+        prices: [{ currency_code: "usd", amount: 12.5 }],
+        options: { Default: "Default" },
+      },
+    ],
+  })
+  const variant = fake.state.variants.find((v) => v.id === created.variantId)
+  expect(variant?.product_id).toBe(created.productId)
+  expect(variant?.price).toBe(12.5)
+})
+
+test("creates a draft product with the given options and no image", async () => {
+  const client = newClient()
+
+  await client.createDraftProduct(
+    draftProductInput({
+      imageUrl: null,
+      options: [
+        { name: "Size", value: "M" },
+        { name: "Color", value: "Red" },
+      ],
+    })
+  )
+
+  const body = fake.state.createdProducts.at(-1)
+  expect(body).not.toHaveProperty("thumbnail")
+  expect(body).not.toHaveProperty("images")
+  expect(body.options).toEqual([
+    { title: "Size", values: ["M"] },
+    { title: "Color", values: ["Red"] },
+  ])
+  expect(body.variants[0].options).toEqual({ Size: "M", Color: "Red" })
+})
+
+test("sets initial stock at the first location", async () => {
+  const stockFake = await startFakeMedusa({
+    stockLocations: [
+      { id: "sloc_first", name: "First" },
+      { id: "sloc_second", name: "Second" },
+    ],
+  })
+  try {
+    const client = new MedusaAdminClient({
+      baseUrl: stockFake.baseUrl,
+      email: ADMIN_EMAIL,
+      password: ADMIN_PASSWORD,
+    })
+
+    const created = await client.createDraftProduct(
+      draftProductInput({ initialStock: 7 })
+    )
+
+    expect(stockFake.state.createdProducts[0].variants[0].manage_inventory).toBe(
+      true
+    )
+    expect(
+      stockFake.requests.some(
+        (r) =>
+          r.method === "GET" &&
+          r.path.startsWith("/admin/stock-locations?") &&
+          r.path.includes("limit=1")
+      )
+    ).toBe(true)
+    const variant = stockFake.state.variants.find(
+      (v) => v.id === created.variantId
+    )
+    expect(stockFake.state.locationLevels).toEqual([
+      {
+        inventoryItemId: variant?.inventory_item_id,
+        body: { location_id: "sloc_first", stocked_quantity: 7 },
+      },
+    ])
+  } finally {
+    await stockFake.close()
+  }
+})
+
+test("skips stock when initialStock is null", async () => {
+  const stockFake = await startFakeMedusa()
+  try {
+    const client = new MedusaAdminClient({
+      baseUrl: stockFake.baseUrl,
+      email: ADMIN_EMAIL,
+      password: ADMIN_PASSWORD,
+    })
+
+    await client.createDraftProduct(draftProductInput({ initialStock: null }))
+
+    expect(stockFake.state.createdProducts[0].variants[0].manage_inventory).toBe(
+      false
+    )
+    expect(stockFake.state.locationLevels).toEqual([])
+    expect(
+      stockFake.requests.some((r) => r.path.startsWith("/admin/stock-locations"))
+    ).toBe(false)
+  } finally {
+    await stockFake.close()
+  }
+})
+
+test("throws when initialStock is set but no stock location exists", async () => {
+  const stockFake = await startFakeMedusa({ stockLocations: [] })
+  try {
+    const client = new MedusaAdminClient({
+      baseUrl: stockFake.baseUrl,
+      email: ADMIN_EMAIL,
+      password: ADMIN_PASSWORD,
+    })
+
+    await expect(
+      client.createDraftProduct(draftProductInput({ initialStock: 3 }))
+    ).rejects.toThrow(/stock location/i)
+  } finally {
+    await stockFake.close()
+  }
+})
+
+test("throws a sanitized error on 400", async () => {
+  const errorFake = await startFakeMedusa({
+    productCreateError: {
+      type: "invalid_data",
+      message: "Invalid request: sku already exists",
+      token: "super-secret-value",
+      detail: "Authorization: Bearer abc.def.ghi",
+    },
+  })
+  try {
+    const client = new MedusaAdminClient({
+      baseUrl: errorFake.baseUrl,
+      email: ADMIN_EMAIL,
+      password: ADMIN_PASSWORD,
+    })
+
+    const error = await client
+      .createDraftProduct(draftProductInput())
+      .then(() => null, (e: unknown) => e as Error)
+
+    expect(error).toBeInstanceOf(Error)
+    expect(error!.message).toContain("400")
+    expect(error!.message).toContain("sku already exists")
+    expect(error!.message).not.toContain("super-secret-value")
+    expect(error!.message).not.toContain("abc.def.ghi")
+    expect(error!.message.length).toBeLessThanOrEqual(500)
+  } finally {
+    await errorFake.close()
+  }
+})
+
+test("getDefaultCurrency reads the store's default currency", async () => {
+  const currencyFake = await startFakeMedusa({ defaultCurrency: "gbp" })
+  try {
+    const client = new MedusaAdminClient({
+      baseUrl: currencyFake.baseUrl,
+      email: ADMIN_EMAIL,
+      password: ADMIN_PASSWORD,
+    })
+
+    expect(await client.getDefaultCurrency()).toBe("gbp")
+    expect(
+      currencyFake.requests.some((r) => r.path.startsWith("/admin/stores"))
+    ).toBe(true)
+  } finally {
+    await currencyFake.close()
+  }
+})
+
 test("findVariantIdByInventoryLevelId returns null for an inventory level id that doesn't exist", async () => {
   const client = newClient()
 
