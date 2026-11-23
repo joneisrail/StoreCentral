@@ -1,4 +1,5 @@
 import { PermanentSyncError } from "../queue/queues.js"
+import type { ChannelListing } from "../sync/channel-import.js"
 import type { ShopifyClient } from "./client.js"
 
 export type ShopifyVariant = {
@@ -45,6 +46,66 @@ export const listShopifyVariants = async (
         sku: n.sku && n.sku.length > 0 ? n.sku : null,
         inventoryItemId: n.inventoryItem.id,
         price: n.price,
+      })
+    }
+    const { hasNextPage, endCursor } = data.productVariants.pageInfo
+    if (!hasNextPage || !endCursor) return out
+    after = endCursor
+  }
+}
+
+const CATALOG_QUERY = `
+  query Catalog($after: String) {
+    productVariants(first: 100, after: $after) {
+      nodes {
+        id sku title price inventoryQuantity
+        product { id title featuredImage { url } }
+      }
+      pageInfo { hasNextPage endCursor }
+    }
+  }
+`
+
+type CatalogData = {
+  productVariants: {
+    nodes: {
+      id: string
+      sku: string | null
+      title: string
+      price: string
+      inventoryQuantity: number | null
+      product: {
+        id: string
+        title: string
+        featuredImage: { url: string } | null
+      }
+    }[]
+    pageInfo: { hasNextPage: boolean; endCursor: string | null }
+  }
+}
+
+/** Read-only catalogue (GraphQL query only) for the channel import. */
+export const listShopifyCatalog = async (
+  client: ShopifyClient
+): Promise<ChannelListing[]> => {
+  const out: ChannelListing[] = []
+  let after: string | null = null
+  while (true) {
+    const data: CatalogData = await client.graphql<CatalogData>(
+      CATALOG_QUERY,
+      { after }
+    )
+    for (const n of data.productVariants.nodes) {
+      out.push({
+        externalId: n.id,
+        parentExternalId: n.product.id,
+        sku: n.sku && n.sku.trim().length > 0 ? n.sku : null,
+        title: n.title,
+        parentTitle: n.product.title,
+        price: n.price,
+        stock: typeof n.inventoryQuantity === "number" ? n.inventoryQuantity : null,
+        imageUrl: n.product.featuredImage?.url ?? null,
+        currency: null,
       })
     }
     const { hasNextPage, endCursor } = data.productVariants.pageInfo

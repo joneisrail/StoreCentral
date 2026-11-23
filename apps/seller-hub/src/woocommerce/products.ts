@@ -1,3 +1,4 @@
+import type { ChannelListing } from "../sync/channel-import.js"
 import type { WooCommerceClient } from "./client.js"
 
 export type WooListing = {
@@ -13,6 +14,10 @@ type RawProduct = {
   type?: string
   regular_price?: string | null
   price?: string | null
+  name?: string | null
+  stock_quantity?: number | null
+  images?: { src?: string | null }[] | null
+  image?: { src?: string | null } | null
 }
 
 const PER_PAGE = 100
@@ -69,6 +74,53 @@ export const listWooListings = async (
         if ((v.sku ?? "").trim() === (p.sku ?? "").trim()) continue
         const listing = toListing(v, p.id)
         if (listing) out.push(listing)
+      }
+    }
+  }
+  return out
+}
+
+const toChannelListing = (
+  p: RawProduct,
+  parent: RawProduct | null,
+  sku: string | null
+): ChannelListing => ({
+  externalId: String(p.id),
+  parentExternalId: parent ? String(parent.id) : null,
+  sku,
+  title: p.name || parent?.name || "",
+  parentTitle: parent ? (parent.name ?? null) : null,
+  price: p.regular_price || p.price || "",
+  stock: typeof p.stock_quantity === "number" ? p.stock_quantity : null,
+  imageUrl:
+    p.images?.[0]?.src || p.image?.src || parent?.images?.[0]?.src || null,
+  currency: null,
+})
+
+const rawSku = (p: RawProduct): string | null => {
+  const s = p.sku ?? ""
+  return s.trim() === "" ? null : s
+}
+
+/**
+ * Read-only catalogue of simple products and variations, SKU-less entries
+ * included (sku null). Used by the channel import; GET requests only.
+ */
+export const listWooCatalog = async (
+  client: WooCommerceClient
+): Promise<ChannelListing[]> => {
+  const out: ChannelListing[] = []
+  const products = await fetchAll<RawProduct>(client, "/products")
+  for (const p of products) {
+    if (p.type === "simple") out.push(toChannelListing(p, null, rawSku(p)))
+    if (p.type === "variable") {
+      const variations = await fetchAll<RawProduct>(
+        client,
+        `/products/${p.id}/variations`
+      )
+      for (const v of variations) {
+        const inherited = (v.sku ?? "").trim() === (p.sku ?? "").trim()
+        out.push(toChannelListing(v, p, inherited ? null : rawSku(v)))
       }
     }
   }

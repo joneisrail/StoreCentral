@@ -1,7 +1,7 @@
 import { expect, test, vi } from "vitest"
 import { PermanentSyncError } from "../queue/queues.js"
 import { ShopifyClient } from "./client.js"
-import { listShopifyVariants, updateShopifyVariantPrice } from "./products.js"
+import { listShopifyCatalog, listShopifyVariants, updateShopifyVariantPrice } from "./products.js"
 
 const ok = (data: unknown) => ({
   ok: true,
@@ -109,4 +109,81 @@ test("userErrors become PermanentSyncError", async () => {
       price: "x",
     })
   ).rejects.toBeInstanceOf(PermanentSyncError)
+})
+
+const cnode = (n: number, sku: string | null) => ({
+  id: `gid://shopify/ProductVariant/${n}`,
+  sku,
+  title: `Var ${n}`,
+  price: "9.99",
+  inventoryQuantity: n,
+  product: {
+    id: "gid://shopify/Product/1",
+    title: "Prod",
+    featuredImage: { url: "http://img/1.jpg" },
+  },
+})
+
+test("listShopifyCatalog maps title image stock", async () => {
+  const f = vi.fn().mockResolvedValue(
+    ok({
+      productVariants: {
+        nodes: [cnode(1, "A")],
+        pageInfo: { hasNextPage: false, endCursor: null },
+      },
+    })
+  )
+  expect(await listShopifyCatalog(clientFor(f))).toEqual([
+    {
+      externalId: "gid://shopify/ProductVariant/1",
+      parentExternalId: "gid://shopify/Product/1",
+      sku: "A",
+      title: "Var 1",
+      parentTitle: "Prod",
+      price: "9.99",
+      stock: 1,
+      imageUrl: "http://img/1.jpg",
+      currency: null,
+    },
+  ])
+  expect(JSON.parse(f.mock.calls[0][1].body).query).not.toMatch(/mutation/)
+})
+
+test("listShopifyCatalog blank sku becomes null", async () => {
+  const n = { ...cnode(2, ""), product: { id: "p", title: "P", featuredImage: null } }
+  const f = vi.fn().mockResolvedValue(
+    ok({
+      productVariants: {
+        nodes: [n],
+        pageInfo: { hasNextPage: false, endCursor: null },
+      },
+    })
+  )
+  const out = await listShopifyCatalog(clientFor(f))
+  expect(out[0].sku).toBeNull()
+  expect(out[0].imageUrl).toBeNull()
+})
+
+test("listShopifyCatalog paginates", async () => {
+  const f = vi
+    .fn()
+    .mockResolvedValueOnce(
+      ok({
+        productVariants: {
+          nodes: [cnode(1, "A")],
+          pageInfo: { hasNextPage: true, endCursor: "c1" },
+        },
+      })
+    )
+    .mockResolvedValueOnce(
+      ok({
+        productVariants: {
+          nodes: [cnode(2, "B")],
+          pageInfo: { hasNextPage: false, endCursor: null },
+        },
+      })
+    )
+  const out = await listShopifyCatalog(clientFor(f))
+  expect(out).toHaveLength(2)
+  expect(JSON.parse(f.mock.calls[1][1].body).variables.after).toBe("c1")
 })
