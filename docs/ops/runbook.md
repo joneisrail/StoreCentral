@@ -142,6 +142,38 @@ createdb -h localhost -U <user> hub_test
 
 CI sets all of these on throwaway service containers (see `.github/workflows/ci.yml`). Tests that still need CI verification are listed in `deploy/ci-watchlist.md`.
 
+## Importing a channel's products
+
+On a connected WooCommerce or Shopify channel, the sales channel page has a
+product import panel. **Check products** reads the channel catalogue and
+groups it against the store by SKU: matched, not yet in the store, duplicate
+SKU, and no SKU. It writes nothing. **Import selected** (or **Import all**)
+creates one draft product per selected unmatched listing and links it to the
+channel listing.
+
+- Drafts are never published. Review and publish them in the admin yourself.
+- Import pushes nothing to the channel. It only reads from it.
+- Each channel listing becomes its own draft product; variations are not
+  grouped into one product.
+- At most 200 products are created per run. The rest come back as
+  "deferred"; run the import again.
+- Listings without a SKU, or with a SKU that appears more than once, are only
+  reported and never imported.
+- A listing with an empty price fails with "channel listing has no price".
+- If the draft was created but its starting stock failed, the draft is still
+  linked and the SKU is recorded as failed, so a retry does not create a
+  second product.
+- The currency is checked only when the channel reports one. The WooCommerce
+  and Shopify readers do not, so a mixed-currency channel imports at face
+  value in the store's default currency.
+
+Read failures with:
+
+```sql
+select external_id, status, last_error from seller_hub.sync_job
+where sync_type = 'product' order by updated_at desc;
+```
+
 ## Known unverified items
 
 These were written without a Docker host available. They are verified only by the first CI run or the first real deployment, so treat a failure in any of them as plausible, not surprising:
