@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, expect, test, vi } from "vitest"
 import { startFakeMedusa, type FakeMedusa } from "../test-support/fake-medusa.js"
-import { MedusaAdminClient } from "./admin-client.js"
+import { DraftProductStockError, MedusaAdminClient } from "./admin-client.js"
 
 // A local fake Medusa Admin API (see test-support/fake-medusa.ts) stands in
 // for the real backend, so these tests need no running Medusa and no
@@ -424,7 +424,7 @@ test("skips stock when initialStock is null", async () => {
   }
 })
 
-test("throws when initialStock is set but no stock location exists", async () => {
+test("throws a DraftProductStockError with the ids when no stock location exists", async () => {
   const stockFake = await startFakeMedusa({ stockLocations: [] })
   try {
     const client = new MedusaAdminClient({
@@ -433,9 +433,72 @@ test("throws when initialStock is set but no stock location exists", async () =>
       password: ADMIN_PASSWORD,
     })
 
-    await expect(
-      client.createDraftProduct(draftProductInput({ initialStock: 3 }))
-    ).rejects.toThrow(/stock location/i)
+    const error = await client
+      .createDraftProduct(draftProductInput({ initialStock: 3 }))
+      .then(() => null, (e: unknown) => e)
+
+    expect(error).toBeInstanceOf(DraftProductStockError)
+    const stockError = error as DraftProductStockError
+    expect(stockError.message).toMatch(/stock location/i)
+    const created = stockFake.state.variants[0]
+    expect(stockError.productId).toBe(created?.product_id)
+    expect(stockError.variantId).toBe(created?.id)
+  } finally {
+    await stockFake.close()
+  }
+})
+
+test("throws a sanitized DraftProductStockError with the ids when the location-levels call fails", async () => {
+  const stockFake = await startFakeMedusa({
+    locationLevelError: {
+      message: "Invalid location level",
+      api_key: "leaky-key-value",
+    },
+  })
+  try {
+    const client = new MedusaAdminClient({
+      baseUrl: stockFake.baseUrl,
+      email: ADMIN_EMAIL,
+      password: ADMIN_PASSWORD,
+    })
+
+    const error = await client
+      .createDraftProduct(draftProductInput({ initialStock: 4 }))
+      .then(() => null, (e: unknown) => e)
+
+    expect(error).toBeInstanceOf(DraftProductStockError)
+    const stockError = error as DraftProductStockError
+    expect(stockError.message).toContain("400")
+    expect(stockError.message).toContain("Invalid location level")
+    expect(stockError.message).not.toContain("leaky-key-value")
+    const created = stockFake.state.variants[0]
+    expect(stockError.productId).toBe(created?.product_id)
+    expect(stockError.variantId).toBe(created?.id)
+  } finally {
+    await stockFake.close()
+  }
+})
+
+test("resolves the stock location before looking up the variant's inventory item", async () => {
+  const stockFake = await startFakeMedusa()
+  try {
+    const client = new MedusaAdminClient({
+      baseUrl: stockFake.baseUrl,
+      email: ADMIN_EMAIL,
+      password: ADMIN_PASSWORD,
+    })
+
+    await client.createDraftProduct(draftProductInput({ initialStock: 2 }))
+
+    const paths = stockFake.requests.map((r) => r.path)
+    const locationIndex = paths.findIndex((p) =>
+      p.startsWith("/admin/stock-locations")
+    )
+    const variantIndex = paths.findIndex((p) =>
+      p.startsWith("/admin/product-variants")
+    )
+    expect(locationIndex).toBeGreaterThanOrEqual(0)
+    expect(variantIndex).toBeGreaterThan(locationIndex)
   } finally {
     await stockFake.close()
   }

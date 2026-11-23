@@ -67,6 +67,23 @@ export type CreateDraftProductInput = {
   options?: { name: string; value: string }[]
 }
 
+/**
+ * The draft product was created but setting its initial stock failed. Carries
+ * the created ids so the caller can record/link the product instead of
+ * retrying the create (which would duplicate the SKU). The message is already
+ * sanitized.
+ */
+export class DraftProductStockError extends Error {
+  constructor(
+    message: string,
+    readonly productId: string,
+    readonly variantId: string
+  ) {
+    super(message)
+    this.name = "DraftProductStockError"
+  }
+}
+
 type InventoryItemWithLevelsAndVariants = {
   id: string
   location_levels?: { id: string }[]
@@ -595,6 +612,7 @@ export class MedusaAdminClient {
     try {
       return await this.createDraftProductUnsafe(input)
     } catch (error) {
+      if (error instanceof DraftProductStockError) throw error
       const message = error instanceof Error ? error.message : String(error)
       throw new Error(sanitizeSyncError(message))
     }
@@ -646,7 +664,16 @@ export class MedusaAdminClient {
     }
 
     if (manageInventory) {
-      await this.setInitialStock(variantId, input.initialStock as number)
+      try {
+        await this.setInitialStock(variantId, input.initialStock as number)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        throw new DraftProductStockError(
+          sanitizeSyncError(message),
+          productId,
+          variantId
+        )
+      }
     }
 
     return { productId, variantId }
@@ -656,6 +683,17 @@ export class MedusaAdminClient {
     variantId: string,
     quantity: number
   ): Promise<void> {
+    const locationResponse = await this.authedFetch(
+      "/admin/stock-locations?limit=1&fields=id"
+    )
+    const locationBody = (await locationResponse.json()) as {
+      stock_locations: { id: string }[]
+    }
+    const locationId = locationBody.stock_locations[0]?.id
+    if (!locationId) {
+      throw new Error("No Medusa stock location found to set initial stock at")
+    }
+
     const variantResponse = await this.authedFetch(
       `/admin/product-variants?id[]=${encodeURIComponent(variantId)}&fields=id,*inventory_items`
     )
@@ -669,17 +707,6 @@ export class MedusaAdminClient {
       variantBody.variants[0]?.inventory_items?.[0]?.inventory_item_id
     if (!inventoryItemId) {
       throw new Error(`Variant ${variantId} has no inventory item`)
-    }
-
-    const locationResponse = await this.authedFetch(
-      "/admin/stock-locations?limit=1&fields=id"
-    )
-    const locationBody = (await locationResponse.json()) as {
-      stock_locations: { id: string }[]
-    }
-    const locationId = locationBody.stock_locations[0]?.id
-    if (!locationId) {
-      throw new Error("No Medusa stock location found to set initial stock at")
     }
 
     await this.authedFetch(

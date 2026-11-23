@@ -50,6 +50,8 @@ export type FakeMedusaState = {
   locationLevels: { inventoryItemId: string; body: any }[]
   /** When set, `POST /admin/products` answers 400 with this body. */
   productCreateError: unknown
+  /** When set, `POST /admin/inventory-items/:id/location-levels` answers 400 with this body. */
+  locationLevelError: unknown
 }
 
 export type FakeMedusa = {
@@ -74,6 +76,7 @@ const defaultState = (): FakeMedusaState => ({
   stockLocations: [{ id: "sloc_default", name: "Default warehouse" }],
   locationLevels: [],
   productCreateError: undefined,
+  locationLevelError: undefined,
 })
 
 const readJson = async (req: http.IncomingMessage): Promise<any> => {
@@ -288,6 +291,9 @@ export const startFakeMedusa = async (
       )
       if (!owner) return send(res, 404, {})
       const body = await readJson(req)
+      if (state.locationLevelError !== undefined) {
+        return send(res, 400, state.locationLevelError)
+      }
       state.locationLevels.push({ inventoryItemId, body })
       owner.inventory_quantity = body.stocked_quantity ?? 0
       return send(res, 200, { inventory_item: { id: inventoryItemId } })
