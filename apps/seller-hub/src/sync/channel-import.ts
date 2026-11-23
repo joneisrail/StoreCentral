@@ -34,13 +34,14 @@ const countBy = (skus: string[]): Map<string, number> => {
 
 export const planImport = (channel: ChannelListing[], store: StoreVariant[]): ImportPlan => {
   const channelSkus = channel.map((l) => normalize(l.sku))
-  const storeSkus = store.map((v) => v.sku.trim()).filter((s) => s !== '')
+  const storeSkus = store.map((v) => (v.sku ?? '').trim()).filter((s) => s !== '')
   const channelCounts = countBy(channelSkus.filter((s): s is string => s !== null))
   const storeCounts = countBy(storeSkus)
 
   const duplicates = new Set<string>()
   for (const [sku, n] of channelCounts) if (n > 1) duplicates.add(sku)
-  for (const [sku, n] of storeCounts) if (n > 1) duplicates.add(sku)
+  // store-side duplicates only matter when the channel also carries the SKU
+  for (const [sku, n] of storeCounts) if (n > 1 && channelCounts.has(sku)) duplicates.add(sku)
 
   const matched: ChannelListing[] = []
   const unmatched: ChannelListing[] = []

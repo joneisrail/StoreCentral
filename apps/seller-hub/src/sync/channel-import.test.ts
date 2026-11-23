@@ -43,7 +43,7 @@ describe('planImport', () => {
     expect(planImport([a, b], [])).toEqual({ matched: [], unmatched: [], duplicates: [], noSku: [a, b] })
   })
 
-  it('variable parent with one duplicate variation skips all siblings', () => {
+  it('variable parent with a duplicate variation drops its unmatched siblings and reports their skus', () => {
     const s1 = listing('1', 'S1', 'P'), s2 = listing('2', 'S2', 'P'), s3 = listing('3', 'DUP', 'P')
     const dup = listing('4', 'DUP')
     const other = listing('5', 'O1', 'Q')
@@ -52,6 +52,41 @@ describe('planImport', () => {
     expect(plan.matched).toEqual([])
     expect(plan.noSku).toEqual([])
     expect([...plan.duplicates].sort()).toEqual(['DUP', 'S1', 'S2'])
+  })
+
+  it('poisoned parent keeps its matched sibling and drops the unmatched one', () => {
+    const m = listing('1', 'M', 'P'), d = listing('2', 'DUP', 'P'), u = listing('3', 'U', 'P')
+    const dup2 = listing('4', 'DUP')
+    const plan = planImport([m, d, u, dup2], [variant('M')])
+    expect(plan.matched).toEqual([m])
+    expect(plan.unmatched).toEqual([])
+    expect(plan.noSku).toEqual([])
+    expect([...plan.duplicates].sort()).toEqual(['DUP', 'U'])
+  })
+
+  it('no-sku sibling poisons the parent and stays in noSku', () => {
+    const n = listing('1', null, 'P'), u = listing('2', 'U', 'P'), m = listing('3', 'M', 'P')
+    const plan = planImport([n, u, m], [variant('M')])
+    expect(plan.noSku).toEqual([n])
+    expect(plan.matched).toEqual([m])
+    expect(plan.unmatched).toEqual([])
+    expect(plan.duplicates).toEqual(['U'])
+  })
+
+  it('store duplicates unrelated to the channel are not reported', () => {
+    expect(planImport([], [variant('X', '1'), variant('X', '2')]).duplicates).toEqual([])
+    expect(planImport([listing('1', 'X')], [variant('X', '1'), variant('X', '2')]).duplicates).toEqual(['X'])
+  })
+
+  it('channel D and padded D count as duplicates', () => {
+    const plan = planImport([listing('1', 'D'), listing('2', ' D ')], [variant('D')])
+    expect(plan).toEqual({ matched: [], unmatched: [], duplicates: ['D'], noSku: [] })
+  })
+
+  it('null store sku is treated as absent', () => {
+    const bad = { variantId: 'v', productId: 'p', sku: null } as unknown as StoreVariant
+    const a = listing('1', 'A')
+    expect(planImport([a], [bad])).toEqual({ matched: [], unmatched: [a], duplicates: [], noSku: [] })
   })
 
   it('empty inputs', () => {
