@@ -23,6 +23,7 @@ import { testShopifyConnection, testWooCommerceConnection } from "../connectors/
 import type { ShopifyConfig } from "../shopify/config.js"
 import type { WooCommerceConfig } from "../woocommerce/config.js"
 import { isAuthorized } from "./auth.js"
+import { getSyncStatus } from "../sync/sync-status.js"
 import { shapeImportOutcome, shapeImportPreview } from "./import-response.js"
 
 export type InternalHandlerDeps = {
@@ -34,6 +35,7 @@ export type InternalHandlerDeps = {
   env?: NodeJS.ProcessEnv
   testShopify?: typeof testShopifyConnection
   testWoo?: typeof testWooCommerceConnection
+  getSyncStatus?: typeof getSyncStatus
 }
 
 const MAX_BODY_BYTES = 64 * 1024
@@ -137,6 +139,7 @@ export const createInternalHandler = (deps: InternalHandlerDeps) => {
   const env = deps.env ?? process.env
   const testShopify = deps.testShopify ?? testShopifyConnection
   const testWoo = deps.testWoo ?? testWooCommerceConnection
+  const readSyncStatus = deps.getSyncStatus ?? getSyncStatus
   const base = (deps.publicUrl ?? "").replace(/\/+$/, "")
 
   const view = (row: ConnectionRow) => {
@@ -475,6 +478,17 @@ export const createInternalHandler = (deps: InternalHandlerDeps) => {
     send(res, 200, shapeImportOutcome(await runtime.importListings(skus === "all" ? "all" : (skus as string[]).map((x) => x.trim()))))
   }
 
+  const syncStatus = async (id: string, res: http.ServerResponse) => {
+    const row = await findRow(id)
+    if (!row) return send(res, 404, { error: "not_found" })
+    const data = await readSyncStatus(deps.pool, id)
+    if (!data) return send(res, 404, { error: "not_found" })
+    send(res, 200, {
+      sync_live: row.marketplace !== "amazon" && deps.manager.get(row.id) !== null,
+      ...data,
+    })
+  }
+
   const remove = async (id: string, res: http.ServerResponse) => {
     const row = await findRow(id)
     if (!row) return send(res, 404, { error: "not_found" })
@@ -506,16 +520,17 @@ export const createInternalHandler = (deps: InternalHandlerDeps) => {
     const action = parts[3]
     if (!UUID.test(id)) return send(res, 404, { error: "not_found" })
     if (action !== undefined && action !== "test" && action !== "link" &&
-      action !== "import-preview" && action !== "import"
+      action !== "import-preview" && action !== "import" && action !== "sync-status"
     ) {
       return send(res, 404, { error: "not_found" })
     }
     const expected =
-      action === undefined ? ["PUT", "DELETE"] : action === "import-preview" ? ["GET"] : ["POST"]
+      action === undefined ? ["PUT", "DELETE"] : action === "import-preview" || action === "sync-status" ? ["GET"] : ["POST"]
     if (!expected.includes(method)) return send(res, 405, { error: "method_not_allowed" })
     if (action === "test") return testStored(id, res)
     if (action === "link") return link(id, res)
     if (action === "import-preview") return importPreview(id, res)
+    if (action === "sync-status") return syncStatus(id, res)
     if (action === "import") return importRun(id, req, res)
     if (method === "PUT") return edit(id, req, res)
     return remove(id, res)

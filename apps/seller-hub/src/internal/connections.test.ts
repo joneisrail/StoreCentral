@@ -135,6 +135,17 @@ let manager: ReturnType<typeof fakeManager>
 let testShopify: ReturnType<typeof vi.fn>
 let testWoo: ReturnType<typeof vi.fn>
 let logs: string[]
+let getSyncStatus: ReturnType<typeof vi.fn>
+const STATUS = {
+  connection: { status: "connected", last_error: null, last_synced_at: null },
+  listings: { total: 2, by_status: { linked: 2 }, with_error: 0, never_pushed: 1 },
+  jobs: {
+    by_type: {},
+    last_succeeded_at: { product: null, inventory: null, price: null, order: null, tracking: null },
+  },
+  recent_failures: [],
+  failures_total: 0,
+}
 
 const stopServer = async () => {
   if (!server) return
@@ -156,6 +167,7 @@ const start = async (
   manager = fakeManager()
   testShopify = vi.fn(async () => ({ ok: true, detail: "ok" }))
   testWoo = vi.fn(async () => ({ ok: true, detail: "ok" }))
+  getSyncStatus = vi.fn(async () => STATUS)
   const handler = createInternalHandler({
     pool: fp.pool,
     manager: manager as never,
@@ -165,6 +177,7 @@ const start = async (
     env,
     testShopify: testShopify as never,
     testWoo: testWoo as never,
+    getSyncStatus: getSyncStatus as never,
   })
   server = http.createServer((req, res) => void handler(req, res))
   await new Promise<void>((r) => server!.listen(0, "127.0.0.1", r))
@@ -1047,4 +1060,52 @@ test("edit invalid input is 400 with message and fields", async () => {
   expect(r.status).toBe(400)
   expect(r.json.fields).toEqual(["siteUrl"])
   expect(typeof r.json.message).toBe("string")
+})
+
+test("sync-status 401 without secret", async () => {
+  await start()
+  const r = await call("GET", `/internal/connections/${SHOPIFY_ID}/sync-status`, undefined, null)
+  expect(r.status).toBe(401)
+  expect(getSyncStatus).not.toHaveBeenCalled()
+})
+
+test("sync-status 404 for an unknown or invalid id", async () => {
+  await start()
+  const u = await call("GET", "/internal/connections/00000000-0000-4000-8000-000000000000/sync-status")
+  expect(u.status).toBe(404)
+  const n = await call("GET", "/internal/connections/nope/sync-status")
+  expect(n.status).toBe(404)
+  expect(getSyncStatus).not.toHaveBeenCalled()
+})
+
+test("sync-status 405 on POST", async () => {
+  await start()
+  const r = await call("POST", `/internal/connections/${SHOPIFY_ID}/sync-status`)
+  expect(r.status).toBe(405)
+})
+
+test("sync-status returns status with sync_live true when a runtime is live", async () => {
+  await start()
+  const r = await call("GET", `/internal/connections/${SHOPIFY_ID}/sync-status`)
+  expect(r.status).toBe(200)
+  expect(r.json).toEqual({ sync_live: true, ...STATUS })
+  expect(getSyncStatus).toHaveBeenCalledWith(expect.anything(), SHOPIFY_ID)
+})
+
+test("sync-status sync_live false when not running but data still returned", async () => {
+  await start()
+  const r = await call("GET", `/internal/connections/${WOO_ID}/sync-status`)
+  expect(r.status).toBe(200)
+  expect(r.json).toEqual({ sync_live: false, ...STATUS })
+})
+
+test("sync-status sync_live false for amazon", async () => {
+  await start([
+    shopifyRow(),
+    { id: AMAZON_ID, marketplace: "amazon", managed: true, status: "disconnected", medusa_sales_channel_id: "sc_a" } as AccountRow,
+  ])
+  manager.live.add(AMAZON_ID)
+  const r = await call("GET", `/internal/connections/${AMAZON_ID}/sync-status`)
+  expect(r.status).toBe(200)
+  expect(r.json.sync_live).toBe(false)
 })
