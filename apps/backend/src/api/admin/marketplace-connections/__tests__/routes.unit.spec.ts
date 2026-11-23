@@ -5,6 +5,7 @@ import { POST as test } from "../[id]/test/route"
 import { POST as link } from "../[id]/link/route"
 import { GET as importPreview } from "../[id]/import-preview/route"
 import { POST as runImport } from "../[id]/import/route"
+import { GET as syncStatus } from "../[id]/sync-status/route"
 import { CreateConnectionSchema, ImportSchema, SaveConnectionSchema, marketplaceConnectionMiddlewares } from "../middlewares"
 
 jest.mock("../seller-hub-client", () => {
@@ -422,6 +423,33 @@ describe("channel import", () => {
     mocked.mockRejectedValue(new SellerHubError(502, "Cannot reach seller-hub"))
     const r2 = makeRes()
     await importPreview(makeReq("c1"), r2)
+    expect(r2.statusCode).toBe(502)
+    expect(r2.payload.message).toBe("Cannot reach seller-hub")
+  })
+})
+
+describe("sync status", () => {
+  it("is a GET to sync-status with a 15s timeout and no body", async () => {
+    mocked.mockResolvedValue({ status: 200, body: { rows: [] } })
+    const res = makeRes()
+    await syncStatus(makeReq("c1"), res)
+    expect(mocked).toHaveBeenCalledWith("GET", "/internal/connections/c1/sync-status", undefined, { timeoutMs: 15_000 })
+    expect(res.payload).toEqual({ rows: [] })
+  })
+  it("encodes the connection id", async () => {
+    mocked.mockResolvedValue({ status: 200, body: {} })
+    await syncStatus(makeReq("c 2"), makeRes())
+    expect(mocked).toHaveBeenCalledWith("GET", "/internal/connections/c%202/sync-status", undefined, { timeoutMs: 15_000 })
+  })
+  it("passes a seller-hub 404 body through and maps SellerHubError to 502", async () => {
+    mocked.mockResolvedValue({ status: 404, body: { error: "not found" } })
+    const r1 = makeRes()
+    await syncStatus(makeReq("c1"), r1)
+    expect(r1.statusCode).toBe(404)
+    expect(r1.payload).toEqual({ error: "not found" })
+    mocked.mockRejectedValue(new SellerHubError(502, "Cannot reach seller-hub"))
+    const r2 = makeRes()
+    await syncStatus(makeReq("c1"), r2)
     expect(r2.statusCode).toBe(502)
     expect(r2.payload.message).toBe("Cannot reach seller-hub")
   })
