@@ -175,10 +175,45 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("sync status (test database)", (
 
     const s = await getSyncStatus(pool, acct)
     expect(s!.connection.last_error).not.toContain("supersecret")
+    expect(s!.connection.last_error).toContain("[redacted]")
     expect(s!.connection.last_error!.length).toBeLessThanOrEqual(300)
     const f = s!.recent_failures[0]!
     expect(f.last_error).not.toContain("abc.def")
     expect(f.last_error).toContain("[redacted]")
     expect(f.last_error!.length).toBeLessThanOrEqual(300)
+  })
+
+  test("failures show the SKU of the listing they belong to", async () => {
+    const acct = await newAccount()
+    const other = await newAccount()
+    const ins = async (a: string, sku: string, variant: string) =>
+      (
+        await pool.query<{ id: string }>(
+          `INSERT INTO seller_hub.channel_listing (integration_account_id, medusa_product_id, medusa_variant_id, external_sku)
+           VALUES ($1, 'p', $2, $3) RETURNING id`,
+          [a, variant, sku]
+        )
+      ).rows[0]!.id
+    const byId = await ins(acct, "SKU-BY-ID", "var_a")
+    await ins(acct, "SKU-BY-VARIANT", "var_b")
+    await ins(other, "OTHER-SKU", "var_c")
+    // two listings share a variant id: still one row for the failure
+    await ins(acct, "DUP-1", "var_d")
+    await ins(acct, "DUP-2", "var_d")
+    await job(acct, "inventory", byId, "failed", { updatedAt: "2026-05-01T00:00:00Z" })
+    await job(acct, "price", "var_b", "failed", { updatedAt: "2026-05-02T00:00:00Z" })
+    await job(acct, "price", "mystery", "failed", { updatedAt: "2026-05-03T00:00:00Z" })
+    await job(acct, "price", "var_c", "failed", { updatedAt: "2026-05-04T00:00:00Z" })
+    await job(acct, "price", "var_d", "failed", { updatedAt: "2026-05-05T00:00:00Z" })
+
+    const s = await getSyncStatus(pool, acct)
+    expect(s!.failures_total).toBe(5)
+    expect(s!.recent_failures.map((f) => f.external_id)).toEqual([
+      "DUP-1",
+      "var_c",
+      "mystery",
+      "SKU-BY-VARIANT",
+      "SKU-BY-ID",
+    ])
   })
 })

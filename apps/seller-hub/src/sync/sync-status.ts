@@ -60,9 +60,17 @@ export const getSyncStatus = async (pool: Pool, integrationAccountId: string): P
       [integrationAccountId]
     ),
     pool.query<{ sync_type: string; external_id: string; attempts: number; last_error: string | null; updated_at: Date }>(
-      `SELECT sync_type, external_id, attempts, last_error, updated_at
-       FROM seller_hub.sync_job WHERE integration_account_id = $1 AND status = 'failed'
-       ORDER BY updated_at DESC, external_id DESC LIMIT $2`,
+      `SELECT sj.sync_type, COALESCE(cl.external_sku, sj.external_id) AS external_id, sj.attempts, sj.last_error, sj.updated_at
+       FROM seller_hub.sync_job sj
+       LEFT JOIN LATERAL (
+         SELECT c.external_sku FROM seller_hub.channel_listing c
+         WHERE c.integration_account_id = sj.integration_account_id
+           AND (c.id::text = sj.external_id OR c.medusa_variant_id = sj.external_id)
+         ORDER BY (c.id::text = sj.external_id) DESC, c.external_sku
+         LIMIT 1
+       ) cl ON true
+       WHERE sj.integration_account_id = $1 AND sj.status = 'failed'
+       ORDER BY sj.updated_at DESC, sj.external_id DESC LIMIT $2`,
       [integrationAccountId, SYNC_FAILURE_LIMIT]
     ),
     pool.query<{ n: string }>(

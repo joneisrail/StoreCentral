@@ -3436,7 +3436,7 @@
         "noFailures": "No failed sync jobs.",
         "failuresShown": "Showing {{shown}} of {{total}}",
         "externalId": "SKU or ID",
-        "attempts": "Attempts",
+        "attempts": "Pushes",
         "message": "Message",
         "time": "Time",
         "kinds": {
