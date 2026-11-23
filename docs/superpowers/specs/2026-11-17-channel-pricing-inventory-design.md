@@ -196,7 +196,7 @@ Run in this order. Nothing here pushes anything to a marketplace by itself.
 6. The web store and POS keep reading the variant base prices; only marketplaces get channel prices.
 7. The grid lives at `/app/products/channel-pricing`.
 8. Run `split-existing-stock.ts apply` immediately after the migration, before any receipts or grid edits, in a quiet period: until a variant is split, only the legacy variant-level forward keeps other channels updated.
-9. Base-price edits made in Medusa do NOT propagate to marketplaces for variants with channel offers: use the grid's sync icon (auto sync price does not cover base price changes).
+9. Base-price edits made in Medusa are propagated to connected channels that inherit the base price; see `2026-11-24-phase-4c-base-price-propagation-design.md`.
 
 ## Open assumptions
 

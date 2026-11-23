@@ -1,6 +1,7 @@
 import type { SubscriberArgs, SubscriberConfig } from "@medusajs/framework"
 import { ContainerRegistrationKeys } from "@medusajs/framework/utils"
 import { CHANNEL_OFFERS_MODULE } from "../modules/channel-offers"
+import propagateBasePriceWorkflow from "../workflows/propagate-base-price"
 
 /**
  * The Medusa event names this subscriber forwards to Seller Hub's
@@ -48,7 +49,9 @@ function warn(message: string) {
  * Legacy variant-level events (inventory-level.updated, product-variant.updated)
  * are dropped only for variants that have offer rows for EVERY current sales
  * channel (the one-time split is complete for them); those are synced through
- * channel-offer.changed instead. A variant with no or only some rows keeps the
+ * channel-offer.changed instead. For product-variant.updated on such a variant
+ * the propagate-base-price workflow runs (it marks drifted inheriting offers
+ * pending and emits channel-offer.changed). A variant with no or only some rows keeps the
  * legacy forward so channels without a row never miss a Medusa stock update.
  * Returns true when the legacy event should be forwarded: any affected variant
  * not fully covered, no resolvable variant, or a failed lookup (fail open to
@@ -168,7 +171,16 @@ export default async function sellerHubSyncHandler({
       event.name === INVENTORY_LEVEL_UPDATED_EVENT ||
       event.name === PRODUCT_VARIANT_UPDATED_EVENT
     ) {
-      if (!(await shouldForwardLegacy(event, container))) return
+      if (!(await shouldForwardLegacy(event, container))) {
+        if (event.name === PRODUCT_VARIANT_UPDATED_EVENT) {
+          // Fully covered variant: base-price edits are propagated per channel
+          // by the workflow instead of the legacy variant-level forward.
+          await propagateBasePriceWorkflow(container).run({
+            input: { variant_id: event.data.id },
+          })
+        }
+        return
+      }
     }
     if (event.name === SHIPMENT_CREATED_EVENT) {
       const query = container.resolve(ContainerRegistrationKeys.QUERY)

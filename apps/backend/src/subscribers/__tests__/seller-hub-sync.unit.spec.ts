@@ -1,6 +1,14 @@
 import { CHANNEL_OFFERS_MODULE } from "../../modules/channel-offers"
 import sellerHubSyncHandler, { config, resolveOrderIdForFulfillment } from "../seller-hub-sync"
 
+const mockWorkflowRun = jest.fn()
+const mockWorkflow = jest.fn(() => ({ run: mockWorkflowRun }))
+jest.mock("../../workflows/propagate-base-price", () => ({
+  __esModule: true,
+  default: (...args: any[]) => (mockWorkflow as any)(...args),
+  propagateBasePriceWorkflow: (...args: any[]) => (mockWorkflow as any)(...args),
+}))
+
 const mockGraph = jest.fn()
 const mockListOffers = jest.fn()
 const container: any = {
@@ -15,6 +23,8 @@ const run = (name: string, data: any) => sellerHubSyncHandler({ event: { name, d
 beforeEach(() => {
   mockGraph.mockReset()
   mockListOffers.mockReset().mockResolvedValue([])
+  mockWorkflow.mockClear()
+  mockWorkflowRun.mockReset().mockResolvedValue({})
   mockFetch.mockReset().mockResolvedValue({ ok: true, status: 200 })
   ;(global as any).fetch = mockFetch
   process.env.SELLER_HUB_WEBHOOK_URL = "http://hub.test"
@@ -138,6 +148,53 @@ describe("seller-hub-sync subscriber", () => {
       mockListOffers.mockResolvedValue(rowsFor("variant_1", CHANNELS))
       await run("product-variant.updated", { id: "variant_1" })
       expect(mockFetch).not.toHaveBeenCalled()
+    })
+
+    it("fully covered variant runs the workflow and does not forward the legacy event", async () => {
+      graphWith()
+      mockListOffers.mockResolvedValue(rowsFor("variant_1", CHANNELS))
+      await run("product-variant.updated", { id: "variant_1" })
+      expect(mockWorkflow).toHaveBeenCalledWith(container)
+      expect(mockWorkflowRun).toHaveBeenCalledWith({ input: { variant_id: "variant_1" } })
+      expect(mockFetch).not.toHaveBeenCalled()
+    })
+
+    it("partly covered variant forwards legacy and does not run the workflow", async () => {
+      graphWith()
+      mockListOffers.mockResolvedValue(rowsFor("variant_1", ["sc1"]))
+      await run("product-variant.updated", { id: "variant_1" })
+      expect(mockWorkflowRun).not.toHaveBeenCalled()
+      expect(bodies()).toEqual([{ event: "product-variant.updated", data: { id: "variant_1" } }])
+    })
+
+    it("variant with no offers (not covered) forwards legacy as before", async () => {
+      graphWith()
+      await run("product-variant.updated", { id: "variant_1" })
+      expect(mockWorkflowRun).not.toHaveBeenCalled()
+      expect(bodies()).toEqual([{ event: "product-variant.updated", data: { id: "variant_1" } }])
+    })
+
+    it("workflow failure is logged by name and not thrown and nothing is forwarded", async () => {
+      graphWith()
+      mockListOffers.mockResolvedValue(rowsFor("variant_1", CHANNELS))
+      mockWorkflowRun.mockRejectedValue(new TypeError("secret-detail variant_1"))
+      await expect(run("product-variant.updated", { id: "variant_1" })).resolves.toBeUndefined()
+      expect(mockFetch).not.toHaveBeenCalled()
+      expect(errSpy).toHaveBeenCalledTimes(1)
+      expect(logged()).toContain("TypeError")
+      expect(logged()).not.toContain("secret-detail")
+    })
+
+    it("inventory-level.updated behaviour unchanged (never runs the workflow)", async () => {
+      graphWith(["va"])
+      mockListOffers.mockResolvedValue(rowsFor("va", CHANNELS))
+      await run("inventory-level.updated", { id: "ilev_1" })
+      expect(mockWorkflowRun).not.toHaveBeenCalled()
+      expect(mockFetch).not.toHaveBeenCalled()
+      mockListOffers.mockResolvedValue([])
+      await run("inventory-level.updated", { id: "ilev_1" })
+      expect(mockWorkflowRun).not.toHaveBeenCalled()
+      expect(bodies()).toEqual([{ event: "inventory-level.updated", data: { id: "ilev_1" } }])
     })
 
     it("product-variant.updated is forwarded when only some channels have rows", async () => {

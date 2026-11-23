@@ -210,6 +210,25 @@ Two states look different on purpose:
   legacy). The numbers are the last stored values. A passing **Test** on the
   connection turns sync back on.
 
+## Base-price changes and channels
+
+After a base-price edit in Medusa, the backend checks the channels that
+inherit the base price (only variants with an offer row for every channel):
+
+- Connected channels whose offer price no longer matches the new base price
+  become **pending** in the channel pricing grid.
+- The price is pushed to the channel automatically only for connections with
+  **auto-sync prices** on. Otherwise use the sync icon on that row.
+- A failed offer that drifts is marked pending and its old error is cleared
+  until the next sync result arrives.
+- Edits made before this behaviour existed are not backfilled; use the sync
+  icon for those.
+- Web and POS channels are not involved; they read the base price directly.
+- If seller-hub is unreachable the problem is logged (error name only) and
+  nothing is marked pending.
+
+Design: `docs/superpowers/specs/2026-11-24-phase-4c-base-price-propagation-design.md`.
+
 ## Known unverified items
 
 These were written without a Docker host available. They are verified only by the first CI run or the first real deployment, so treat a failure in any of them as plausible, not surprising:
