@@ -223,6 +223,15 @@ inherit the base price (only variants with an offer row for every channel):
   until the next sync result arrives.
 - Edits made before this behaviour existed are not backfilled; use the sync
   icon for those.
+- An offer that was never pushed (no last pushed price, e.g. created by
+  splitting existing stock, or a listing imported in Phase 4a whose price
+  baseline lives in seller-hub) counts as drifted. The first edit of any kind
+  to that variant marks it pending and, with auto-sync prices on, pushes the
+  base price. This is expected.
+- A stock-only push does not clear a pending base-price change: the offer
+  stays pending until the channel's current price has been pushed.
+- When `SELLER_HUB_WEBHOOK_URL` is unset the whole propagation is skipped:
+  nothing is checked, marked pending or pushed.
 - Web and POS channels are not involved; they read the base price directly.
 - If seller-hub is unreachable the problem is logged (error name only) and
   nothing is marked pending.

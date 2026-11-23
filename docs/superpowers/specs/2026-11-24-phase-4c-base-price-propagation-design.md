@@ -6,7 +6,7 @@ Date: 2026-11-24. Status: draft for owner review. Parent: Phase 4 "channel compl
 
 - Who: the store owner, who edits a variant's base price in the Medusa admin.
 - Problem: a channel offer with no price of its own (`price` = null, "use base price") should follow the base price. Today it does not: when a variant has an offer row for every sales channel, the legacy `product-variant.updated` event is dropped (`apps/backend/src/subscribers/seller-hub-sync.ts`, `shouldForwardLegacy`), and nothing replaces it. The grid still says "synced" because a null channel price counts as in sync. The channel keeps the old price until someone presses the sync icon. The Phase 0 audit lists this as missing item 5.
-- Success: after a base-price edit, every channel whose offer follows the base price is (a) shown as pending in the grid if its last pushed price differs, and (b) pushed automatically when that connection has "auto-sync prices" on, or on the sync icon when it is off. Channels with their own explicit price never change. No push happens when the price did not change.
+- Success: after a base-price edit, every channel whose offer follows the base price is (a) shown as pending in the grid if its last pushed price differs, and (b) pushed automatically when that connection has "auto-sync prices" on, or on the sync icon when it is off. Channels with their own explicit price never change. No push happens when the price did not change, with one accepted exception: a connected base-price offer that was never pushed (last_synced_price null, e.g. offers created by split-existing-stock or ensureOffers, or Phase 4a-imported listings whose baseline lives in seller-hub) counts as drifted, so the first edit of any kind to that variant marks it pending and, where auto-sync prices is on, pushes the base price.
 - This matches the rule already approved in the channel pricing spec: prices are pushed automatically only for connections with auto-sync prices on; otherwise they wait for the sync icon.
 
 ## Current behaviour (read from code)
@@ -40,7 +40,7 @@ Event redelivery is harmless: the second run finds `sync_state` already pending 
 - Only inheriting offers are considered; no change to explicit prices.
 - `force` stays false: a base-price edit must respect each connection's auto-sync switch, exactly like an explicit channel-price edit does.
 - Only channels with a seller-hub connection are considered (web and POS channels always show the base price and are never pushed, so marking them pending would be permanent noise). The connection list is read strictly: if seller-hub cannot answer, the workflow fails, the subscriber logs it, and nothing is marked.
-- No retroactive backfill: only edits made after deploy propagate. Existing drift is fixed with the sync icon.
+- No retroactive backfill: nothing runs at deploy; existing drift is fixed with the sync icon or by the next edit to that variant. Because a never-pushed offer (last_synced_price null) counts as drifted, the first post-deploy edit of any kind to such a variant marks those offers pending and, where auto-sync prices is on, pushes the base price; this is accepted.
 
 ### Testing
 

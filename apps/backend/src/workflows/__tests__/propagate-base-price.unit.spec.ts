@@ -89,8 +89,8 @@ describe("propagateBasePriceWorkflow", () => {
     })
     // The step receives an empty array; emitEventStep maps it to zero
     // messages and returns before calling the event bus.
-    const calls = mockEmit.mock.calls.map((c) => c[0].data)
-    expect(calls.every((d) => Array.isArray(d) && d.length === 0)).toBe(true)
+    expect(mockEmit).toHaveBeenCalledTimes(1)
+    expect(mockEmit).toHaveBeenCalledWith({ eventName: CHANNEL_OFFER_CHANGED_EVENT, data: [] })
     expect(t.service.markSync).not.toHaveBeenCalled()
     expect(result).toEqual({ variant_id: "v1", channels: [] })
   })

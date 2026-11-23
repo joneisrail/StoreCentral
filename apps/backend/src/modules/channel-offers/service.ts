@@ -216,11 +216,22 @@ class ChannelOffersModuleService extends MedusaService({
    * "synced" only when the stock equals last_synced_stock AND the channel
    * price is null (base-price fallback) or equals last_synced_price; otherwise
    * the offer stays "pending". "failed" is stored as reported.
+   *
+   * `effectivePrice` (optional, the channel's current effective_price) closes
+   * the gap for a null-price offer: when given, its price only counts as
+   * synced if last_synced_price matches it, so a stock-only push cannot
+   * clear a pending base-price change. Without it the rule above is unchanged.
    */
   async markSync(
     variantId: string,
     channelId: string,
-    r: { state: SyncState; error?: string; price?: number; stock?: number }
+    r: {
+      state: SyncState
+      error?: string
+      price?: number
+      stock?: number
+      effectivePrice?: number
+    }
   ): Promise<void> {
     const row = await this.findOffer(variantId, channelId)
     if (!row) return
@@ -242,8 +253,12 @@ class ChannelOffersModuleService extends MedusaService({
         r.price !== undefined ? r.price : toNumber(row.last_synced_price)
       const price = toNumber(row.price)
       const stockOk = lastStock !== null && Number(row.stock) === lastStock
+      const matches = (target: number) =>
+        lastPrice !== null && Math.abs(target - lastPrice) < 0.005
       const priceOk =
-        price === null || (lastPrice !== null && Math.abs(price - lastPrice) < 0.005)
+        price !== null
+          ? matches(price)
+          : r.effectivePrice === undefined || matches(r.effectivePrice)
       patch.sync_state = stockOk && priceOk ? "synced" : "pending"
     }
     await this.updateChannelOffers(patch as any)
