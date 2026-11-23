@@ -812,7 +812,7 @@ test("preview returns the four groups", async () => {
 
 test("import validates body", async () => {
   await start()
-  for (const body of [{}, { skus: "none" }, { skus: [1] }, { skus: [""] }, "not json"]) {
+  for (const body of [{}, { skus: [] }, { skus: "none" }, { skus: [1] }, { skus: [""] }, "not json"]) {
     const r = await call("POST", `/internal/connections/${SHOPIFY_ID}/import`, body)
     expect(r.status).toBe(400)
     expect(r.json).toEqual({ error: "invalid_json" })
@@ -839,6 +839,21 @@ test("import passes skus and returns outcome", async () => {
   expect(manager.importListings).toHaveBeenLastCalledWith("all")
   const n = await call("POST", `/internal/connections/${WOO_ID}/import`, { skus: "all" })
   expect(n.status).toBe(409)
+})
+
+test("import trims selected skus", async () => {
+  await start()
+  const r = await call("POST", `/internal/connections/${SHOPIFY_ID}/import`, { skus: [" A1 "] })
+  expect(r.status).toBe(200)
+  expect(manager.importListings).toHaveBeenCalledWith(["A1"])
+})
+
+test("wrong methods answer 405 on the import routes", async () => {
+  await start()
+  const a = await call("GET", `/internal/connections/${SHOPIFY_ID}/import`)
+  expect(a.status).toBe(405)
+  const b = await call("POST", `/internal/connections/${SHOPIFY_ID}/import-preview`)
+  expect(b.status).toBe(405)
 })
 
 test("amazon is rejected", async () => {

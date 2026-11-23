@@ -459,11 +459,11 @@ export const createInternalHandler = (deps: InternalHandlerDeps) => {
     const skus = body.skus
     const valid =
       skus === "all" ||
-      (Array.isArray(skus) && skus.every((s) => typeof s === "string" && s.trim() !== ""))
+      (Array.isArray(skus) && skus.length > 0 && skus.every((s) => typeof s === "string" && s.trim() !== ""))
     if (!valid) return send(res, 400, { error: "invalid_json" })
     const runtime = await liveImportRuntime(id, res)
     if (!runtime) return
-    send(res, 200, shapeImportOutcome(await runtime.importListings(skus as string[] | "all")))
+    send(res, 200, shapeImportOutcome(await runtime.importListings(skus === "all" ? "all" : (skus as string[]).map((x) => x.trim()))))
   }
 
   const remove = async (id: string, res: http.ServerResponse) => {
