@@ -1,5 +1,11 @@
 import type { Redis as IORedis } from "ioredis"
 import type { Pool } from "pg"
+import {
+  previewImport,
+  runImport,
+  type ImportOutcome,
+  type ImportPreview,
+} from "../sync/channel-import-run.js"
 import type { MedusaAdminClient } from "../medusa/admin-client.js"
 import { createSyncQueue, createSyncWorker, PermanentSyncError } from "../queue/queues.js"
 import { readAutoSyncPrice } from "../sync/auto-sync-price.js"
@@ -33,7 +39,7 @@ import { resolveWooCommerceAccount } from "./account.js"
 import { WooCommerceClient } from "./client.js"
 import type { WooCommerceConfig } from "./config.js"
 import { fetchWooOrder, fetchWooOrdersModifiedSince } from "./orders.js"
-import { setWooPrice, setWooStock } from "./products.js"
+import { listWooCatalog, setWooPrice, setWooStock } from "./products.js"
 
 export { RECONCILE_WOOCOMMERCE_JOB }
 
@@ -70,6 +76,10 @@ export type WooCommerceRuntime = {
   linked: Promise<LinkResult | null>
   /** Re-runs the SKU link and returns its result (rejects on failure). */
   relink: () => Promise<LinkResult>
+  /** Read-only: groups the channel catalogue against the store. */
+  previewImport: () => Promise<ImportPreview>
+  /** Creates draft products for the selected unmatched listings (never writes to the channel). */
+  importListings: (skus: string[] | "all") => Promise<ImportOutcome>
   /** Closes all workers and queues and removes the repeatable reconcile job. Idempotent. */
   stop: () => Promise<void>
 }
@@ -364,6 +374,15 @@ export const startWooCommerce = async (
     },
     linked,
     relink: () => runLink(),
+    previewImport: () => previewImport({ channel: () => listWooCatalog(wooClient), medusaClient }),
+    importListings: (skus) =>
+      runImport({
+        pool,
+        medusaClient,
+        integrationAccountId,
+        channel: () => listWooCatalog(wooClient),
+        skus,
+      }),
     stop,
   }
 }

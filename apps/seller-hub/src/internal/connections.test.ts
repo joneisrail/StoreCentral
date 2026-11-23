@@ -66,11 +66,38 @@ const fakeManager = () => {
     unmatched: ["a", "b"],
     duplicates: ["c"],
   }))
+  const listing = (sku: string) => ({
+    externalId: `e-${sku}`,
+    parentExternalId: null,
+    sku,
+    title: `Title ${sku}`,
+    parentTitle: null,
+    price: "5.00",
+    stock: 2,
+    imageUrl: null,
+    currency: "USD",
+  })
+  const previewImport = vi.fn(async () => ({
+    matched: [listing("M1")],
+    unmatched: [listing("U1")],
+    duplicates: ["D1"],
+    noSku: [listing("")],
+  }))
+  const importListings = vi.fn(async (_skus: string[] | "all") => ({
+    imported: ["U1"],
+    failed: [{ sku: "F1", message: "bad" }],
+    skipped: [{ sku: "S1", reason: "matched" as const }],
+    deferred: ["X1"],
+  }))
   const live = new Set<string>([SHOPIFY_ID])
   const m = {
     live,
     relink,
-    get: vi.fn((id: string) => (live.has(id) ? ({ id, runtime: { relink } } as never) : null)),
+    previewImport,
+    importListings,
+    get: vi.fn((id: string) =>
+      live.has(id) ? ({ id, runtime: { relink, previewImport, importListings } } as never) : null
+    ),
     list: vi.fn(() => []),
     apply: vi.fn(async (_id: string) => ({ started: true }) as { started: boolean; error?: string }),
     stop: vi.fn(async (_id: string) => {}),
@@ -752,6 +779,79 @@ test("link returns counts, and 409 when the connection has no runtime", async ()
   const n = await call("POST", `/internal/connections/${WOO_ID}/link`)
   expect(n.status).toBe(409)
   expect(n.json).toEqual({ error: "not_running" })
+})
+
+test("preview 401 without secret", async () => {
+  await start()
+  const r = await call("GET", `/internal/connections/${SHOPIFY_ID}/import-preview`, undefined, null)
+  expect(r.status).toBe(401)
+  expect(manager.previewImport).not.toHaveBeenCalled()
+})
+
+test("preview 409 when not running, 404 for a bad id", async () => {
+  await start()
+  const r = await call("GET", `/internal/connections/${WOO_ID}/import-preview`)
+  expect(r.status).toBe(409)
+  expect(r.json).toEqual({ error: "not_running" })
+  const n = await call("GET", "/internal/connections/nope/import-preview")
+  expect(n.status).toBe(404)
+})
+
+test("preview returns the four groups", async () => {
+  await start()
+  const r = await call("GET", `/internal/connections/${SHOPIFY_ID}/import-preview`)
+  expect(r.status).toBe(200)
+  expect(r.json.matched).toEqual([{ sku: "M1", title: "Title M1" }])
+  expect(r.json.unmatched).toEqual([
+    { sku: "U1", title: "Title U1", price: "5.00", stock: 2, image_url: null },
+  ])
+  expect(r.json.duplicates).toEqual(["D1"])
+  expect(r.json.no_sku).toHaveLength(1)
+  expect(r.json).toMatchObject({ matched_total: 1, unmatched_total: 1, duplicates_total: 1, no_sku_total: 1 })
+})
+
+test("import validates body", async () => {
+  await start()
+  for (const body of [{}, { skus: "none" }, { skus: [1] }, { skus: [""] }, "not json"]) {
+    const r = await call("POST", `/internal/connections/${SHOPIFY_ID}/import`, body)
+    expect(r.status).toBe(400)
+    expect(r.json).toEqual({ error: "invalid_json" })
+  }
+  expect(manager.importListings).not.toHaveBeenCalled()
+})
+
+test("import passes skus and returns outcome", async () => {
+  await start()
+  const r = await call("POST", `/internal/connections/${SHOPIFY_ID}/import`, { skus: ["U1"] })
+  expect(r.status).toBe(200)
+  expect(manager.importListings).toHaveBeenCalledWith(["U1"])
+  expect(r.json).toEqual({
+    imported: ["U1"],
+    failed: [{ sku: "F1", message: "bad" }],
+    failed_total: 1,
+    skipped_counts: { already_linked: 0, matched: 1, currency: 0 },
+    skipped: [{ sku: "S1", reason: "matched" }],
+    skipped_total: 1,
+    deferred: ["X1"],
+    deferred_total: 1,
+  })
+  await call("POST", `/internal/connections/${SHOPIFY_ID}/import`, { skus: "all" })
+  expect(manager.importListings).toHaveBeenLastCalledWith("all")
+  const n = await call("POST", `/internal/connections/${WOO_ID}/import`, { skus: "all" })
+  expect(n.status).toBe(409)
+})
+
+test("amazon is rejected", async () => {
+  await start([
+    shopifyRow(),
+    { id: AMAZON_ID, marketplace: "amazon", managed: true, status: "disconnected", medusa_sales_channel_id: "sc_a" } as AccountRow,
+  ])
+  const p = await call("GET", `/internal/connections/${AMAZON_ID}/import-preview`)
+  expect(p.status).toBe(400)
+  expect(p.json).toEqual({ error: "unsupported_marketplace" })
+  const i = await call("POST", `/internal/connections/${AMAZON_ID}/import`, { skus: "all" })
+  expect(i.status).toBe(400)
+  expect(i.json).toEqual({ error: "unsupported_marketplace" })
 })
 
 test("delete stops, clears credentials, keeps the sales channel link", async () => {

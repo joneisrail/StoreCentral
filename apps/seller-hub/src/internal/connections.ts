@@ -23,6 +23,7 @@ import { testShopifyConnection, testWooCommerceConnection } from "../connectors/
 import type { ShopifyConfig } from "../shopify/config.js"
 import type { WooCommerceConfig } from "../woocommerce/config.js"
 import { isAuthorized } from "./auth.js"
+import { shapeImportOutcome, shapeImportPreview } from "./import-response.js"
 
 export type InternalHandlerDeps = {
   pool: Pool
@@ -428,6 +429,43 @@ export const createInternalHandler = (deps: InternalHandlerDeps) => {
     })
   }
 
+  /** 404 / 400 / 409 gate shared by both import routes; returns the live runtime or null once answered. */
+  const liveImportRuntime = async (id: string, res: http.ServerResponse) => {
+    const row = await findRow(id)
+    if (!row) {
+      send(res, 404, { error: "not_found" })
+      return null
+    }
+    if (row.marketplace === "amazon") {
+      send(res, 400, { error: "unsupported_marketplace" })
+      return null
+    }
+    const live = deps.manager.get(id)
+    if (!live) {
+      send(res, 409, { error: "not_running" })
+      return null
+    }
+    return live.runtime
+  }
+
+  const importPreview = async (id: string, res: http.ServerResponse) => {
+    const runtime = await liveImportRuntime(id, res)
+    if (!runtime) return
+    send(res, 200, shapeImportPreview(await runtime.previewImport()))
+  }
+
+  const importRun = async (id: string, req: http.IncomingMessage, res: http.ServerResponse) => {
+    const body = (await readJsonBody(req, res)) as Record<string, unknown>
+    const skus = body.skus
+    const valid =
+      skus === "all" ||
+      (Array.isArray(skus) && skus.every((s) => typeof s === "string" && s.trim() !== ""))
+    if (!valid) return send(res, 400, { error: "invalid_json" })
+    const runtime = await liveImportRuntime(id, res)
+    if (!runtime) return
+    send(res, 200, shapeImportOutcome(await runtime.importListings(skus as string[] | "all")))
+  }
+
   const remove = async (id: string, res: http.ServerResponse) => {
     const row = await findRow(id)
     if (!row) return send(res, 404, { error: "not_found" })
@@ -458,13 +496,18 @@ export const createInternalHandler = (deps: InternalHandlerDeps) => {
     const id = parts[2]!
     const action = parts[3]
     if (!UUID.test(id)) return send(res, 404, { error: "not_found" })
-    if (action !== undefined && action !== "test" && action !== "link") {
+    if (action !== undefined && action !== "test" && action !== "link" &&
+      action !== "import-preview" && action !== "import"
+    ) {
       return send(res, 404, { error: "not_found" })
     }
-    const expected = action === undefined ? ["PUT", "DELETE"] : ["POST"]
+    const expected =
+      action === undefined ? ["PUT", "DELETE"] : action === "import-preview" ? ["GET"] : ["POST"]
     if (!expected.includes(method)) return send(res, 405, { error: "method_not_allowed" })
     if (action === "test") return testStored(id, res)
     if (action === "link") return link(id, res)
+    if (action === "import-preview") return importPreview(id, res)
+    if (action === "import") return importRun(id, req, res)
     if (method === "PUT") return edit(id, req, res)
     return remove(id, res)
   }

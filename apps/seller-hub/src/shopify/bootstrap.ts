@@ -1,5 +1,11 @@
 import type { Redis as IORedis } from "ioredis"
 import type { Pool } from "pg"
+import {
+  previewImport,
+  runImport,
+  type ImportOutcome,
+  type ImportPreview,
+} from "../sync/channel-import-run.js"
 import type { MedusaAdminClient } from "../medusa/admin-client.js"
 import { createSyncQueue, createSyncWorker, PermanentSyncError } from "../queue/queues.js"
 import { readAutoSyncPrice } from "../sync/auto-sync-price.js"
@@ -30,7 +36,7 @@ import { ShopifyClient } from "./client.js"
 import type { ShopifyConfig } from "./config.js"
 import { setShopifyAvailable } from "./inventory.js"
 import { fetchShopifyOrder, fetchShopifyOrdersSince } from "./orders.js"
-import { updateShopifyVariantPrice } from "./products.js"
+import { listShopifyCatalog, updateShopifyVariantPrice } from "./products.js"
 
 /** Name of the repeatable job that triggers the Shopify drift/order scan. */
 export const RECONCILE_SHOPIFY_JOB = "reconcile-shopify"
@@ -68,6 +74,10 @@ export type ShopifyRuntime = {
   linked: Promise<LinkResult | null>
   /** Re-runs the SKU link and returns its result (rejects on failure). */
   relink: () => Promise<LinkResult>
+  /** Read-only: groups the channel catalogue against the store. */
+  previewImport: () => Promise<ImportPreview>
+  /** Creates draft products for the selected unmatched listings (never writes to the channel). */
+  importListings: (skus: string[] | "all") => Promise<ImportOutcome>
   /** Closes all workers and queues and removes the repeatable reconcile job. Idempotent. */
   stop: () => Promise<void>
 }
@@ -350,6 +360,15 @@ export const startShopify = async (
     },
     linked,
     relink: () => runLink(),
+    previewImport: () => previewImport({ channel: () => listShopifyCatalog(shopifyClient), medusaClient }),
+    importListings: (skus) =>
+      runImport({
+        pool,
+        medusaClient,
+        integrationAccountId,
+        channel: () => listShopifyCatalog(shopifyClient),
+        skus,
+      }),
     stop,
   }
 }
