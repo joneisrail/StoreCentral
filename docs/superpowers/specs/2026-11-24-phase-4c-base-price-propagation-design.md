@@ -39,7 +39,7 @@ Event redelivery is harmless: the second run finds `sync_state` already pending 
 - Reuse the push's own effective-price computation; do not recompute prices in a second place.
 - Only inheriting offers are considered; no change to explicit prices.
 - `force` stays false: a base-price edit must respect each connection's auto-sync switch, exactly like an explicit channel-price edit does.
-- A channel that is not connected is still marked pending (the grid shows it needs a sync), but seller-hub drops the event for it, as today.
+- Only channels with a seller-hub connection are considered (web and POS channels always show the base price and are never pushed, so marking them pending would be permanent noise). The connection list is read strictly: if seller-hub cannot answer, the workflow fails, the subscriber logs it, and nothing is marked.
 - No retroactive backfill: only edits made after deploy propagate. Existing drift is fixed with the sync icon.
 
 ### Testing
