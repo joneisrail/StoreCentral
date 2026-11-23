@@ -59,6 +59,7 @@ const CATALOG_QUERY = `
     productVariants(first: 100, after: $after) {
       nodes {
         id sku title price inventoryQuantity
+        inventoryItem { id }
         product { id title featuredImage { url } }
       }
       pageInfo { hasNextPage endCursor }
@@ -74,6 +75,7 @@ type CatalogData = {
       title: string
       price: string
       inventoryQuantity: number | null
+      inventoryItem: { id: string } | null
       product: {
         id: string
         title: string
@@ -106,6 +108,7 @@ export const listShopifyCatalog = async (
         stock: typeof n.inventoryQuantity === "number" ? n.inventoryQuantity : null,
         imageUrl: n.product.featuredImage?.url ?? null,
         currency: null,
+        inventoryItemId: n.inventoryItem?.id ?? null,
       })
     }
     const { hasNextPage, endCursor } = data.productVariants.pageInfo

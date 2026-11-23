@@ -117,6 +117,7 @@ const cnode = (n: number, sku: string | null) => ({
   title: `Var ${n}`,
   price: "9.99",
   inventoryQuantity: n,
+  inventoryItem: { id: `gid://shopify/InventoryItem/${n}` },
   product: {
     id: "gid://shopify/Product/1",
     title: "Prod",
@@ -144,9 +145,11 @@ test("listShopifyCatalog maps title image stock", async () => {
       stock: 1,
       imageUrl: "http://img/1.jpg",
       currency: null,
+      inventoryItemId: "gid://shopify/InventoryItem/1",
     },
   ])
   expect(JSON.parse(f.mock.calls[0][1].body).query).not.toMatch(/mutation/)
+  expect(JSON.parse(f.mock.calls[0][1].body).query).toMatch(/inventoryItem\s*\{\s*id\s*\}/)
 })
 
 test("listShopifyCatalog blank sku becomes null", async () => {
@@ -162,6 +165,7 @@ test("listShopifyCatalog blank sku becomes null", async () => {
   const out = await listShopifyCatalog(clientFor(f))
   expect(out[0].sku).toBeNull()
   expect(out[0].imageUrl).toBeNull()
+  expect(out[0].inventoryItemId).toBe("gid://shopify/InventoryItem/2")
 })
 
 test("listShopifyCatalog paginates", async () => {

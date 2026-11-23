@@ -8,6 +8,8 @@ export type ChannelListing = {
   stock: number | null
   imageUrl: string | null
   currency: string | null
+  /** Shopify only: the variant's InventoryItem gid, stored as external_inventory_item_id. */
+  inventoryItemId?: string | null
 }
 
 export type StoreVariant = { variantId: string; productId: string; sku: string }

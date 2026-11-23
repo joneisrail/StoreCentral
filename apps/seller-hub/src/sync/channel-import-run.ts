@@ -16,7 +16,7 @@ export type ImportPreview = ImportPlan
 export type ImportOutcome = {
   imported: string[]
   failed: { sku: string; message: string }[]
-  skipped: { sku: string; reason: "already_linked" | "currency" }[]
+  skipped: { sku: string; reason: "already_linked" | "matched" | "currency" }[]
   deferred: string[]
 }
 
@@ -89,11 +89,11 @@ const parsePrice = (raw: string): number => {
  * Creates one draft StoreCentral product per selected unmatched channel
  * listing and links it in `seller_hub.channel_listing`. Re-reads the channel
  * and the store itself; the caller's SKU list only selects from the plan.
- * At most `IMPORT_RUN_CAP` listings are created per run, the rest come back
- * in `deferred`. Never writes to the channel.
- *
- * `inventoryItemIdOf` supplies `external_inventory_item_id` (the column
- * `shopify-link.ts` sets); without it the column is left null.
+ * Selected listings that are already linked, match an existing store variant,
+ * or carry another currency are skipped; listings without a usable price are
+ * recorded as failed. Only then is the cap applied: at most `IMPORT_RUN_CAP`
+ * products are created per run, the rest come back in `deferred`. Never
+ * writes to the channel.
  */
 export const runImport = async (deps: {
   pool: Pool
@@ -101,24 +101,26 @@ export const runImport = async (deps: {
   integrationAccountId: string
   channel: () => Promise<ChannelListing[]>
   skus: string[] | "all"
-  inventoryItemIdOf?: (listing: ChannelListing) => string | null
 }): Promise<ImportOutcome> => {
-  const { pool, medusaClient, integrationAccountId, skus, inventoryItemIdOf } = deps
-  const plan = await readPlan(deps)
+  const { pool, medusaClient, integrationAccountId, skus, channel } = deps
+  const [listings, store] = await Promise.all([channel(), medusaClient.listVariantsBySku()])
+  const plan = planImport(listings, store)
+  const position = new Map(listings.map((l, i) => [l, i] as const))
+  const byChannelOrder = (a: ChannelListing, b: ChannelListing) =>
+    position.get(a)! - position.get(b)!
 
   const wanted = skus === "all" ? null : new Set(skus.map((s) => s.trim()))
   const isWanted = (l: ChannelListing) => wanted === null || wanted.has(skuOf(l))
-  const selected = plan.unmatched.filter(isWanted)
-  // Explicitly named SKUs that are already matched are reported if linked.
-  const namedMatched = wanted === null ? [] : plan.matched.filter(isWanted)
+  const unmatched = new Set(plan.unmatched)
+  // Selected SKUs in no planner group (duplicates, no SKU, not on the channel) stay unreported.
+  const selected = [...plan.unmatched, ...plan.matched].filter(isWanted).sort(byChannelOrder)
 
-  const candidateSkus = [...selected, ...namedMatched].map(skuOf)
   const linked = new Set<string>()
-  if (candidateSkus.length > 0) {
+  if (selected.length > 0) {
     const { rows } = await pool.query<{ external_sku: string }>(
       `SELECT external_sku FROM seller_hub.channel_listing
        WHERE integration_account_id = $1 AND external_sku = ANY($2::text[])`,
-      [integrationAccountId, candidateSkus]
+      [integrationAccountId, selected.map(skuOf)]
     )
     for (const r of rows) linked.add(r.external_sku)
   }
@@ -126,30 +128,37 @@ export const runImport = async (deps: {
   const outcome: ImportOutcome = { imported: [], failed: [], skipped: [], deferred: [] }
   const defaultCurrency = (await medusaClient.getDefaultCurrency()).toLowerCase()
 
-  // Skips are decided before the cap so permanently skipped listings never
-  // hold back the importable ones on later runs.
-  const importable: ChannelListing[] = []
-  const channelOrder = new Map<string, number>()
-  const all = [...selected, ...namedMatched]
-  all.forEach((l, i) => channelOrder.set(skuOf(l), i))
+  const fail = async (sku: string, problem: string) => {
+    const message = sanitizeSyncError(problem)
+    outcome.failed.push({ sku, message })
+    await recordProblem(pool, integrationAccountId, sku, message)
+  }
+
+  // Skips and price failures are settled before the cap so listings that can
+  // never be imported do not hold back importable ones on later runs.
+  const importable: { listing: ChannelListing; price: number }[] = []
   for (const listing of selected) {
     const sku = skuOf(listing)
     if (linked.has(sku)) {
       outcome.skipped.push({ sku, reason: "already_linked" })
+    } else if (!unmatched.has(listing)) {
+      outcome.skipped.push({ sku, reason: "matched" })
     } else if (listing.currency !== null && listing.currency.toLowerCase() !== defaultCurrency) {
       outcome.skipped.push({ sku, reason: "currency" })
     } else {
-      importable.push(listing)
+      let price: number
+      try {
+        price = parsePrice(listing.price)
+      } catch (error) {
+        await fail(sku, (error as Error).message)
+        continue
+      }
+      importable.push({ listing, price })
     }
   }
-  for (const listing of namedMatched) {
-    const sku = skuOf(listing)
-    if (linked.has(sku)) outcome.skipped.push({ sku, reason: "already_linked" })
-  }
-  outcome.skipped.sort((a, b) => channelOrder.get(a.sku)! - channelOrder.get(b.sku)!)
 
   const batch = importable.slice(0, IMPORT_RUN_CAP)
-  outcome.deferred = importable.slice(IMPORT_RUN_CAP).map(skuOf)
+  outcome.deferred = importable.slice(IMPORT_RUN_CAP).map((i) => skuOf(i.listing))
 
   const insertLink = async (
     listing: ChannelListing,
@@ -168,16 +177,19 @@ export const runImport = async (deps: {
         skuOf(listing),
         listing.externalId,
         listing.parentExternalId,
-        inventoryItemIdOf ? inventoryItemIdOf(listing) : null,
+        listing.inventoryItemId ?? null,
       ]
     )
     return res.rowCount === 1
   }
 
   // Returns null on success, else the (unsanitized) failure message.
-  const importOne = async (listing: ChannelListing, sku: string): Promise<string | null> => {
+  const importOne = async (
+    listing: ChannelListing,
+    sku: string,
+    price: number
+  ): Promise<string | null> => {
     try {
-      const price = parsePrice(listing.price)
       let ids: { productId: string; variantId: string }
       let stockError: string | null = null
       try {
@@ -187,7 +199,7 @@ export const runImport = async (deps: {
           price,
           currencyCode: defaultCurrency,
           imageUrl: listing.imageUrl,
-          initialStock: listing.stock,
+          initialStock: listing.stock === null ? null : Math.max(0, listing.stock),
         })
       } catch (error) {
         if (!(error instanceof DraftProductStockError)) throw error
@@ -206,16 +218,11 @@ export const runImport = async (deps: {
     }
   }
 
-  for (const listing of batch) {
+  for (const { listing, price } of batch) {
     const sku = skuOf(listing)
-    const problem = await importOne(listing, sku)
-    if (problem === null) {
-      outcome.imported.push(sku)
-    } else {
-      const message = sanitizeSyncError(problem)
-      outcome.failed.push({ sku, message })
-      await recordProblem(pool, integrationAccountId, sku, message)
-    }
+    const problem = await importOne(listing, sku, price)
+    if (problem === null) outcome.imported.push(sku)
+    else await fail(sku, problem)
   }
 
   return outcome

@@ -209,7 +209,15 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("channel import run (test databa
     expect(fake.state.createdProducts).toHaveLength(2)
 
     const again = await runImport({ pool, medusaClient, integrationAccountId: acct, channel, skus: "all" })
-    expect(again).toEqual({ imported: [], failed: [], skipped: [], deferred: [] })
+    expect(again).toEqual({
+      imported: [],
+      failed: [],
+      skipped: [
+        { sku: "A", reason: "already_linked" },
+        { sku: "B", reason: "already_linked" },
+      ],
+      deferred: [],
+    })
 
     const named = await runImport({ pool, medusaClient, integrationAccountId: acct, channel, skus: ["A", "B"] })
     expect(named).toEqual({
@@ -395,23 +403,105 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("channel import run (test databa
     expect((await linksOf(acct)).map((l) => l.external_sku)).toEqual(["P1", "P3"])
   })
 
-  test("an inventory item id callback fills the Shopify column", async () => {
+  test("a Shopify listing's inventory item id lands in the row", async () => {
     const acct = await newAccount()
     const { medusaClient } = await startMedusa()
-    const { channel } = fakeChannel([listing("gid://shopify/ProductVariant/9", "SH-1")])
+    const { channel } = fakeChannel([
+      listing("gid://shopify/ProductVariant/9", "SH-1", {
+        parentExternalId: "gid://shopify/Product/1",
+        inventoryItemId: "gid://shopify/InventoryItem/9",
+      }),
+      listing("10", "WOO-1"),
+    ])
 
-    await runImport({
+    await runImport({ pool, medusaClient, integrationAccountId: acct, channel, skus: "all" })
+
+    const links = await linksOf(acct)
+    expect(links[0]).toMatchObject({
+      external_sku: "SH-1",
+      external_variant_id: "gid://shopify/ProductVariant/9",
+      external_inventory_item_id: "gid://shopify/InventoryItem/9",
+    })
+    expect(links[1]).toMatchObject({ external_sku: "WOO-1", external_inventory_item_id: null })
+  })
+
+  test("a selected SKU that matches the store without a link is skipped as matched", async () => {
+    const acct = await newAccount()
+    const { fake, medusaClient } = await startMedusa({
+      variants: [
+        {
+          id: "var_m",
+          product_id: "prod_m",
+          sku: "M1",
+          price: 1,
+          currency_code: "usd",
+          inventory_quantity: 0,
+          inventory_item_id: "ii_m",
+          inventory_level_id: "il_m",
+        },
+      ],
+    })
+    const { channel } = fakeChannel([listing("1", "M1"), listing("2", "U1")])
+
+    const named = await runImport({
       pool,
       medusaClient,
       integrationAccountId: acct,
       channel,
-      skus: "all",
-      inventoryItemIdOf: (l) => `inv-for-${l.externalId}`,
+      skus: ["M1", "GHOST"],
+    })
+    expect(named).toEqual({
+      imported: [],
+      failed: [],
+      skipped: [{ sku: "M1", reason: "matched" }],
+      deferred: [],
     })
 
-    expect((await linksOf(acct))[0]).toMatchObject({
-      external_variant_id: "gid://shopify/ProductVariant/9",
-      external_inventory_item_id: "inv-for-gid://shopify/ProductVariant/9",
+    const all = await runImport({ pool, medusaClient, integrationAccountId: acct, channel, skus: "all" })
+    expect(all).toEqual({
+      imported: ["U1"],
+      failed: [],
+      skipped: [{ sku: "M1", reason: "matched" }],
+      deferred: [],
     })
+    expect(fake.state.createdProducts.map((p) => p.variants[0].sku)).toEqual(["U1"])
+    expect((await linksOf(acct)).map((l) => l.external_sku)).toEqual(["U1"])
+  })
+
+  test("priceless listings fail without consuming cap slots", async () => {
+    const acct = await newAccount()
+    const { fake, medusaClient } = await startMedusa()
+    const priceless = Array.from({ length: 200 }, (_, i) =>
+      listing(String(i), `NP-${String(i).padStart(3, "0")}`, { price: "" })
+    )
+    const { channel } = fakeChannel([...priceless, listing("good", "GOOD-1")])
+
+    const outcome = await runImport({ pool, medusaClient, integrationAccountId: acct, channel, skus: "all" })
+
+    expect(outcome.imported).toEqual(["GOOD-1"])
+    expect(outcome.deferred).toEqual([])
+    expect(outcome.failed).toHaveLength(200)
+    expect(outcome.failed[0]).toEqual({ sku: "NP-000", message: "channel listing has no price" })
+    expect(fake.state.createdProducts.map((p) => p.variants[0].sku)).toEqual(["GOOD-1"])
+    const jobs = await jobsOf(acct)
+    expect(jobs.filter((j) => j.status === "failed")).toHaveLength(200)
+    expect(jobs.find((j) => j.external_id === "NP-000")).toMatchObject({
+      status: "failed",
+      last_error: "channel listing has no price",
+    })
+  }, 60_000)
+
+  test("negative channel stock is clamped to 0", async () => {
+    const acct = await newAccount()
+    const { fake, medusaClient } = await startMedusa()
+    const { channel } = fakeChannel([listing("1", "NEG-1", { stock: -3 })])
+
+    const outcome = await runImport({ pool, medusaClient, integrationAccountId: acct, channel, skus: "all" })
+
+    expect(outcome.imported).toEqual(["NEG-1"])
+    expect(fake.state.createdProducts[0].variants[0].manage_inventory).toBe(true)
+    expect(fake.state.locationLevels).toEqual([
+      { inventoryItemId: expect.any(String), body: { location_id: "sloc_default", stocked_quantity: 0 } },
+    ])
   })
 })
