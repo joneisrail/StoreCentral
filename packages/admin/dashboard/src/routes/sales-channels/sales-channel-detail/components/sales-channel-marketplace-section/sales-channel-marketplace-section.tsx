@@ -18,6 +18,7 @@ import {
   useTestMarketplaceConnection,
 } from "../../../../../hooks/api/marketplace-connections"
 import { MARKETPLACES } from "../../../components/marketplace-fields"
+import { ChannelImportPanel } from "../channel-import-panel"
 import { MarketplaceConnectDrawer } from "../marketplace-connect-drawer"
 import { MarketplaceEditDrawer } from "../marketplace-edit-drawer"
 import { AutoSyncPriceSwitch } from "./auto-sync-price-switch"
@@ -246,6 +247,12 @@ const ConnectionDetails = ({
             {t("salesChannels.marketplace.disconnect")}
           </Button>
         </div>
+      ) : null}
+      {actionsEnabled ? (
+        <ChannelImportPanel
+          connectionId={connection.id}
+          marketplace={connection.marketplace}
+        />
       ) : null}
       {actionsEnabled && editing ? (
         <MarketplaceEditDrawer

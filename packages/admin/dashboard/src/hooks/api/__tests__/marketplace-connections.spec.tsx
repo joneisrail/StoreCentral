@@ -22,11 +22,14 @@ vi.mock("../../../lib/query-client", async () => {
 
 import { queryClient } from "../../../lib/query-client"
 import {
+  importPreviewQueryKey,
   marketplaceConnectionsQueryKeys,
   useCreateMarketplaceSalesChannel,
   useDisconnectMarketplaceConnection,
+  useImportPreview,
   useLinkMarketplaceConnection,
   useMarketplaceConnection,
+  useRunImport,
   useSaveMarketplaceConnection,
   useTestMarketplaceConnection,
 } from "../marketplace-connections"
@@ -139,5 +142,38 @@ describe("marketplace connection hooks", () => {
       ["/admin/marketplace-connections/mc_1/link", { method: "POST" }],
       ["/admin/marketplace-connections/mc_1", { method: "DELETE" }],
     ])
+  })
+
+  it("useImportPreview waits until enabled, then GETs the preview route", async () => {
+    mockFetch.mockResolvedValue({ matched_total: 1 })
+    const { result, rerender } = renderHook(
+      ({ enabled }) => useImportPreview("mc_1", { enabled }),
+      { wrapper, initialProps: { enabled: false } }
+    )
+    expect(mockFetch).not.toHaveBeenCalled()
+    rerender({ enabled: true })
+    await waitFor(() =>
+      expect(result.current.data).toEqual({ matched_total: 1 })
+    )
+    expect(mockFetch).toHaveBeenCalledWith(
+      "/admin/marketplace-connections/mc_1/import-preview",
+      { method: "GET" }
+    )
+  })
+
+  it("useRunImport POSTs the skus and invalidates the preview", async () => {
+    mockFetch.mockResolvedValue({ imported: ["A"] })
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries")
+    const { result } = renderHook(() => useRunImport("mc_1"), { wrapper })
+    await act(async () => {
+      await result.current.mutateAsync({ skus: ["A", "B"] })
+    })
+    expect(mockFetch).toHaveBeenCalledWith(
+      "/admin/marketplace-connections/mc_1/import",
+      { method: "POST", body: { skus: ["A", "B"] } }
+    )
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: importPreviewQueryKey("mc_1"),
+    })
   })
 })

@@ -63,6 +63,8 @@ vi.mock("../../../../../../hooks/api/marketplace-connections", () => ({
     mutateAsync: mocks.create,
     isPending: false,
   }),
+  useImportPreview: () => ({ data: undefined, isError: false }),
+  useRunImport: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }))
 
 if (!window.ResizeObserver) {
@@ -282,6 +284,21 @@ describe("SalesChannelMarketplaceSection", () => {
     expect(button("linkProducts").disabled).toBe(false)
   })
 
+  it("shows the import panel for Shopify but not for Amazon", () => {
+    const { unmount } = renderSection()
+    expect(
+      screen.getByText("salesChannels.marketplace.import.check")
+    ).toBeTruthy()
+    unmount()
+    setConnection(
+      connection({ marketplace: "amazon", sync_live: false, fields: {} })
+    )
+    renderSection()
+    expect(
+      screen.queryByText("salesChannels.marketplace.import.check")
+    ).toBeNull()
+  })
+
   it("legacy connection is read-only", () => {
     setConnection(connection({ read_only: true, managed: false }))
     renderSection()
@@ -292,6 +309,9 @@ describe("SalesChannelMarketplaceSection", () => {
     expect(screen.queryByText("salesChannels.marketplace.test")).toBeNull()
     expect(
       screen.queryByText("salesChannels.marketplace.disconnect")
+    ).toBeNull()
+    expect(
+      screen.queryByText("salesChannels.marketplace.import.check")
     ).toBeNull()
   })
 

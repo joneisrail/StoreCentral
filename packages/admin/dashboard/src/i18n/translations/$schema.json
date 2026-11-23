@@ -13044,6 +13044,106 @@
             "testFailedUnchanged": {
               "type": "string"
             },
+            "import": {
+              "type": "object",
+              "properties": {
+                "title": {
+                  "type": "string"
+                },
+                "hint": {
+                  "type": "string"
+                },
+                "check": {
+                  "type": "string"
+                },
+                "loading": {
+                  "type": "string"
+                },
+                "retry": {
+                  "type": "string"
+                },
+                "matched": {
+                  "type": "string"
+                },
+                "toImport": {
+                  "type": "string"
+                },
+                "duplicates": {
+                  "type": "string"
+                },
+                "noSku": {
+                  "type": "string"
+                },
+                "rowsCapped": {
+                  "type": "string"
+                },
+                "sku": {
+                  "type": "string"
+                },
+                "titleColumn": {
+                  "type": "string"
+                },
+                "price": {
+                  "type": "string"
+                },
+                "stock": {
+                  "type": "string"
+                },
+                "importSelected": {
+                  "type": "string"
+                },
+                "importAll": {
+                  "type": "string"
+                },
+                "imported": {
+                  "type": "string"
+                },
+                "failed": {
+                  "type": "string"
+                },
+                "skippedAlreadyLinked": {
+                  "type": "string"
+                },
+                "skippedMatched": {
+                  "type": "string"
+                },
+                "skippedCurrency": {
+                  "type": "string"
+                },
+                "deferred": {
+                  "type": "string"
+                },
+                "deferredHint": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "title",
+                "hint",
+                "check",
+                "loading",
+                "retry",
+                "matched",
+                "toImport",
+                "duplicates",
+                "noSku",
+                "rowsCapped",
+                "sku",
+                "titleColumn",
+                "price",
+                "stock",
+                "importSelected",
+                "importAll",
+                "imported",
+                "failed",
+                "skippedAlreadyLinked",
+                "skippedMatched",
+                "skippedCurrency",
+                "deferred",
+                "deferredHint"
+              ],
+              "additionalProperties": false
+            },
             "toast": {
               "type": "object",
               "properties": {
@@ -13165,6 +13265,7 @@
             "disconnect",
             "disconnectWarning",
             "testFailedUnchanged",
+            "import",
             "toast"
           ],
           "additionalProperties": false
