@@ -49,6 +49,12 @@ export const SaveConnectionSchema = z.strictObject({
 })
 export type SaveConnectionSchema = z.infer<typeof SaveConnectionSchema>
 
+// "all", or an explicit non-empty list of SKUs (bounded, entries non-blank).
+export const ImportSchema = z.strictObject({
+  skus: z.union([z.literal("all"), z.array(z.string().trim().min(1).max(255)).min(1).max(500)]),
+})
+export type ImportSchema = z.infer<typeof ImportSchema>
+
 export const marketplaceConnectionMiddlewares: MiddlewareRoute[] = [
   {
     matcher: "/admin/marketplace-connections",
@@ -59,5 +65,10 @@ export const marketplaceConnectionMiddlewares: MiddlewareRoute[] = [
     matcher: "/admin/marketplace-connections/:id",
     method: "POST",
     middlewares: [validateAndTransformBody(SaveConnectionSchema)],
+  },
+  {
+    matcher: "/admin/marketplace-connections/:id/import",
+    method: "POST",
+    middlewares: [validateAndTransformBody(ImportSchema)],
   },
 ]

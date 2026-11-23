@@ -3,7 +3,9 @@ import { GET, POST as create } from "../route"
 import { POST as edit, DELETE as disconnect } from "../[id]/route"
 import { POST as test } from "../[id]/test/route"
 import { POST as link } from "../[id]/link/route"
-import { CreateConnectionSchema, SaveConnectionSchema } from "../middlewares"
+import { GET as importPreview } from "../[id]/import-preview/route"
+import { POST as runImport } from "../[id]/import/route"
+import { CreateConnectionSchema, ImportSchema, SaveConnectionSchema, marketplaceConnectionMiddlewares } from "../middlewares"
 
 jest.mock("../seller-hub-client", () => {
   const actual = jest.requireActual("../seller-hub-client")
@@ -372,5 +374,55 @@ describe("routes", () => {
       ["POST", "/internal/connections/c2/test"],
       ["POST", "/internal/connections/c3/link"],
     ])
+  })
+})
+
+describe("channel import", () => {
+  it("ImportSchema accepts all or a bounded list of non-blank skus", () => {
+    expect(ImportSchema.safeParse({ skus: "all" }).success).toBe(true)
+    expect(ImportSchema.safeParse({ skus: ["A", " B "] }).data).toEqual({ skus: ["A", "B"] })
+    expect(ImportSchema.safeParse({ skus: Array(500).fill("x") }).success).toBe(true)
+  })
+  it("ImportSchema rejects unknown keys, empty arrays, blanks, long entries and 501 items", () => {
+    expect(ImportSchema.safeParse({ skus: "all", extra: 1 }).success).toBe(false)
+    expect(ImportSchema.safeParse({}).success).toBe(false)
+    expect(ImportSchema.safeParse({ skus: "some" }).success).toBe(false)
+    expect(ImportSchema.safeParse({ skus: [] }).success).toBe(false)
+    expect(ImportSchema.safeParse({ skus: ["A", "  "] }).success).toBe(false)
+    expect(ImportSchema.safeParse({ skus: ["x".repeat(256)] }).success).toBe(false)
+    expect(ImportSchema.safeParse({ skus: Array(501).fill("x") }).success).toBe(false)
+  })
+  it("registers the body schema for POST import", () => {
+    expect(
+      marketplaceConnectionMiddlewares.some(
+        (m) => m.matcher === "/admin/marketplace-connections/:id/import" && m.method === "POST"
+      )
+    ).toBe(true)
+  })
+  it("preview is a GET to import-preview with a 120s timeout and no body", async () => {
+    mocked.mockResolvedValue({ status: 200, body: { products: [] } })
+    const res = makeRes()
+    await importPreview(makeReq("c1"), res)
+    expect(mocked).toHaveBeenCalledWith("GET", "/internal/connections/c1/import-preview", undefined, { timeoutMs: 120_000 })
+    expect(res.payload).toEqual({ products: [] })
+  })
+  it("import is a POST forwarding the body with a 300s timeout", async () => {
+    mocked.mockResolvedValue({ status: 200, body: { imported: 2 } })
+    const res = makeRes()
+    await runImport(makeReq("c 2", { skus: ["A", "B"] }), res)
+    expect(mocked).toHaveBeenCalledWith("POST", "/internal/connections/c%202/import", { skus: ["A", "B"] }, { timeoutMs: 300_000 })
+    expect(res.payload).toEqual({ imported: 2 })
+  })
+  it("passes seller-hub errors and statuses through", async () => {
+    mocked.mockResolvedValue({ status: 409, body: { error: "busy" } })
+    const r1 = makeRes()
+    await runImport(makeReq("c1", { skus: "all" }), r1)
+    expect(r1.statusCode).toBe(409)
+    expect(r1.payload).toEqual({ error: "busy" })
+    mocked.mockRejectedValue(new SellerHubError(502, "Cannot reach seller-hub"))
+    const r2 = makeRes()
+    await importPreview(makeReq("c1"), r2)
+    expect(r2.statusCode).toBe(502)
+    expect(r2.payload.message).toBe("Cannot reach seller-hub")
   })
 })
