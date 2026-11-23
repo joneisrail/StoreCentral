@@ -4,6 +4,8 @@ import { afterAll, afterEach, beforeAll, expect, test, vi } from "vitest"
 import { runMigrations } from "../db/migrate.js"
 import { MedusaAdminClient } from "../medusa/admin-client.js"
 import { assertTestDatabase } from "../test-support/database-guard.js"
+import { reconcileWooCommerce } from "./reconcile-woocommerce.js"
+import type { Queue } from "bullmq"
 import { startFakeMedusa, type FakeMedusa } from "../test-support/fake-medusa.js"
 import {
   startWooCommerce,
@@ -54,6 +56,17 @@ const makeWoo = () => {
 let pool: Pool
 let fake: FakeMedusa | null = null
 let runtime: WooCommerceRuntime | null = null
+const accountIds: string[] = []
+
+// Explicit deletes, children first, so the test leaves hub_test as it found it
+// even when an assertion fails.
+const deleteAccounts = async () => {
+  if (!pool || accountIds.length === 0) return
+  const ids = accountIds.splice(0)
+  await pool.query(`DELETE FROM seller_hub.sync_job WHERE integration_account_id = ANY($1::uuid[])`, [ids])
+  await pool.query(`DELETE FROM seller_hub.channel_listing WHERE integration_account_id = ANY($1::uuid[])`, [ids])
+  await pool.query(`DELETE FROM seller_hub.integration_account WHERE id = ANY($1::uuid[])`, [ids])
+}
 
 beforeAll(async () => {
   if (!process.env.TEST_DATABASE_URL) return
@@ -67,9 +80,11 @@ afterEach(async () => {
   await fake?.close()
   fake = null
   vi.restoreAllMocks()
+  await deleteAccounts()
 })
 
 afterAll(async () => {
+  await deleteAccounts()
   await pool?.end()
 })
 
@@ -82,6 +97,7 @@ test.skipIf(!process.env.TEST_DATABASE_URL)(
        VALUES ('woocommerce', 'connected') RETURNING id`
     )
     const accountId = rows[0]!.id
+    accountIds.push(accountId)
     fake = await startFakeMedusa({
       variants: [
         {
@@ -132,14 +148,41 @@ test.skipIf(!process.env.TEST_DATABASE_URL)(
       variants: [{ sku: "E2E-MUG", prices: [{ currency_code: "usd", amount: 9.5 }] }],
     })
     const { rows: links } = await pool.query(
-      `SELECT external_sku, external_variant_id, medusa_variant_id
+      `SELECT id, external_sku, external_variant_id, medusa_variant_id,
+              last_synced_quantity, last_synced_price::text AS last_synced_price
        FROM seller_hub.channel_listing
        WHERE integration_account_id = $1 AND external_sku = 'E2E-MUG'`,
       [accountId]
     )
     expect(links).toEqual([
-      { external_sku: "E2E-MUG", external_variant_id: "2", medusa_variant_id: expect.any(String) },
+      {
+        id: expect.any(String),
+        external_sku: "E2E-MUG",
+        external_variant_id: "2",
+        medusa_variant_id: expect.any(String),
+        last_synced_quantity: 4,
+        last_synced_price: "9.5",
+      },
     ])
+
+    // The import must never lead to a first push: the Woo reconcile queues
+    // nothing for the imported row (the startup-linked E2E-EXISTING row has
+    // no baseline and is not this test's concern).
+    const inventoryAdd = vi.fn()
+    const priceAdd = vi.fn()
+    await reconcileWooCommerce({
+      pool,
+      medusaClient,
+      integrationAccountId: accountId,
+      inventoryQueue: { add: inventoryAdd } as unknown as Queue,
+      priceQueue: { add: priceAdd } as unknown as Queue,
+      orderQueue: { add: vi.fn() } as unknown as Queue,
+      fetchOrdersSince: async () => [],
+    })
+    const importedId = links[0]!.id
+    for (const add of [inventoryAdd, priceAdd]) {
+      expect(add.mock.calls.filter((c) => c[1]?.channelListingId === importedId)).toEqual([])
+    }
     const { rows: jobs } = await pool.query(
       `SELECT external_id, status FROM seller_hub.sync_job
        WHERE integration_account_id = $1 AND sync_type = 'product' AND external_id = 'E2E-MUG'`,

@@ -1,13 +1,8 @@
 import type { ImportOutcome, ImportPreview } from "../sync/channel-import-run.js"
-import type { ChannelListing } from "../sync/channel-import.js"
+import { titleOf, type ChannelListing } from "../sync/channel-import.js"
 
 const PREVIEW_ROW_CAP = 200
 const OUTCOME_LIST_CAP = 100
-
-const titleOf = (l: ChannelListing): string =>
-  l.title && l.parentTitle && l.parentTitle !== l.title
-    ? `${l.parentTitle} - ${l.title}`
-    : l.title || l.parentTitle || (l.sku ?? "")
 
 /** Bounds the preview body: first 200 rows per group plus the full counts. */
 export const shapeImportPreview = (plan: ImportPreview) => {

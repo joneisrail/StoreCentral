@@ -37,6 +37,8 @@ export type InternalHandlerDeps = {
 }
 
 const MAX_BODY_BYTES = 64 * 1024
+// Upper bound on an explicit SKU selection for one import request.
+const MAX_IMPORT_SKUS = 500
 const MARKETPLACES: readonly string[] = ["shopify", "woocommerce", "amazon"]
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const DEFAULT_NAMES: Record<Marketplace, string> = {
@@ -455,11 +457,18 @@ export const createInternalHandler = (deps: InternalHandlerDeps) => {
   }
 
   const importRun = async (id: string, req: http.IncomingMessage, res: http.ServerResponse) => {
-    const body = (await readJsonBody(req, res)) as Record<string, unknown>
-    const skus = body.skus
+    const body: unknown = await readJsonBody(req, res)
+    // readJsonBody already rejects non-objects; checked again so a null body can never reach `.skus`.
+    if (body === null || typeof body !== "object" || Array.isArray(body)) {
+      return send(res, 400, { error: "invalid_json" })
+    }
+    const skus = (body as Record<string, unknown>).skus
     const valid =
       skus === "all" ||
-      (Array.isArray(skus) && skus.length > 0 && skus.every((s) => typeof s === "string" && s.trim() !== ""))
+      (Array.isArray(skus) &&
+        skus.length > 0 &&
+        skus.length <= MAX_IMPORT_SKUS &&
+        skus.every((s) => typeof s === "string" && s.trim() !== ""))
     if (!valid) return send(res, 400, { error: "invalid_json" })
     const runtime = await liveImportRuntime(id, res)
     if (!runtime) return

@@ -23,6 +23,21 @@ export type ImportPlan = {
 
 export const IMPORT_RUN_CAP = 200
 
+// Shopify names the only variant of a single-variant product "Default Title".
+const SHOPIFY_DEFAULT_VARIANT_TITLE = "Default Title"
+
+/**
+ * Draft product title for a listing: "parent - variant" when both exist and
+ * differ, else the variant title. Shopify's "Default Title" variant name is
+ * dropped in favour of the parent title. Falls back to the trimmed SKU.
+ */
+export const titleOf = (listing: ChannelListing): string => {
+  const { parentTitle } = listing
+  const variant = listing.title === SHOPIFY_DEFAULT_VARIANT_TITLE ? "" : listing.title
+  if (variant && parentTitle && parentTitle !== variant) return `${parentTitle} - ${variant}`
+  return variant || parentTitle || listing.title || (listing.sku ?? "").trim()
+}
+
 const normalize = (sku: string | null): string | null => {
   const trimmed = sku?.trim()
   return trimmed ? trimmed : null

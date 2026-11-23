@@ -820,6 +820,28 @@ test("import validates body", async () => {
   expect(manager.importListings).not.toHaveBeenCalled()
 })
 
+test("import rejects a null or non-object JSON body with 400, not 500", async () => {
+  await start()
+  for (const raw of ["null", "42", "[]", '"all"', "true"]) {
+    const r = await call("POST", `/internal/connections/${SHOPIFY_ID}/import`, raw)
+    expect(r.status).toBe(400)
+    expect(r.json).toEqual({ error: "invalid_json" })
+  }
+  expect(manager.importListings).not.toHaveBeenCalled()
+})
+
+test("import accepts up to 500 skus and rejects more", async () => {
+  await start()
+  const skus = (n: number) => Array.from({ length: n }, (_, i) => `SKU-${i}`)
+  const over = await call("POST", `/internal/connections/${SHOPIFY_ID}/import`, { skus: skus(501) })
+  expect(over.status).toBe(400)
+  expect(over.json).toEqual({ error: "invalid_json" })
+  expect(manager.importListings).not.toHaveBeenCalled()
+  const max = await call("POST", `/internal/connections/${SHOPIFY_ID}/import`, { skus: skus(500) })
+  expect(max.status).toBe(200)
+  expect(manager.importListings).toHaveBeenCalledTimes(1)
+})
+
 test("import passes skus and returns outcome", async () => {
   await start()
   const r = await call("POST", `/internal/connections/${SHOPIFY_ID}/import`, { skus: ["U1"] })

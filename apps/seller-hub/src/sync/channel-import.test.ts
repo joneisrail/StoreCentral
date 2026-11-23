@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { planImport, type ChannelListing, type StoreVariant } from './channel-import.js'
+import { planImport, titleOf, type ChannelListing, type StoreVariant } from './channel-import.js'
 
 const listing = (externalId: string, sku: string | null, parentExternalId: string | null = null): ChannelListing => ({
   externalId, parentExternalId, sku, title: `T${externalId}`, parentTitle: null,
@@ -91,5 +91,28 @@ describe('planImport', () => {
 
   it('empty inputs', () => {
     expect(planImport([], [])).toEqual({ matched: [], unmatched: [], duplicates: [], noSku: [] })
+  })
+})
+
+describe('titleOf', () => {
+  const t = (title: string, parentTitle: string | null, sku: string | null = 'S') =>
+    titleOf({ ...listing('1', sku), title, parentTitle })
+
+  it('joins parent and variant titles when both exist and differ', () => {
+    expect(t('Red', 'Shirt')).toBe('Shirt - Red')
+  })
+
+  it('uses the variant title when the parent matches or is missing', () => {
+    expect(t('Mug', 'Mug')).toBe('Mug')
+    expect(t('Mug', null)).toBe('Mug')
+  })
+
+  it("drops Shopify's Default Title variant name", () => {
+    expect(t('Default Title', 'Poster')).toBe('Poster')
+  })
+
+  it('falls back to the parent title, then the sku', () => {
+    expect(t('', 'Poster')).toBe('Poster')
+    expect(t('', null, ' SKU-1 ')).toBe('SKU-1')
   })
 })

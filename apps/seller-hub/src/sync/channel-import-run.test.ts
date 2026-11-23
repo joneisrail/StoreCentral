@@ -10,6 +10,9 @@ import {
 } from "../test-support/fake-medusa.js"
 import type { ChannelListing } from "./channel-import.js"
 import { previewImport, runImport } from "./channel-import-run.js"
+import { reconcileShopify } from "./reconcile.js"
+import { reconcileWooCommerce } from "./reconcile-woocommerce.js"
+import type { Queue } from "bullmq"
 
 const listing = (
   externalId: string,
@@ -69,7 +72,14 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("channel import run (test databa
     await runMigrations(pool)
   }, 30_000)
 
+  const accounts: string[] = []
+
   afterAll(async () => {
+    if (pool && accounts.length > 0) {
+      await pool.query(`DELETE FROM seller_hub.sync_job WHERE integration_account_id = ANY($1::uuid[])`, [accounts])
+      await pool.query(`DELETE FROM seller_hub.channel_listing WHERE integration_account_id = ANY($1::uuid[])`, [accounts])
+      await pool.query(`DELETE FROM seller_hub.integration_account WHERE id = ANY($1::uuid[])`, [accounts])
+    }
     await pool?.end()
   })
 
@@ -78,6 +88,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("channel import run (test databa
       `INSERT INTO seller_hub.integration_account (marketplace, status)
        VALUES ('woocommerce', 'connected') RETURNING id`
     )
+    accounts.push(rows[0]!.id)
     return rows[0]!.id
   }
 
@@ -502,6 +513,93 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("channel import run (test databa
     expect(fake.state.createdProducts[0].variants[0].manage_inventory).toBe(true)
     expect(fake.state.locationLevels).toEqual([
       { inventoryItemId: expect.any(String), body: { location_id: "sloc_default", stocked_quantity: 0 } },
+    ])
+  })
+
+  test("imported links carry a sync baseline so neither reconcile queues a push", async () => {
+    const acct = await newAccount()
+    const { fake, medusaClient } = await startMedusa()
+    const { channel } = fakeChannel([
+      listing("1", "BL-STOCK", { stock: 5, price: "19.99" }),
+      listing("2", "BL-NULL", { stock: null, price: "7" }),
+      listing("3", "BL-FAIL", { stock: 3, price: "4.5" }),
+    ])
+
+    await runImport({ pool, medusaClient, integrationAccountId: acct, channel, skus: ["BL-STOCK", "BL-NULL"] })
+    fake.state.locationLevelError = { message: "stock step down" }
+    const failedRun = await runImport({ pool, medusaClient, integrationAccountId: acct, channel, skus: ["BL-FAIL"] })
+    expect(failedRun.failed.map((f) => f.sku)).toEqual(["BL-FAIL"])
+    fake.state.locationLevelError = undefined
+
+    const { rows } = await pool.query(
+      `SELECT external_sku, last_synced_quantity, last_synced_price::text AS last_synced_price
+       FROM seller_hub.channel_listing WHERE integration_account_id = $1 ORDER BY external_sku`,
+      [acct]
+    )
+    expect(rows).toEqual([
+      { external_sku: "BL-FAIL", last_synced_quantity: 0, last_synced_price: "4.5" },
+      { external_sku: "BL-NULL", last_synced_quantity: 0, last_synced_price: "7" },
+      { external_sku: "BL-STOCK", last_synced_quantity: 5, last_synced_price: "19.99" },
+    ])
+
+    const queues = () => ({
+      inventoryQueue: { add: vi.fn() } as unknown as Queue,
+      priceQueue: { add: vi.fn() } as unknown as Queue,
+      orderQueue: { add: vi.fn() } as unknown as Queue,
+    })
+    const woo = queues()
+    const wooResult = await reconcileWooCommerce({
+      pool,
+      medusaClient,
+      integrationAccountId: acct,
+      ...woo,
+      fetchOrdersSince: async () => [],
+    })
+    expect(wooResult).toMatchObject({ inventoryRequeued: 0, priceRequeued: 0, failedChecks: 0 })
+    expect(woo.inventoryQueue.add).not.toHaveBeenCalled()
+    expect(woo.priceQueue.add).not.toHaveBeenCalled()
+
+    const shop = queues()
+    const shopResult = await reconcileShopify({
+      pool,
+      medusaClient,
+      integrationAccountId: acct,
+      ...shop,
+      fetchOrdersSince: async () => [],
+    })
+    expect(shopResult).toMatchObject({ inventoryRequeued: 0, priceRequeued: 0, failedChecks: 0 })
+    expect(shop.inventoryQueue.add).not.toHaveBeenCalled()
+    expect(shop.priceQueue.add).not.toHaveBeenCalled()
+  })
+
+  test("Shopify's Default Title variant name is dropped from the draft title", async () => {
+    const acct = await newAccount()
+    const { fake, medusaClient } = await startMedusa()
+    const { channel } = fakeChannel([
+      listing("1", "DT-1", { title: "Default Title", parentTitle: "Poster" }),
+      listing("2", "DT-2", { title: "Large", parentTitle: "Poster" }),
+    ])
+
+    await runImport({ pool, medusaClient, integrationAccountId: acct, channel, skus: "all" })
+
+    expect(fake.state.createdProducts.map((p) => p.title)).toEqual(["Poster", "Poster - Large"])
+  })
+
+  test("a failure never overwrites a sync_job another run marked succeeded", async () => {
+    const acct = await newAccount()
+    const { medusaClient } = await startMedusa()
+    await pool.query(
+      `INSERT INTO seller_hub.sync_job (integration_account_id, sync_type, external_id, status)
+       VALUES ($1, 'product', 'RACE-1', 'succeeded')`,
+      [acct]
+    )
+    const { channel } = fakeChannel([listing("1", "RACE-1", { price: "" })])
+
+    const outcome = await runImport({ pool, medusaClient, integrationAccountId: acct, channel, skus: "all" })
+
+    expect(outcome.failed).toEqual([{ sku: "RACE-1", message: "channel listing has no price" }])
+    expect(await jobsOf(acct)).toEqual([
+      { sync_type: "product", external_id: "RACE-1", status: "succeeded", last_error: null },
     ])
   })
 })
