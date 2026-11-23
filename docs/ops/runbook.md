@@ -174,6 +174,42 @@ select external_id, status, last_error from seller_hub.sync_job
 where sync_type = 'product' order by updated_at desc;
 ```
 
+## Reading the sync-status panel
+
+Every Shopify or WooCommerce sales channel page has a **Sync status** panel
+under the connection details, including read-only (legacy) connections. It
+only reads: it starts, retries or changes nothing. It loads when the page
+opens, re-reads every 30 seconds while the tab is visible, and **Refresh**
+re-reads at once. Amazon has no panel.
+
+The numbers come from seller-hub's own tables for that connection:
+
+- **Linked listings**: rows in `seller_hub.channel_listing`, split by listing
+  status (published, draft, error, and so on).
+- **With error**: listings whose `last_error` is set (the channel rejected the
+  last push).
+- **Never pushed**: linked listings with no stock pushed yet
+  (`last_synced_quantity` is null). Imported listings start with a baseline
+  and are not counted.
+- **Job table**: per kind (products, inventory, prices, orders, tracking) the
+  `seller_hub.sync_job` rows that are pending, processing or failed, and when
+  that kind last succeeded ("Never" if it has not).
+- **Recent failures**: the newest 25 failed `seller_hub.sync_job` rows with
+  the SKU or id, attempts and the (sanitized, shortened) error. "Showing N of
+  M" means there are more; read them with the query under "Importing a
+  channel's products" without the `sync_type` filter.
+
+Two states look different on purpose:
+
+- **Red banner "Seller-hub is not reachable"** with a Retry button and no
+  numbers: the backend could not get an answer from seller-hub (for example
+  502 `seller_hub_unavailable`). Check seller-hub health first (see
+  "Reading health").
+- **Notice "Sync is not running"** with numbers shown: seller-hub answered,
+  but no live sync runs for this connection (stopped after an error, or
+  legacy). The numbers are the last stored values. A passing **Test** on the
+  connection turns sync back on.
+
 ## Known unverified items
 
 These were written without a Docker host available. They are verified only by the first CI run or the first real deployment, so treat a failure in any of them as plausible, not surprising:

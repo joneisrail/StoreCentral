@@ -300,6 +300,72 @@ export const useRunImport = (
   })
 }
 
+// Sync health of one connection (Phase 4b). Read-only; the shape passes
+// through unchanged from seller-hub's SyncStatusData plus `sync_live`.
+export type SyncKind = "product" | "inventory" | "price" | "order" | "tracking"
+
+export type SyncJobCounts = {
+  pending: number
+  processing: number
+  failed: number
+  succeeded: number
+}
+
+export type SyncStatus = {
+  sync_live: boolean
+  connection: {
+    status: string
+    last_error: string | null
+    last_synced_at: string | null
+  }
+  listings: {
+    total: number
+    by_status: Record<string, number>
+    with_error: number
+    never_pushed: number
+  }
+  jobs: {
+    by_type: Record<string, SyncJobCounts>
+    last_succeeded_at: Record<SyncKind, string | null>
+  }
+  recent_failures: {
+    sync_type: string
+    external_id: string
+    attempts: number
+    last_error: string | null
+    updated_at: string
+  }[]
+  failures_total: number
+}
+
+// How often the panel re-reads the status while the page is visible.
+export const SYNC_STATUS_POLL_MS = 30_000
+
+export const syncStatusQueryKey = (connectionId: string) =>
+  [
+    ...marketplaceConnectionsQueryKeys.detail(connectionId),
+    "sync-status",
+  ] as const
+
+export const useSyncStatus = (
+  connectionId: string,
+  options?: Omit<
+    UseQueryOptions<SyncStatus, FetchError, SyncStatus, QueryKey>,
+    "queryFn" | "queryKey"
+  >
+) => {
+  return useQuery({
+    queryKey: syncStatusQueryKey(connectionId),
+    queryFn: () =>
+      sdk.client.fetch<SyncStatus>(`${BASE_PATH}/${connectionId}/sync-status`, {
+        method: "GET",
+      }),
+    refetchInterval: SYNC_STATUS_POLL_MS,
+    refetchIntervalInBackground: false,
+    ...options,
+  })
+}
+
 export const useDisconnectMarketplaceConnection = (
   id: string,
   options?: UseMutationOptions<MarketplaceConnectionResponse, FetchError, void>

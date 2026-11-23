@@ -19,6 +19,7 @@ import {
 } from "../../../../../hooks/api/marketplace-connections"
 import { MARKETPLACES } from "../../../components/marketplace-fields"
 import { ChannelImportPanel } from "../channel-import-panel"
+import { ChannelSyncStatusPanel } from "../channel-sync-status-panel"
 import { MarketplaceConnectDrawer } from "../marketplace-connect-drawer"
 import { MarketplaceEditDrawer } from "../marketplace-edit-drawer"
 import { AutoSyncPriceSwitch } from "./auto-sync-price-switch"
@@ -248,6 +249,11 @@ const ConnectionDetails = ({
           </Button>
         </div>
       ) : null}
+      {/* Read-only, so shown for legacy (read-only) connections too. */}
+      <ChannelSyncStatusPanel
+        connectionId={connection.id}
+        marketplace={connection.marketplace}
+      />
       {actionsEnabled ? (
         <ChannelImportPanel
           connectionId={connection.id}

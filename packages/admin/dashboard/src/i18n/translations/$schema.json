@@ -13144,6 +13144,139 @@
               ],
               "additionalProperties": false
             },
+            "syncStatus": {
+              "type": "object",
+              "properties": {
+                "title": {
+                  "type": "string"
+                },
+                "hint": {
+                  "type": "string"
+                },
+                "refresh": {
+                  "type": "string"
+                },
+                "retry": {
+                  "type": "string"
+                },
+                "loading": {
+                  "type": "string"
+                },
+                "unavailable": {
+                  "type": "string"
+                },
+                "notRunning": {
+                  "type": "string"
+                },
+                "listingsTotal": {
+                  "type": "string"
+                },
+                "listingsByStatus": {
+                  "type": "string"
+                },
+                "withError": {
+                  "type": "string"
+                },
+                "neverPushed": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "pending": {
+                  "type": "string"
+                },
+                "processing": {
+                  "type": "string"
+                },
+                "failed": {
+                  "type": "string"
+                },
+                "lastSuccess": {
+                  "type": "string"
+                },
+                "never": {
+                  "type": "string"
+                },
+                "failuresTitle": {
+                  "type": "string"
+                },
+                "noFailures": {
+                  "type": "string"
+                },
+                "failuresShown": {
+                  "type": "string"
+                },
+                "externalId": {
+                  "type": "string"
+                },
+                "attempts": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                },
+                "time": {
+                  "type": "string"
+                },
+                "kinds": {
+                  "type": "object",
+                  "properties": {
+                    "product": {
+                      "type": "string"
+                    },
+                    "inventory": {
+                      "type": "string"
+                    },
+                    "price": {
+                      "type": "string"
+                    },
+                    "order": {
+                      "type": "string"
+                    },
+                    "tracking": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "product",
+                    "inventory",
+                    "price",
+                    "order",
+                    "tracking"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "title",
+                "hint",
+                "refresh",
+                "retry",
+                "loading",
+                "unavailable",
+                "notRunning",
+                "listingsTotal",
+                "listingsByStatus",
+                "withError",
+                "neverPushed",
+                "kind",
+                "pending",
+                "processing",
+                "failed",
+                "lastSuccess",
+                "never",
+                "failuresTitle",
+                "noFailures",
+                "failuresShown",
+                "externalId",
+                "attempts",
+                "message",
+                "time",
+                "kinds"
+              ],
+              "additionalProperties": false
+            },
             "toast": {
               "type": "object",
               "properties": {
@@ -13266,6 +13399,7 @@
             "disconnectWarning",
             "testFailedUnchanged",
             "import",
+            "syncStatus",
             "toast"
           ],
           "additionalProperties": false

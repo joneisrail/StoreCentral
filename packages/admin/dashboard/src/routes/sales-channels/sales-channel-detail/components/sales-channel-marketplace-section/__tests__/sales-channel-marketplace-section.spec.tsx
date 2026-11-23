@@ -65,6 +65,7 @@ vi.mock("../../../../../../hooks/api/marketplace-connections", () => ({
   }),
   useImportPreview: () => ({ data: undefined, isError: false }),
   useRunImport: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useSyncStatus: () => ({ data: undefined, isPending: true, isError: false }),
 }))
 
 if (!window.ResizeObserver) {
@@ -312,6 +313,24 @@ describe("SalesChannelMarketplaceSection", () => {
     ).toBeNull()
     expect(
       screen.queryByText("salesChannels.marketplace.import.check")
+    ).toBeNull()
+  })
+
+  it("shown for read-only connection", () => {
+    setConnection(connection({ read_only: true, managed: false }))
+    renderSection()
+    expect(
+      screen.getByText("salesChannels.marketplace.syncStatus.title")
+    ).toBeTruthy()
+  })
+
+  it("hides the sync-status panel for Amazon", () => {
+    setConnection(
+      connection({ marketplace: "amazon", sync_live: false, fields: {} })
+    )
+    renderSection()
+    expect(
+      screen.queryByText("salesChannels.marketplace.syncStatus.title")
     ).toBeNull()
   })
 

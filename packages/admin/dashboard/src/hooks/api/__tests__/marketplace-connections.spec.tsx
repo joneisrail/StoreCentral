@@ -31,7 +31,9 @@ import {
   useMarketplaceConnection,
   useRunImport,
   useSaveMarketplaceConnection,
+  useSyncStatus,
   useTestMarketplaceConnection,
+  syncStatusQueryKey,
 } from "../marketplace-connections"
 
 const wrapper = ({ children }: { children: ReactNode }) => (
@@ -175,5 +177,34 @@ describe("marketplace connection hooks", () => {
     expect(invalidate).toHaveBeenCalledWith({
       queryKey: importPreviewQueryKey("mc_1"),
     })
+  })
+
+  it("useSyncStatus GETs the sync-status route under the connection key and polls every 30 s", async () => {
+    mockFetch.mockResolvedValue({ sync_live: true, failures_total: 0 })
+    const { result } = renderHook(() => useSyncStatus("mc_1"), { wrapper })
+    await waitFor(() =>
+      expect(result.current.data).toEqual({
+        sync_live: true,
+        failures_total: 0,
+      })
+    )
+    expect(mockFetch).toHaveBeenCalledWith(
+      "/admin/marketplace-connections/mc_1/sync-status",
+      { method: "GET" }
+    )
+    expect(syncStatusQueryKey("mc_1")).toEqual([
+      ...marketplaceConnectionsQueryKeys.detail("mc_1"),
+      "sync-status",
+    ])
+    const query = queryClient
+      .getQueryCache()
+      .find({ queryKey: syncStatusQueryKey("mc_1") })
+    expect(query).toBeTruthy()
+    const options = query!.options as {
+      refetchInterval?: unknown
+      refetchIntervalInBackground?: unknown
+    }
+    expect(options.refetchInterval).toBe(30_000)
+    expect(options.refetchIntervalInBackground).toBe(false)
   })
 })
