@@ -86,11 +86,11 @@ describe("findDriftedBasePriceOffersStep", () => {
       stock: 0,
     }))
     const { c } = make([
-      row({ sales_channel_id: "sc_a", sync_state: "failed", price: "" }),
+      row({ sales_channel_id: "sc_a", sync_state: "failed" }),
       row({ sales_channel_id: "sc_b" }),
       row({ sales_channel_id: "sc_c" }),
       row({ sales_channel_id: "sc_a2", price: 7 }),
-    ].map((r) => (r.price === "" ? { ...r, price: null } : r)))
+    ])
     const { result } = await wf(c).run({ input: { variant_id: "v1" } })
     expect(result).toEqual({
       variant_id: "v1",
@@ -98,6 +98,35 @@ describe("findDriftedBasePriceOffersStep", () => {
     })
     expect(loadPushValues).toHaveBeenCalledTimes(2)
     expect(fetchConnectedChannelIds).toHaveBeenCalledTimes(1)
+  })
+
+  it("uses one connection lookup and shares the set with loadPushValues", async () => {
+    const set = new Set(["sc_a", "sc_b"])
+    ;(fetchConnectedChannelIds as jest.Mock).mockResolvedValue(set)
+    ;(loadPushValues as jest.Mock).mockResolvedValue({ price: null, effective_price: 12, stock: 0 })
+    const { c } = make([row({ sales_channel_id: "sc_a" }), row({ sales_channel_id: "sc_b" })])
+    await wf(c).run({ input: { variant_id: "v1" } })
+    expect(loadPushValues).toHaveBeenCalledTimes(2)
+    for (const call of (loadPushValues as jest.Mock).mock.calls) {
+      await expect(call[0].connectedChannelIds()).resolves.toBe(set)
+    }
+    expect(fetchConnectedChannelIds).toHaveBeenCalledTimes(1)
+  })
+
+  it("selects an offer whose last_synced_price is null", async () => {
+    ;(fetchConnectedChannelIds as jest.Mock).mockResolvedValue(new Set(["sc_a"]))
+    ;(loadPushValues as jest.Mock).mockResolvedValue({ price: null, effective_price: 10, stock: 0 })
+    const { c } = make([row({ last_synced_price: null, sync_state: "pending" })])
+    const { result } = await wf(c).run({ input: { variant_id: "v1" } })
+    expect(result.drifted).toEqual([{ channel_id: "sc_a", previous_sync_state: "pending" }])
+  })
+
+  it("skips an explicit-price offer on a connected unsynced channel", async () => {
+    ;(fetchConnectedChannelIds as jest.Mock).mockResolvedValue(new Set(["sc_a"]))
+    const { c } = make([row({ price: "9.5", last_synced_price: null, sync_state: "pending" })])
+    const { result } = await wf(c).run({ input: { variant_id: "v1" } })
+    expect(result.drifted).toEqual([])
+    expect(loadPushValues).not.toHaveBeenCalled()
   })
 
   it("does nothing for a variant with no offers", async () => {

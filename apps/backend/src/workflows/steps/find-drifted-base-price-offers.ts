@@ -58,7 +58,7 @@ export const findDriftedBasePriceOffersStep = createStep(
     const effectiveByChannel: Record<string, number> = {}
     for (const r of connectedCandidates) {
       const pv = await loadPushValues(
-        { query, offers, connectedChannelIds: fetchConnectedChannelIds },
+        { query, offers, connectedChannelIds: async () => connected },
         input.variant_id,
         r.sales_channel_id
       )
