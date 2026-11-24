@@ -12797,6 +12797,113 @@
       ],
       "additionalProperties": false
     },
+    "amazonSettings": {
+      "type": "object",
+      "properties": {
+        "domain": { "type": "string" },
+        "subtitle": { "type": "string" },
+        "loading": { "type": "string" },
+        "loadError": { "type": "string" },
+        "retry": { "type": "string" },
+        "set": { "type": "string" },
+        "leaveBlank": { "type": "string" },
+        "fieldInvalid": { "type": "string" },
+        "fieldMissing": { "type": "string" },
+        "source": {
+          "type": "object",
+          "properties": {
+            "database": { "type": "string" },
+            "environment": { "type": "string" },
+            "none": { "type": "string" }
+          },
+          "required": ["database", "environment", "none"],
+          "additionalProperties": false
+        },
+        "status": {
+          "type": "object",
+          "properties": {
+            "running": { "type": "string" },
+            "notRunning": { "type": "string" }
+          },
+          "required": ["running", "notRunning"],
+          "additionalProperties": false
+        },
+        "fields": {
+          "type": "object",
+          "properties": {
+            "awsRegion": { "type": "string" },
+            "sqsQueueUrl": { "type": "string" },
+            "lwaClientId": { "type": "string" },
+            "awsAccessKeyId": { "type": "string" },
+            "awsSecretAccessKey": { "type": "string" },
+            "lwaClientSecret": { "type": "string" }
+          },
+          "required": [
+            "awsRegion",
+            "sqsQueueUrl",
+            "lwaClientId",
+            "awsAccessKeyId",
+            "awsSecretAccessKey",
+            "lwaClientSecret"
+          ],
+          "additionalProperties": false
+        },
+        "test": { "type": "string" },
+        "testHint": { "type": "string" },
+        "testPassed": { "type": "string" },
+        "testCodes": {
+          "type": "object",
+          "properties": {
+            "not_configured": { "type": "string" },
+            "invalid_credentials": { "type": "string" },
+            "queue_not_found": { "type": "string" },
+            "access_denied": { "type": "string" },
+            "unreachable": { "type": "string" }
+          },
+          "required": [
+            "not_configured",
+            "invalid_credentials",
+            "queue_not_found",
+            "access_denied",
+            "unreachable"
+          ],
+          "additionalProperties": false
+        },
+        "clear": { "type": "string" },
+        "clearWarning": { "type": "string" },
+        "toast": {
+          "type": "object",
+          "properties": {
+            "saved": { "type": "string" },
+            "cleared": { "type": "string" }
+          },
+          "required": ["saved", "cleared"],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "domain",
+        "subtitle",
+        "loading",
+        "loadError",
+        "retry",
+        "set",
+        "leaveBlank",
+        "fieldInvalid",
+        "fieldMissing",
+        "source",
+        "status",
+        "fields",
+        "test",
+        "testHint",
+        "testPassed",
+        "testCodes",
+        "clear",
+        "clearWarning",
+        "toast"
+      ],
+      "additionalProperties": false
+    },
     "reservations": {
       "type": "object",
       "properties": {
@@ -16087,6 +16194,7 @@
     "regions",
     "taxes",
     "locations",
+    "amazonSettings",
     "reservations",
     "salesChannels",
     "apiKeyManagement",

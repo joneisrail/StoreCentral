@@ -3315,6 +3315,50 @@
       "removeChannel": "Sales channel removed successfully"
     }
   },
+  "amazonSettings": {
+    "domain": "Amazon",
+    "subtitle": "Connection settings for Amazon order notifications. Values saved here take precedence over the server environment.",
+    "loading": "Loading...",
+    "loadError": "Could not load the Amazon settings: {{message}}",
+    "retry": "Retry",
+    "set": "Set",
+    "leaveBlank": "Leave blank to keep",
+    "fieldInvalid": "This value is not valid.",
+    "fieldMissing": "This value is required.",
+    "source": {
+      "database": "Saved here",
+      "environment": "From server environment",
+      "none": "Not set"
+    },
+    "status": {
+      "running": "The order notification consumer is running.",
+      "notRunning": "The order notification consumer is not running."
+    },
+    "fields": {
+      "awsRegion": "AWS region",
+      "sqsQueueUrl": "SQS queue URL",
+      "lwaClientId": "LWA client ID",
+      "awsAccessKeyId": "AWS access key ID",
+      "awsSecretAccessKey": "AWS secret access key",
+      "lwaClientSecret": "LWA client secret"
+    },
+    "test": "Test connection",
+    "testHint": "Test connection checks the AWS credentials and the SQS queue. It does not check the LWA client ID or secret.",
+    "testPassed": "The AWS credentials and the SQS queue work. LWA was not checked.",
+    "testCodes": {
+      "not_configured": "Amazon settings are incomplete.",
+      "invalid_credentials": "The AWS credentials were rejected.",
+      "queue_not_found": "The SQS queue was not found.",
+      "access_denied": "The AWS credentials are not allowed to read the queue.",
+      "unreachable": "AWS could not be reached."
+    },
+    "clear": "Clear stored settings",
+    "clearWarning": "This removes every Amazon setting saved here. Values from the server environment stay in effect.",
+    "toast": {
+      "saved": "Amazon settings saved",
+      "cleared": "Stored Amazon settings cleared"
+    }
+  },
   "reservations": {
     "domain": "Reservations",
     "subtitle": "Manage the reserved quantity of inventory items.",

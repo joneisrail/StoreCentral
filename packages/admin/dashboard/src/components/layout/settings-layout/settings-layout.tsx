@@ -80,6 +80,10 @@ const useSettingRoutes = (): INavItem[] => {
         to: "/settings/sales-channels",
       },
       {
+        label: t("amazonSettings.domain"),
+        to: "/settings/amazon",
+      },
+      {
         label: t("productTypes.domain"),
         to: "/settings/product-types",
       },

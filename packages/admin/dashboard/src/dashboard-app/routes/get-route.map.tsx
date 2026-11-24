@@ -1383,6 +1383,20 @@ export function getRouteMap({
               ],
             },
             {
+              path: "amazon",
+              errorElement: <ErrorBoundary />,
+              element: <Outlet />,
+              handle: {
+                breadcrumb: () => t("amazonSettings.domain"),
+              },
+              children: [
+                {
+                  path: "",
+                  lazy: () => import("../../routes/settings-amazon"),
+                },
+              ],
+            },
+            {
               path: "locations",
               errorElement: <ErrorBoundary />,
               element: <Outlet />,
