@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server"
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_MEDUSA_BACKEND_URL
 const PUBLISHABLE_API_KEY = process.env.NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY
-const DEFAULT_REGION = process.env.NEXT_PUBLIC_DEFAULT_REGION || "dk"
+const DEFAULT_REGION = process.env.NEXT_PUBLIC_DEFAULT_REGION || "us"
 
 const regionMapCache = {
   regionMap: new Map<string, HttpTypes.StoreRegion>(),
@@ -108,7 +108,21 @@ export async function middleware(request: NextRequest) {
   const cacheIdCookie = request.cookies.get("_medusa_cache_id")
   const cacheId = cacheIdCookie?.value || crypto.randomUUID()
 
-  const regionMap = await getRegionMap(cacheId)
+  let regionMap: Map<string, HttpTypes.StoreRegion>
+  try {
+    regionMap = await getRegionMap(cacheId)
+  } catch (error) {
+    // Without regions nothing can be priced or routed. Answer with a clear 503
+    // instead of letting the middleware crash into a generic 500.
+    console.error(
+      "Storefront middleware could not load regions:",
+      error instanceof Error ? error.message : "unknown error"
+    )
+    return new NextResponse(
+      "The store is temporarily unavailable. Please try again shortly.",
+      { status: 503, headers: { "Retry-After": "30" } }
+    )
+  }
 
   // A link carrying a legacy/bookmarked country-code segment (e.g. /us/...)
   // already matches the [countryCode] route directly, so let Next.js handle
