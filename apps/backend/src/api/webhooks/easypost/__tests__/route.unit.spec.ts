@@ -11,6 +11,12 @@ jest.mock("@medusajs/medusa/core-flows", () => ({
   createShipmentWorkflow: () => ({ run: (i: any) => mockCreateShipment(i) }),
   markFulfillmentAsDeliveredWorkflow: () => ({ run: (i: any) => mockDelivered(i) }),
 }))
+// The route imports a helper from the seller-hub-sync subscriber, which loads the
+// propagate-base-price workflow; that needs core-flows pieces this spec does not mock.
+jest.mock("../../../../workflows/propagate-base-price", () => ({
+  __esModule: true,
+  default: () => ({ run: jest.fn() }),
+}))
 jest.mock("@dtc/fulfillment-easypost", () => ({
   EasyPostClient: class {
     verifyWebhookSignature() {
