@@ -159,6 +159,8 @@ describe("amazon settings store", () => {
       ).rejects.toMatchObject({ fields: ["sqsQueueUrl"] })
     }
     await saveAmazonSettings(pool, KEY, { sqsQueueUrl: "https://sqs.us-east-1.amazonaws.com/1/q" })
+    await saveAmazonSettings(pool, KEY, { sqsQueueUrl: "https://amazonaws.com/1/q" })
+    await saveAmazonSettings(pool, KEY, { sqsQueueUrl: "https://sqs.cn-north-1.amazonaws.com.cn/1/q" })
   })
 
   test("undecryptable stored secret falls back to the environment value", async () => {

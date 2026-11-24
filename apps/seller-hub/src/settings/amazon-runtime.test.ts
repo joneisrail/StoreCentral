@@ -100,6 +100,78 @@ describe("amazon runtime", () => {
     })
   })
 
+  test("onApplied is called with the resolved settings on each apply", async () => {
+    const seen: string[] = []
+    const env = { AWS_REGION: "us-east-1", SQS_QUEUE_URL: QUEUE, AMAZON_LWA_CLIENT_ID: "id-1" }
+    const runtime = createAmazonRuntime({
+      pool: emptyPool(),
+      encryptionKey: KEY,
+      env,
+      makeSqs: () => ({
+        receiveMessage: async () => ({}),
+        deleteMessage: async () => undefined,
+        getQueueAttributes: async () => ({}),
+      }),
+      onApplied: (s) => seen.push(s.lwaClientId.value ?? "none"),
+      onOrderChange: async () => undefined,
+    })
+    await runtime.apply()
+    env.AMAZON_LWA_CLIENT_ID = "id-2"
+    await runtime.apply()
+    expect(seen).toEqual(["id-1", "id-2"])
+  })
+
+  test("onApplied error does not break apply or consumer start", async () => {
+    const env = { AWS_REGION: "us-east-1", SQS_QUEUE_URL: QUEUE }
+    const runtime = createAmazonRuntime({
+      pool: emptyPool(),
+      encryptionKey: KEY,
+      env,
+      makeSqs: () => ({
+        receiveMessage: async () => ({}),
+        deleteMessage: async () => undefined,
+        getQueueAttributes: async () => ({}),
+      }),
+      onApplied: () => {
+        throw new Error("boom hunter2")
+      },
+      onOrderChange: async () => undefined,
+    })
+    await expect(runtime.apply()).resolves.toBeUndefined()
+    expect(runtime.consumerRunning()).toBe(true)
+    expect(JSON.stringify(vi.mocked(console.error).mock.calls)).not.toContain("hunter2")
+  })
+
+  test("keeps the running consumer when resolve fails and does not call onApplied", async () => {
+    let fail = false
+    const pool = {
+      query: async () => {
+        if (fail) throw new Error("db down")
+        return { rows: [] }
+      },
+    } as unknown as Pool
+    const onApplied = vi.fn()
+    const env = { AWS_REGION: "us-east-1", SQS_QUEUE_URL: QUEUE }
+    const runtime = createAmazonRuntime({
+      pool,
+      encryptionKey: KEY,
+      env,
+      makeSqs: () => ({
+        receiveMessage: async () => ({}),
+        deleteMessage: async () => undefined,
+        getQueueAttributes: async () => ({}),
+      }),
+      onApplied,
+      onOrderChange: async () => undefined,
+    })
+    await runtime.apply()
+    expect(onApplied).toHaveBeenCalledTimes(1)
+    fail = true
+    await runtime.apply()
+    expect(runtime.consumerRunning()).toBe(true)
+    expect(onApplied).toHaveBeenCalledTimes(1)
+  })
+
   test("apply swallows errors and never throws", async () => {
     const pool = {
       query: async () => {

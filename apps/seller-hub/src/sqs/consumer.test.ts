@@ -279,3 +279,29 @@ test("start() polls repeatedly on an interval and stop() halts further polling",
     (fakeSqs.receiveMessage as ReturnType<typeof vi.fn>).mock.calls.length
   ).toBe(callsAtStop)
 })
+
+test("a failing poll logs only the error name, never the message text", async () => {
+  vi.useFakeTimers()
+  const errSpy = vi.spyOn(console, "error").mockImplementation(() => undefined)
+  const failure = new Error("signature for AKIALEAKEDKEY does not match")
+  failure.name = "SignatureDoesNotMatch"
+  const sqsClient: SqsClientLike = {
+    receiveMessage: async () => {
+      throw failure
+    },
+    deleteMessage: async () => undefined,
+  }
+  const consumer = new SqsConsumer({
+    sqsClient,
+    queueUrl: "https://sqs.us-east-1.amazonaws.com/1/q",
+    onOrderChange: async () => undefined,
+  })
+  consumer.start()
+  await vi.advanceTimersByTimeAsync(1_100)
+  consumer.stop()
+  const logged = JSON.stringify(errSpy.mock.calls)
+  expect(logged).toContain("SignatureDoesNotMatch")
+  expect(logged).not.toContain("AKIALEAKEDKEY")
+  errSpy.mockRestore()
+  vi.useRealTimers()
+})

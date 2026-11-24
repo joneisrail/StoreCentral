@@ -1,6 +1,6 @@
 import type { Pool } from "pg"
 import { SqsConsumer, type SqsClientLike } from "../sqs/consumer.js"
-import { resolveAmazonSettings } from "./amazon-settings.js"
+import { resolveAmazonSettings, type ResolvedAmazonSettings } from "./amazon-settings.js"
 
 export type SqsFactory = (cfg: {
   region: string
@@ -18,6 +18,8 @@ export const createAmazonRuntime = (deps: {
   encryptionKey: string
   env?: NodeJS.ProcessEnv
   makeSqs: SqsFactory
+  /** Called with each successfully resolved settings snapshot, inside the serialized apply. */
+  onApplied?: (settings: ResolvedAmazonSettings) => void
   onOrderChange: (amazonOrderId: string) => Promise<void>
 }): AmazonRuntime => {
   let consumer: SqsConsumer | null = null
@@ -25,6 +27,7 @@ export const createAmazonRuntime = (deps: {
   let chain: Promise<void> = Promise.resolve()
 
   const stop = (): void => {
+    // An in-flight poll finishes with the old client; deleting its messages via that old client is correct.
     consumer?.stop()
     consumer = null
   }
@@ -32,6 +35,13 @@ export const createAmazonRuntime = (deps: {
   const applyOnce = async (): Promise<void> => {
     try {
       const settings = await resolveAmazonSettings(deps.pool, deps.encryptionKey, deps.env)
+      try {
+        deps.onApplied?.(settings)
+      } catch (err) {
+        console.error(
+          `[seller-hub] Amazon settings callback failed (${err instanceof Error ? err.name : "Error"})`
+        )
+      }
       const region = settings.awsRegion.value
       const queueUrl = settings.sqsQueueUrl.value
       stop()

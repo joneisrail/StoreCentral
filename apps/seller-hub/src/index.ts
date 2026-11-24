@@ -19,7 +19,6 @@ import {
   type AmazonRuntime,
   type SqsFactory,
 } from "./settings/amazon-runtime.js"
-import { resolveAmazonSettings } from "./settings/amazon-settings.js"
 import { processInventorySyncJob } from "./sync/inventory-sync-processor.js"
 import {
   processOrderSyncJob,
@@ -155,23 +154,10 @@ const main = async (): Promise<void> => {
 
   // LWA credentials are read from the saved settings at every token refresh,
   // so a save takes effect without a restart. `getCredentials` is synchronous,
-  // hence this cache, refreshed whenever settings are applied. Unset values are
-  // empty strings: an SP-API call then fails clearly instead of the process.
+  // hence this cache, set by the runtime's `onApplied` on every apply. Unset
+  // values are empty strings: an SP-API call then fails clearly instead of the
+  // process.
   let lwaCredentials = { clientId: "", clientSecret: "" }
-  const refreshLwaCredentials = async (): Promise<void> => {
-    try {
-      const settings = await resolveAmazonSettings(pool, env.encryptionKey)
-      lwaCredentials = {
-        clientId: settings.lwaClientId.value ?? "",
-        clientSecret: settings.lwaClientSecret.value ?? "",
-      }
-    } catch (err) {
-      console.error(
-        `[seller-hub] could not read Amazon LWA settings (${err instanceof Error ? err.name : "Error"})`
-      )
-    }
-  }
-  await refreshLwaCredentials()
 
   const spApiClient = new SpApiClient({
     baseUrl: SP_API_BASE_URL,
@@ -185,22 +171,20 @@ const main = async (): Promise<void> => {
 
   const orderSyncQueue = createSyncQueue("order-sync", redisConnection)
 
-  const baseRuntime = createAmazonRuntime({
+  const amazonRuntime: AmazonRuntime = createAmazonRuntime({
     pool,
     encryptionKey: env.encryptionKey,
     makeSqs: createSqsClient,
+    onApplied: (settings) => {
+      lwaCredentials = {
+        clientId: settings.lwaClientId.value ?? "",
+        clientSecret: settings.lwaClientSecret.value ?? "",
+      }
+    },
     onOrderChange: async (amazonOrderId) => {
       await orderSyncQueue.add("import", { amazonOrderId })
     },
   })
-  // Applying settings also refreshes the LWA credentials SP-API uses.
-  const amazonRuntime: AmazonRuntime = {
-    apply: async () => {
-      await baseRuntime.apply()
-      await refreshLwaCredentials()
-    },
-    consumerRunning: () => baseRuntime.consumerRunning(),
-  }
   const inventorySyncQueue = createSyncQueue("inventory-sync", redisConnection)
   const priceSyncQueue = createSyncQueue("price-sync", redisConnection)
   // No producer enqueues onto this yet -- no webhook event or reconcile path

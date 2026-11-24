@@ -128,7 +128,10 @@ export class SqsConsumer {
     try {
       await this.pollOnce()
     } catch (err) {
-      console.error("[sqs-consumer] pollOnce failed", err)
+      // Error name only: SDK errors can carry the access key id.
+      console.error(
+        `[sqs-consumer] pollOnce failed (${err instanceof Error ? err.name : "unknown"})`
+      )
     } finally {
       this.polling = false
     }
