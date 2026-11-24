@@ -20,9 +20,15 @@ task breakdown it was built from).
    | `MEDUSA_BACKEND_URL` | Base URL of the Medusa backend, no trailing slash |
    | `MEDUSA_ADMIN_EMAIL` / `MEDUSA_ADMIN_PASSWORD` | Medusa admin user this service authenticates as |
    | `ENCRYPTION_KEY` | 32-byte hex key used to encrypt the stored Amazon LWA refresh token |
-   | `AWS_REGION` | AWS region for the SQS queue |
-   | `SQS_QUEUE_URL` | SQS queue that receives Amazon's SP-API order-change notifications |
-   | `AMAZON_LWA_CLIENT_ID` / `AMAZON_LWA_CLIENT_SECRET` | Login-with-Amazon credentials for the SP-API application |
+   | `AWS_REGION` | Optional fallback: AWS region for the SQS queue |
+   | `SQS_QUEUE_URL` | Optional fallback: SQS queue that receives Amazon's SP-API order-change notifications |
+   | `AMAZON_LWA_CLIENT_ID` / `AMAZON_LWA_CLIENT_SECRET` | Optional fallback: Login-with-Amazon credentials for the SP-API application |
+
+   The four Amazon variables above, plus `AWS_ACCESS_KEY_ID` and
+   `AWS_SECRET_ACCESS_KEY`, are optional. They are normally entered in the
+   admin under Settings, Amazon and stored encrypted in this service's
+   database; the stored value wins per field and the environment is only a
+   fallback. Saving applies without a restart.
 
 2. Make sure Postgres, Redis, and the Medusa backend are running, and that
    the Medusa backend's own `.env` has `SELLER_HUB_WEBHOOK_URL` pointing at
@@ -45,25 +51,25 @@ task breakdown it was built from).
    webhook server binds to, without widening `SellerHubEnv`'s required
    variables for a purely local bind-address concern.
 
-## External prerequisites not yet in place
+## External prerequisites
 
-Two things from the design spec's Open Items are genuine external
-prerequisites, outside this repo's control, and are **not** set up yet. Until
-both are done, the service boots and stays up (see below), but every
-Amazon-facing call fails against a placeholder/absent credential rather than
-succeeding for real:
+Two things are external prerequisites, outside this repo's control. The
+service boots and stays up without them; the Amazon queue consumer simply does
+not run until the SQS settings are complete (the Settings, Amazon status line
+shows this):
 
-- **AWS account and SQS queue.** `SQS_QUEUE_URL` in `.env` is currently a
-  placeholder. The SQS consumer logs `receiveMessage` failures against it on
-  every poll — expected, and non-fatal, but it means no real Amazon order
-  notification can arrive until a real SQS queue (subscribed to Amazon's
-  `ORDER_CHANGE` notifications) exists and `SQS_QUEUE_URL`/`AWS_REGION` point
-  at it.
+- **AWS account and SQS queue.** Enter the region, queue URL and AWS
+  credentials on Settings, Amazon (or via the optional env fallback). The
+  queue must be subscribed to Amazon's `ORDER_CHANGE` notifications; that
+  subscription is an owner step on the AWS and Amazon side. Least-privilege
+  IAM on the one queue: `sqs:ReceiveMessage`, `sqs:DeleteMessage`,
+  `sqs:GetQueueAttributes`. The page's Test connection button checks the
+  queue only (`GetQueueAttributes`); it does not verify the LWA id/secret.
 - **Amazon SP-API app registration / professional seller account approval.**
-  `AMAZON_LWA_CLIENT_ID`/`AMAZON_LWA_CLIENT_SECRET` are placeholders, and no
-  Amazon refresh token has been connected yet (`seller_hub.integration_account`
-  starts `disconnected`). This has its own external approval timeline and is
-  worth starting early.
+  The LWA client id/secret come from this registration, and no Amazon refresh
+  token has been connected yet until the owner does so
+  (`seller_hub.integration_account` starts `disconnected`). This has its own
+  external approval timeline and is worth starting early.
 
 Both need to be resolved before Task 13's manual smoke checklist (an
 end-to-end pass against Amazon's real sandbox/test seller account for order
@@ -313,4 +319,5 @@ affecting the other connections.
 - **Amazon is saved-only.** Amazon connections can be saved and shown (seller
   id, marketplace, encrypted refresh token) but are not started by the
   connection manager; the single Amazon sync engine still runs from the legacy
-  unmanaged account and the `AMAZON_LWA_*` env, as before.
+  unmanaged account and the Amazon settings (Settings, Amazon; the
+`AMAZON_LWA_*` env is the per-field fallback).

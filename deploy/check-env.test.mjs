@@ -83,6 +83,20 @@ test("seller-hub: marketplace credentials are optional", () => {
   assert.equal(checkEnv("seller-hub", { ...env, SELLER_HUB_INTERNAL_SECRET: undefined }, { production: false }).ok, true)
 })
 
+test("seller-hub: the Amazon variables are optional, each one missing or all missing", () => {
+  const base = {
+    DATABASE_URL: "x", REDIS_URL: "x", MEDUSA_BACKEND_URL: "x",
+    MEDUSA_ADMIN_EMAIL: "a@b.c", MEDUSA_ADMIN_PASSWORD: strong("pw"),
+    ENCRYPTION_KEY: strong("enc"), SELLER_HUB_INTERNAL_SECRET: strong("internal"),
+  }
+  const amazon = ["AWS_REGION", "SQS_QUEUE_URL", "AMAZON_LWA_CLIENT_ID", "AMAZON_LWA_CLIENT_SECRET"]
+  assert.deepEqual(checkEnv("seller-hub", base, { production: true }), { ok: true, problems: [] })
+  for (const name of amazon) {
+    const env = Object.fromEntries(amazon.filter((n) => n !== name).map((n) => [n, "x"]))
+    assert.equal(checkEnv("seller-hub", { ...base, ...env }, { production: true }).ok, true, name)
+  }
+})
+
 test("storefront public values have no length rule; pos has no requirements", () => {
   const env = {
     NEXT_PUBLIC_MEDUSA_BACKEND_URL: "x", NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY: "pk",

@@ -35,7 +35,7 @@ Every `docker compose` command below uses `-f deploy/docker-compose.yml`. Compos
    The prompt uses `read -s`, which is a bash feature, so run these lines in bash. The password is still briefly visible in the container's process list while `medusa user` runs.
 
    Use the same email and password as `MEDUSA_ADMIN_EMAIL` and `MEDUSA_ADMIN_PASSWORD` in `deploy/.env`, because seller-hub signs in with them. `MEDUSA_ADMIN_PASSWORD` is a secret with a 32-character minimum; generate it with `openssl rand -hex 32`. `AUTH_MFA_ENCRYPTION_KEY` may be left empty, but if you set it, it must be at least 32 characters. If you set them after the first start, update `deploy/.env` and recreate the service with `docker compose -f deploy/docker-compose.yml up -d seller-hub` (a plain restart does not re-read `.env`).
-7. Until Amazon goes live, seller-hub's SQS poll fails with `CredentialsProviderError` because `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` are empty. This is harmless log noise. Set real keys (or use an instance role) at go-live.
+7. The Amazon variables in `deploy/.env` (`AWS_REGION`, `SQS_QUEUE_URL`, `AMAZON_LWA_CLIENT_ID`, `AMAZON_LWA_CLIENT_SECRET`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`) are all optional and may stay empty. Enter the Amazon settings in the admin under Settings, Amazon instead (see "Amazon settings" below). Until the SQS settings are complete, seller-hub does not start the Amazon queue consumer; the Amazon page status line says so.
 8. Run the first smoke test below.
 
 ## First smoke test
@@ -238,6 +238,32 @@ inherit the base price (only variants with an offer row for every channel):
 
 Design: `docs/superpowers/specs/2026-11-24-phase-4c-base-price-propagation-design.md`.
 
+## Amazon settings
+
+Admin, Settings, Amazon. The settings are stored encrypted in seller-hub's database and applied when you save, with no restart.
+
+What to enter:
+
+- AWS region (for example `us-east-1`) and the SQS queue URL that receives Amazon order notifications.
+- AWS access key id and secret for that queue. Leave them empty only if the host provides an instance role.
+- The Login with Amazon (LWA) client id and client secret of your SP-API application.
+
+Precedence: for each field the stored value wins over the matching environment variable. The environment variables (`AWS_REGION`, `SQS_QUEUE_URL`, `AMAZON_LWA_CLIENT_ID`, `AMAZON_LWA_CLIENT_SECRET`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`) remain as a per-field fallback and are optional.
+
+Test connection: runs a `GetQueueAttributes` call against the configured SQS queue. It checks the region, queue URL and AWS credentials only. It does NOT verify the LWA client id or secret; those are first exercised by a real Amazon call.
+
+Status line: the page shows whether the Amazon queue consumer is running. It does not run when the SQS settings are incomplete.
+
+Clear stored settings: removes the stored values, so seller-hub falls back to the environment variables. This is also the rollback: clearing returns the behaviour to what the environment provides.
+
+IAM least privilege: create a dedicated IAM user for seller-hub with only `sqs:ReceiveMessage`, `sqs:DeleteMessage` and `sqs:GetQueueAttributes`, allowed on the one queue's ARN.
+
+Owner step on the AWS side: the queue's subscription to Amazon `ORDER_CHANGE` notifications is configured by the owner in AWS and Amazon's SP-API notification setup; this page does not do it. Follow Amazon's SP-API notifications documentation for that setup.
+
+Nothing in this feature has been run against real AWS or Amazon.
+
+Design: `docs/superpowers/specs/2026-11-24-phase-4d-amazon-settings-design.md`.
+
 ## Known unverified items
 
 These were written without a Docker host available. They are verified only by the first CI run or the first real deployment, so treat a failure in any of them as plausible, not surprising:
@@ -247,5 +273,5 @@ These were written without a Docker host available. They are verified only by th
 - `medusa start` running from `.medusa/server` in the backend image.
 - Migrations running under the restricted `medusa` database role.
 - The Medusa Redis modules booting with `BACKEND_REDIS_MODULES=true`.
-- AWS credentials for seller-hub: not set until Amazon goes live; the SQS poll logs `CredentialsProviderError` until real keys (or an instance role) are provided.
+- Amazon settings (Settings, Amazon): the page, the apply-without-restart behaviour and the Test connection button have been exercised only by automated tests. Nothing has been run against real AWS or Amazon.
 - `deploy/backup.test.sh` (the disposable-container drill) has not been executed yet.

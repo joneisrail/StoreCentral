@@ -99,6 +99,13 @@ test("optional AWS keys are references, not literals, and not required", () => {
   }
 })
 
+test("seller-hub Amazon variables are optional references, not required", () => {
+  const env = Object.fromEntries(toList(services["seller-hub"].environment))
+  for (const key of ["AWS_REGION", "SQS_QUEUE_URL", "AMAZON_LWA_CLIENT_ID", "AMAZON_LWA_CLIENT_SECRET"]) {
+    assert.equal(env[key], `\${${key}:-}`, `${key} must use the :- form`)
+  }
+})
+
 test("every node service runs check-env then its start command", () => {
   for (const name of NODE_SERVICES) {
     const svc = services[name]

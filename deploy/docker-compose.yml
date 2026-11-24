@@ -150,11 +150,13 @@ services:
       ENCRYPTION_KEY: "${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}"
       SELLER_HUB_INTERNAL_SECRET: "${SELLER_HUB_INTERNAL_SECRET:?SELLER_HUB_INTERNAL_SECRET is required}"
       SELLER_HUB_PUBLIC_URL: "https://${HUB_HOST:?HUB_HOST is required}"
-      AWS_REGION: "${AWS_REGION:?AWS_REGION is required}"
-      SQS_QUEUE_URL: "${SQS_QUEUE_URL:?SQS_QUEUE_URL is required}"
-      AMAZON_LWA_CLIENT_ID: "${AMAZON_LWA_CLIENT_ID:?AMAZON_LWA_CLIENT_ID is required}"
-      AMAZON_LWA_CLIENT_SECRET: "${AMAZON_LWA_CLIENT_SECRET:?AMAZON_LWA_CLIENT_SECRET is required}"
-      # Optional until Amazon goes live; without them the SQS poll logs CredentialsProviderError.
+      # Amazon settings are optional here. Normally they are entered on
+      # Settings, Amazon (stored encrypted in seller-hub's database, and the
+      # stored value wins). These variables stay as a per-field fallback.
+      AWS_REGION: "${AWS_REGION:-}"
+      SQS_QUEUE_URL: "${SQS_QUEUE_URL:-}"
+      AMAZON_LWA_CLIENT_ID: "${AMAZON_LWA_CLIENT_ID:-}"
+      AMAZON_LWA_CLIENT_SECRET: "${AMAZON_LWA_CLIENT_SECRET:-}"
       AWS_ACCESS_KEY_ID: "${AWS_ACCESS_KEY_ID:-}"
       AWS_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY:-}"
     depends_on:

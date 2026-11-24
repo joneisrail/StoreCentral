@@ -28,11 +28,7 @@
       "MEDUSA_BACKEND_URL",
       "MEDUSA_ADMIN_EMAIL",
       "MEDUSA_ADMIN_PASSWORD",
-      "ENCRYPTION_KEY",
-      "AWS_REGION",
-      "SQS_QUEUE_URL",
-      "AMAZON_LWA_CLIENT_ID",
-      "AMAZON_LWA_CLIENT_SECRET"
+      "ENCRYPTION_KEY"
     ],
     "requiredInProduction": ["SELLER_HUB_INTERNAL_SECRET"],
     "secrets": [
