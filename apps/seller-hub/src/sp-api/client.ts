@@ -17,6 +17,11 @@ export type SpApiClientConfig = {
   refreshToken: string
   clientId: string
   clientSecret: string
+  /**
+   * When present, overrides the fixed `clientId`/`clientSecret`. Read at each
+   * token request so settings saved at runtime apply without a restart.
+   */
+  getCredentials?: () => { clientId: string; clientSecret: string }
   /** Defaults to global fetch; tests inject a fake. */
   fetchImpl?: typeof fetch
 }
@@ -37,6 +42,7 @@ export class SpApiClient {
   private readonly buckets = new Map<string, TokenBucket>()
   private accessToken: string | null = null
   private accessTokenExpiresAt = 0
+  private lastCredentialKey: string | null = null
 
   constructor(config: SpApiClientConfig) {
     this.config = config
@@ -88,6 +94,16 @@ export class SpApiClient {
 
   private async getAccessToken(): Promise<string> {
     const now = Date.now()
+    const { clientId, clientSecret } = this.config.getCredentials
+      ? this.config.getCredentials()
+      : this.config
+    const credentialKey = JSON.stringify([clientId, clientSecret])
+    if (this.lastCredentialKey !== null && this.lastCredentialKey !== credentialKey) {
+      this.accessToken = null
+      this.accessTokenExpiresAt = 0
+    }
+    this.lastCredentialKey = credentialKey
+
     if (
       this.accessToken &&
       this.accessTokenExpiresAt - now > TOKEN_EXPIRY_BUFFER_MS
@@ -98,8 +114,8 @@ export class SpApiClient {
     const { accessToken, expiresAt } = await refreshAccessToken(
       {
         refreshToken: this.config.refreshToken,
-        clientId: this.config.clientId,
-        clientSecret: this.config.clientSecret,
+        clientId,
+        clientSecret,
       },
       this.fetchImpl
     )

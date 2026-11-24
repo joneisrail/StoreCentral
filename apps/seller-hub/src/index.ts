@@ -1,6 +1,7 @@
 import { resolveInternalSecret } from "./internal/secret.js"
 import {
   DeleteMessageCommand,
+  GetQueueAttributesCommand,
   ReceiveMessageCommand,
   SQSClient,
 } from "@aws-sdk/client-sqs"
@@ -13,7 +14,12 @@ import { createRedisConnection } from "./queue/connection.js"
 import { createSyncQueue, createSyncWorker } from "./queue/queues.js"
 import { getOrder } from "./sp-api/orders.js"
 import { SpApiClient } from "./sp-api/client.js"
-import { SqsConsumer, type SqsClientLike } from "./sqs/consumer.js"
+import {
+  createAmazonRuntime,
+  type AmazonRuntime,
+  type SqsFactory,
+} from "./settings/amazon-runtime.js"
+import { resolveAmazonSettings } from "./settings/amazon-settings.js"
 import { processInventorySyncJob } from "./sync/inventory-sync-processor.js"
 import {
   processOrderSyncJob,
@@ -43,6 +49,32 @@ const SP_API_BASE_URL = "https://sellingpartnerapi-na.amazon.com"
 // reconciliation' principle -- exact interval left as a sensible default,
 // adjustable via env later if needed."
 const RECONCILE_INTERVAL_MS = 60 * 60 * 1000
+
+// Real SDK adapter for the SQS consumer. Without explicit keys the SDK's
+// default credential chain applies.
+const createSqsClient: SqsFactory = ({ region, credentials }) => {
+  const sqsClient = new SQSClient({ region, ...(credentials ? { credentials } : {}) })
+  return {
+    // The real SDK's `Message.Body`/`ReceiptHandle` are typed optional
+    // (AWS's own contract never actually omits either on a real message),
+    // while `SqsClientLike` requires both -- so a message missing either is
+    // filtered out here rather than widening `SqsClientLike`'s own contract
+    // just to accommodate the SDK's looser typing.
+    receiveMessage: async (input) => {
+      const output = await sqsClient.send(new ReceiveMessageCommand(input))
+      const messages = (output.Messages ?? []).flatMap((message) =>
+        message.Body !== undefined && message.ReceiptHandle !== undefined
+          ? [{ Body: message.Body, ReceiptHandle: message.ReceiptHandle }]
+          : []
+      )
+      return { Messages: messages }
+    },
+    deleteMessage: (input) =>
+      sqsClient.send(new DeleteMessageCommand(input)).then(() => undefined),
+    getQueueAttributes: (input) =>
+      sqsClient.send(new GetQueueAttributesCommand({ ...input, AttributeNames: ["QueueArn"] })),
+  }
+}
 
 // `createWebhookServer` only builds the `http.Server`; binding it to a port
 // is this bootstrap's job. Matches the port `apps/backend`'s
@@ -121,16 +153,54 @@ const main = async (): Promise<void> => {
     ? decrypt(encryptedRefreshToken, env.encryptionKey)
     : "placeholder-refresh-token"
 
+  // LWA credentials are read from the saved settings at every token refresh,
+  // so a save takes effect without a restart. `getCredentials` is synchronous,
+  // hence this cache, refreshed whenever settings are applied. Unset values are
+  // empty strings: an SP-API call then fails clearly instead of the process.
+  let lwaCredentials = { clientId: "", clientSecret: "" }
+  const refreshLwaCredentials = async (): Promise<void> => {
+    try {
+      const settings = await resolveAmazonSettings(pool, env.encryptionKey)
+      lwaCredentials = {
+        clientId: settings.lwaClientId.value ?? "",
+        clientSecret: settings.lwaClientSecret.value ?? "",
+      }
+    } catch (err) {
+      console.error(
+        `[seller-hub] could not read Amazon LWA settings (${err instanceof Error ? err.name : "Error"})`
+      )
+    }
+  }
+  await refreshLwaCredentials()
+
   const spApiClient = new SpApiClient({
     baseUrl: SP_API_BASE_URL,
     refreshToken,
-    clientId: env.amazonLwaClientId ?? "",
-    clientSecret: env.amazonLwaClientSecret ?? "",
+    clientId: "",
+    clientSecret: "",
+    getCredentials: () => lwaCredentials,
   })
 
   const redisConnection = createRedisConnection(env)
 
   const orderSyncQueue = createSyncQueue("order-sync", redisConnection)
+
+  const baseRuntime = createAmazonRuntime({
+    pool,
+    encryptionKey: env.encryptionKey,
+    makeSqs: createSqsClient,
+    onOrderChange: async (amazonOrderId) => {
+      await orderSyncQueue.add("import", { amazonOrderId })
+    },
+  })
+  // Applying settings also refreshes the LWA credentials SP-API uses.
+  const amazonRuntime: AmazonRuntime = {
+    apply: async () => {
+      await baseRuntime.apply()
+      await refreshLwaCredentials()
+    },
+    consumerRunning: () => baseRuntime.consumerRunning(),
+  }
   const inventorySyncQueue = createSyncQueue("inventory-sync", redisConnection)
   const priceSyncQueue = createSyncQueue("price-sync", redisConnection)
   // No producer enqueues onto this yet -- no webhook event or reconcile path
@@ -280,38 +350,9 @@ const main = async (): Promise<void> => {
   })
   console.log(`[seller-hub] webhook server listening on port ${WEBHOOK_PORT}`)
 
-  const sqsClient = new SQSClient({ region: env.awsRegion ?? "" })
-  const sqsClientLike: SqsClientLike = {
-    // The real SDK's `Message.Body`/`ReceiptHandle` are typed optional
-    // (AWS's own contract never actually omits either on a real message),
-    // while `SqsClientLike` requires both -- so a message missing either is
-    // filtered out here rather than widening `SqsClientLike`'s own contract
-    // just to accommodate the SDK's looser typing.
-    receiveMessage: async (input) => {
-      const output = await sqsClient.send(new ReceiveMessageCommand(input))
-      const messages = (output.Messages ?? []).flatMap((message) =>
-        message.Body !== undefined && message.ReceiptHandle !== undefined
-          ? [{ Body: message.Body, ReceiptHandle: message.ReceiptHandle }]
-          : []
-      )
-      return { Messages: messages }
-    },
-    deleteMessage: (input) =>
-      sqsClient.send(new DeleteMessageCommand(input)).then(() => undefined),
-  }
-  const sqsConsumer = new SqsConsumer({
-    sqsClient: sqsClientLike,
-    queueUrl: env.sqsQueueUrl ?? "",
-    onOrderChange: async (amazonOrderId) => {
-      await orderSyncQueue.add("import", { amazonOrderId })
-    },
-  })
-  sqsConsumer.start()
-  console.log(
-    "[seller-hub] SQS consumer started (receiveMessage failures against a " +
-      "placeholder SQS_QUEUE_URL are expected and non-fatal until Task 13's " +
-      "AWS prerequisites are in place)"
-  )
+  // Region, queue URL and AWS keys come from the saved settings (env is the
+  // fallback); apply() starts, replaces or stops the consumer accordingly.
+  await amazonRuntime.apply()
 
   await scheduleReconciliation(inventorySyncQueue, RECONCILE_INTERVAL_MS)
   console.log(

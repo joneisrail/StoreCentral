@@ -359,3 +359,67 @@ test("request() resolves undefined on a 204 No Content response instead of parsi
   })
   expect(result).toBeUndefined()
 })
+
+const op = {
+  name: "getOrder",
+  method: "GET" as const,
+  path: "/a",
+  rateLimit: { ratePerSecond: 10, burst: 10 },
+}
+
+const tokenRequestBodies = (fakeFetch: ReturnType<typeof vi.fn>): URLSearchParams[] =>
+  fakeFetch.mock.calls
+    .filter(([url]) => url.toString().startsWith(TOKEN_URL))
+    .map(([, init]) => new URLSearchParams(init.body as string))
+
+const okFetch = () => {
+  let tokenCalls = 0
+  return vi.fn().mockImplementation(async (url: string) => {
+    if (url.toString().startsWith(TOKEN_URL)) {
+      tokenCalls += 1
+      return tokenResponse(`atza-${tokenCalls}`)
+    }
+    return { ok: true, status: 200, headers: new Headers(), json: async () => ({}) }
+  })
+}
+
+test("getCredentials value is used at token refresh instead of the fixed pair", async () => {
+  const fakeFetch = okFetch()
+  const client = new SpApiClient({
+    baseUrl: BASE_URL,
+    refreshToken: "r",
+    clientId: "fixed-id",
+    clientSecret: "fixed-secret",
+    getCredentials: () => ({ clientId: "dyn-id", clientSecret: "dyn-secret" }),
+    fetchImpl: fakeFetch as unknown as typeof fetch,
+  })
+
+  await client.request(op)
+
+  const [body] = tokenRequestBodies(fakeFetch)
+  expect(body?.get("client_id")).toBe("dyn-id")
+  expect(body?.get("client_secret")).toBe("dyn-secret")
+})
+
+test("changed credentials drop the cached token", async () => {
+  const fakeFetch = okFetch()
+  let creds = { clientId: "id-1", clientSecret: "secret-1" }
+  const client = new SpApiClient({
+    baseUrl: BASE_URL,
+    refreshToken: "r",
+    clientId: "",
+    clientSecret: "",
+    getCredentials: () => creds,
+    fetchImpl: fakeFetch as unknown as typeof fetch,
+  })
+
+  await client.request(op)
+  await client.request(op)
+  expect(tokenRequestBodies(fakeFetch)).toHaveLength(1)
+
+  creds = { clientId: "id-1", clientSecret: "secret-2" }
+  await client.request(op)
+  const bodies = tokenRequestBodies(fakeFetch)
+  expect(bodies).toHaveLength(2)
+  expect(bodies[1]?.get("client_secret")).toBe("secret-2")
+})

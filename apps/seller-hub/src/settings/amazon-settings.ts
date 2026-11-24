@@ -53,10 +53,9 @@ const isValidQueueUrl = (value: string): boolean => {
   } catch {
     return false
   }
-  return (
-    url.protocol === "https:" &&
-    (url.hostname.endsWith("amazonaws.com") || url.hostname.endsWith("amazonaws.com.cn"))
-  )
+  const host = url.hostname
+  const inDomain = (domain: string): boolean => host === domain || host.endsWith(`.${domain}`)
+  return url.protocol === "https:" && (inDomain("amazonaws.com") || inDomain("amazonaws.com.cn"))
 }
 
 const readRow = async (pool: Pool): Promise<Row | null> => {

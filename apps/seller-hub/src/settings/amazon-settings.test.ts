@@ -152,6 +152,27 @@ describe("amazon settings store", () => {
     expect(r.awsRegion.value).toBe(REGION)
   })
 
+  test("queue url host must be exactly amazonaws.com or a subdomain of it", async () => {
+    for (const host of ["evilamazonaws.com", "evilamazonaws.com.cn", "amazonaws.com.evil.example"]) {
+      await expect(
+        saveAmazonSettings(pool, KEY, { sqsQueueUrl: `https://${host}/1/q` })
+      ).rejects.toMatchObject({ fields: ["sqsQueueUrl"] })
+    }
+    await saveAmazonSettings(pool, KEY, { sqsQueueUrl: "https://sqs.us-east-1.amazonaws.com/1/q" })
+  })
+
+  test("undecryptable stored secret falls back to the environment value", async () => {
+    await saveAmazonSettings(pool, KEY, full)
+    const r = await resolveAmazonSettings(pool, "cd".repeat(32), {
+      AMAZON_LWA_CLIENT_SECRET: "env-lwa-secret",
+      AWS_ACCESS_KEY_ID: "AKIAENV",
+      AWS_SECRET_ACCESS_KEY: "env-aws-secret",
+    })
+    expect(r.lwaClientSecret).toEqual({ value: "env-lwa-secret", source: "environment" })
+    expect(r.awsKeys).toEqual({ accessKeyId: "AKIAENV", secretAccessKey: "env-aws-secret" })
+    expect(r.awsKeysSource).toBe("environment")
+  })
+
   test("only one row can exist", async () => {
     await saveAmazonSettings(pool, KEY, full)
     await saveAmazonSettings(pool, KEY, { awsRegion: "eu-west-1" })
