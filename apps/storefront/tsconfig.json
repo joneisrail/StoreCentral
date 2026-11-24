@@ -18,7 +18,15 @@
     "paths": {
       "@lib/*": ["lib/*"],
       "@modules/*": ["modules/*"],
-      "@pages/*": ["pages/*"]
+      "@pages/*": ["pages/*"],
+      "react": [
+        "../node_modules/@types/react",
+        "../../../node_modules/@types/react"
+      ],
+      "react/*": [
+        "../node_modules/@types/react/*",
+        "../../../node_modules/@types/react/*"
+      ]
     },
     "plugins": [
       {

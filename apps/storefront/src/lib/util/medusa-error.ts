@@ -1,33 +1,58 @@
 type MedusaError = {
+  // axios-style errors
   response?: {
     data: { message?: string } | string
     status: number
-    headers: unknown
   }
   request?: unknown
-  message?: string
   config?: { url: string; baseURL: string }
+  // @medusajs/js-sdk FetchError
+  status?: number
+  statusText?: string
+  message?: string
 }
 
-export default function medusaError(error: unknown): never {
-  const err = error as MedusaError
-  if (err.response) {
-    const u = new URL(err.config?.url ?? "", err.config?.baseURL ?? "")
-    console.error("Resource:", u.toString())
-    console.error("Response data:", err.response.data)
-    console.error("Status code:", err.response.status)
-    console.error("Headers:", err.response.headers)
+const sentence = (text: string) => {
+  const trimmed = text.trim()
+  if (!trimmed) {
+    return "Something went wrong."
+  }
+  const capitalized = trimmed.charAt(0).toUpperCase() + trimmed.slice(1)
+  return /[.!?]$/.test(capitalized) ? capitalized : `${capitalized}.`
+}
 
+/**
+ * Turns whatever a Medusa call threw into an Error with a readable message.
+ * Never returns, and never throws anything but an Error, so callers and error
+ * boundaries always have a message to show. Headers and bodies are not logged
+ * (they can carry cookies and customer data); only the status and URL are.
+ */
+export default function medusaError(error: unknown): never {
+  const err = (error ?? {}) as MedusaError
+
+  if (err.response) {
     const data = err.response.data
     const message =
       typeof data === "object" && data !== null
-        ? data.message || String(data)
-        : data
+        ? data.message || "Request failed"
+        : String(data ?? "Request failed")
 
-    throw new Error(message.charAt(0).toUpperCase() + message.slice(1) + ".")
-  } else if (err.request) {
-    throw new Error("No response received: " + String(err.request))
-  } else {
-    throw new Error("Error setting up the request: " + err.message)
+    console.error(
+      "Medusa request failed:",
+      err.config?.url ?? "(unknown url)",
+      err.response.status
+    )
+    throw new Error(sentence(message))
   }
+
+  if (typeof err.status === "number") {
+    console.error("Medusa request failed with status", err.status)
+    throw new Error(sentence(err.message || err.statusText || "Request failed"))
+  }
+
+  if (err.request) {
+    throw new Error("No response received from the store backend.")
+  }
+
+  throw new Error(sentence(err.message || "Error setting up the request"))
 }

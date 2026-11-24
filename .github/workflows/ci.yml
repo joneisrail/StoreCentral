@@ -45,9 +45,22 @@ jobs:
       - name: Lint backend
         working-directory: apps/backend
         run: yarn lint
+      # next.config.js runs check-env-variables.js, which exits without a
+      # publishable key and, in production mode, without a backend URL. Lint,
+      # typecheck and tests need no real backend; these are non-secret
+      # placeholders.
       - name: Lint storefront
         working-directory: apps/storefront
+        env:
+          NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY: pk_ci_placeholder
+          NEXT_PUBLIC_MEDUSA_BACKEND_URL: http://localhost:9000
         run: yarn lint
+      - name: Typecheck storefront
+        working-directory: apps/storefront
+        run: yarn typecheck
+      - name: Test storefront
+        working-directory: apps/storefront
+        run: yarn test
 
   backend-unit:
     runs-on: ubuntu-latest
