@@ -9,6 +9,7 @@ import { purchaseMiddlewares } from './admin/purchases/middlewares'
 import { supplierOfferMiddlewares } from './admin/supplier-offers/middlewares'
 import { supplierMiddlewares } from './admin/suppliers/middlewares'
 import { marketplaceConnectionMiddlewares } from './admin/marketplace-connections/middlewares'
+import { amazonSettingsMiddlewares } from './admin/amazon-settings/middlewares'
 import { orderHoldMiddlewares } from './admin/orders/middlewares'
 import { orderSearchMiddlewares } from './admin/order-search/middlewares'
 import { guardSalesChannelDelete } from './admin/sales-channels/guard'
@@ -47,6 +48,7 @@ export default defineMiddlewares({
     ...salesReportMiddlewares,
     ...profitReportMiddlewares,
     ...marketplaceConnectionMiddlewares,
+    ...amazonSettingsMiddlewares,
     ...orderHoldMiddlewares,
     ...orderSearchMiddlewares,
     ...channelStockSettingsMiddlewares,
