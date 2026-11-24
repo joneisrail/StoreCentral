@@ -95,4 +95,16 @@ ALTER TABLE seller_hub.integration_account ADD COLUMN IF NOT EXISTS auto_sync_pr
 CREATE UNIQUE INDEX IF NOT EXISTS integration_account_sales_channel_uq
   ON seller_hub.integration_account (medusa_sales_channel_id)
   WHERE medusa_sales_channel_id IS NOT NULL;
+
+-- Amazon/AWS settings edited from the admin UI: a single row, secrets encrypted.
+CREATE TABLE IF NOT EXISTS seller_hub.amazon_settings (
+  id BOOLEAN PRIMARY KEY DEFAULT true CHECK (id),
+  aws_region TEXT,
+  sqs_queue_url TEXT,
+  lwa_client_id TEXT,
+  aws_access_key_id_encrypted TEXT,
+  aws_secret_access_key_encrypted TEXT,
+  lwa_client_secret_encrypted TEXT,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 `

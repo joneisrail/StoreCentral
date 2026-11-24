@@ -1,4 +1,7 @@
 import { expect, test } from "vitest"
+import { Pool } from "pg"
+import { assertTestDatabase } from "../test-support/database-guard.js"
+import { runMigrations } from "./migrate.js"
 import { SCHEMA_SQL } from "./schema.js"
 
 test("schema adds the Shopify columns idempotently", () => {
@@ -34,6 +37,17 @@ test("schema adds the marketplace connection columns idempotently", () => {
     expect(SCHEMA_SQL.split(stmt)).toHaveLength(2)
   }
 })
+
+test("amazon_settings table exists after runMigrations", async () => {
+  const pool = new Pool({ connectionString: assertTestDatabase(process.env.TEST_DATABASE_URL) })
+  try {
+    await runMigrations(pool)
+    const { rows } = await pool.query(`SELECT to_regclass('seller_hub.amazon_settings') AS t`)
+    expect(rows[0].t).not.toBeNull()
+  } finally {
+    await pool.end()
+  }
+}, 30_000)
 
 test("schema adds the per-connection auto_sync_price flag idempotently", () => {
   const stmt =

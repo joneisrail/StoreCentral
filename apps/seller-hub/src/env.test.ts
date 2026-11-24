@@ -33,6 +33,20 @@ describe("loadEnv", () => {
     expect(() => loadEnv()).toThrow(/DATABASE_URL/)
   })
 
+  test("loadEnv succeeds with the four variables absent", () => {
+    for (const [key, value] of Object.entries(REQUIRED_VARS)) {
+      process.env[key] = value
+    }
+    for (const k of ["AWS_REGION", "SQS_QUEUE_URL", "AMAZON_LWA_CLIENT_ID", "AMAZON_LWA_CLIENT_SECRET"]) {
+      delete process.env[k]
+    }
+    const env = loadEnv()
+    expect(env.awsRegion).toBeUndefined()
+    expect(env.sqsQueueUrl).toBeUndefined()
+    expect(env.amazonLwaClientId).toBeUndefined()
+    expect(env.amazonLwaClientSecret).toBeUndefined()
+  })
+
   test("returns all fields when env is fully set", () => {
     for (const [key, value] of Object.entries(REQUIRED_VARS)) {
       process.env[key] = value

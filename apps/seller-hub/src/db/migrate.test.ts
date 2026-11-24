@@ -18,6 +18,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("migrations (test database)", ()
       `SELECT table_name FROM information_schema.tables WHERE table_schema = 'seller_hub' ORDER BY table_name`
     )
     expect(rows.map((r) => r.table_name)).toEqual([
+      "amazon_settings",
       "channel_listing",
       "integration_account",
       "sync_job",

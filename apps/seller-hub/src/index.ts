@@ -124,8 +124,8 @@ const main = async (): Promise<void> => {
   const spApiClient = new SpApiClient({
     baseUrl: SP_API_BASE_URL,
     refreshToken,
-    clientId: env.amazonLwaClientId,
-    clientSecret: env.amazonLwaClientSecret,
+    clientId: env.amazonLwaClientId ?? "",
+    clientSecret: env.amazonLwaClientSecret ?? "",
   })
 
   const redisConnection = createRedisConnection(env)
@@ -280,7 +280,7 @@ const main = async (): Promise<void> => {
   })
   console.log(`[seller-hub] webhook server listening on port ${WEBHOOK_PORT}`)
 
-  const sqsClient = new SQSClient({ region: env.awsRegion })
+  const sqsClient = new SQSClient({ region: env.awsRegion ?? "" })
   const sqsClientLike: SqsClientLike = {
     // The real SDK's `Message.Body`/`ReceiptHandle` are typed optional
     // (AWS's own contract never actually omits either on a real message),
@@ -301,7 +301,7 @@ const main = async (): Promise<void> => {
   }
   const sqsConsumer = new SqsConsumer({
     sqsClient: sqsClientLike,
-    queueUrl: env.sqsQueueUrl,
+    queueUrl: env.sqsQueueUrl ?? "",
     onOrderChange: async (amazonOrderId) => {
       await orderSyncQueue.add("import", { amazonOrderId })
     },
