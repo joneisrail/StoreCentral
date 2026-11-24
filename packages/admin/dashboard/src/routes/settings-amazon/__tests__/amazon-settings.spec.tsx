@@ -152,7 +152,7 @@ describe("AmazonSettingsPage", () => {
     expect(screen.getByText("amazonSettings.testHint")).toBeTruthy()
   })
 
-  it("test shows each failure message", async () => {
+  it("test shows each known failure code's text", async () => {
     for (const code of [
       "not_configured",
       "invalid_credentials",
@@ -169,7 +169,9 @@ describe("AmazonSettingsPage", () => {
       fireEvent.click(
         screen.getByRole("button", { name: "amazonSettings.test" })
       )
-      expect(await screen.findByText(`message for ${code}`)).toBeTruthy()
+      expect(
+        await screen.findByText(`amazonSettings.testCodes.${code}`)
+      ).toBeTruthy()
       cleanup()
     }
   })
@@ -211,20 +213,71 @@ describe("AmazonSettingsPage", () => {
     expect(mocks.refetch).toHaveBeenCalled()
   })
 
-  it("422 shows field error next to the named field", async () => {
+  it("422 shows the message and marks the named field", async () => {
     mocks.save.mockRejectedValue({
       status: 422,
-      message: "Unprocessable Entity",
-      fields: ["aws_region"],
-      kind: "invalid",
+      message: "Invalid value for: aws_region",
     })
     render(<AmazonSettingsPage />)
     fireEvent.change(input("awsRegion"), { target: { value: "bad" } })
     fireEvent.click(screen.getByRole("button", { name: "actions.save" }))
 
-    expect(await screen.findByText("amazonSettings.fieldInvalid")).toBeTruthy()
+    expect(
+      await screen.findByText("Invalid value for: aws_region")
+    ).toBeTruthy()
+    expect(screen.getAllByText("amazonSettings.fieldInvalid").length).toBe(1)
     expect(input("awsRegion").getAttribute("aria-invalid")).toBe("true")
     expect(input("sqsQueueUrl").getAttribute("aria-invalid")).toBeNull()
+  })
+
+  it("an error with an empty message still shows an alert", async () => {
+    mocks.save.mockRejectedValue({ status: 422, message: "" })
+    render(<AmazonSettingsPage />)
+    fireEvent.change(input("awsRegion"), { target: { value: "bad" } })
+    fireEvent.click(screen.getByRole("button", { name: "actions.save" }))
+
+    expect(await screen.findByText("amazonSettings.saveFailed")).toBeTruthy()
+  })
+
+  it("test shows the message for an unknown code", async () => {
+    mocks.test.mockResolvedValue({ ok: false, code: "weird", message: "odd" })
+    render(<AmazonSettingsPage />)
+    fireEvent.click(screen.getByRole("button", { name: "amazonSettings.test" }))
+    expect(await screen.findByText("odd")).toBeTruthy()
+  })
+
+  it("after save, secret inputs are empty and Save is disabled", async () => {
+    render(<AmazonSettingsPage />)
+    fireEvent.change(input("awsSecretAccessKey"), {
+      target: { value: "typed-secret" },
+    })
+    const save = screen.getByRole("button", {
+      name: "actions.save",
+    }) as HTMLButtonElement
+    expect(save.disabled).toBe(false)
+
+    fireEvent.click(save)
+    await waitFor(() => expect(mocks.save).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(input("awsSecretAccessKey").value).toBe(""))
+    expect(save.disabled).toBe(true)
+  })
+
+  it("after clear, typed secrets are dropped", async () => {
+    mocks.prompt.mockResolvedValue(true)
+    render(<AmazonSettingsPage />)
+    fireEvent.change(input("lwaClientSecret"), { target: { value: "typed" } })
+    fireEvent.click(
+      screen.getByRole("button", { name: "amazonSettings.clear" })
+    )
+    await waitFor(() => expect(mocks.clear).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(input("lwaClientSecret").value).toBe(""))
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "actions.save",
+        }) as HTMLButtonElement
+      ).disabled
+    ).toBe(true)
   })
 
   it("status line running and not running", () => {

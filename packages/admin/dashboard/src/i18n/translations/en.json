@@ -3324,15 +3324,15 @@
     "set": "Set",
     "leaveBlank": "Leave blank to keep",
     "fieldInvalid": "This value is not valid.",
-    "fieldMissing": "This value is required.",
+    "saveFailed": "The settings could not be saved.",
     "source": {
       "database": "Saved here",
       "environment": "From server environment",
       "none": "Not set"
     },
     "status": {
-      "running": "The order notification consumer is running.",
-      "notRunning": "The order notification consumer is not running."
+      "running": "Notifications running",
+      "notRunning": "Not running (configure above)"
     },
     "fields": {
       "awsRegion": "AWS region",

@@ -51,7 +51,7 @@ const FIELDS: FieldDef[] = [
 ]
 
 type FormValues = Record<AmazonSettingsKey, string>
-type FieldErrors = Partial<Record<AmazonSettingsKey, "invalid" | "missing">>
+type FieldErrors = Partial<Record<AmazonSettingsKey, boolean>>
 
 const EMPTY_FORM: FormValues = {
   aws_region: "",
@@ -70,28 +70,16 @@ const initialForm = (settings: AmazonSettings): FormValues => ({
   lwa_client_id: settings.lwa_client_id.value ?? "",
 })
 
+const KNOWN_CODES: string[] = [
+  "not_configured",
+  "invalid_credentials",
+  "queue_not_found",
+  "access_denied",
+  "unreachable",
+]
+
 const errorMessage = (error: unknown) =>
   (error as { message?: string } | null)?.message ?? ""
-
-// A 422 names the offending body keys; anything else has no field to blame.
-const fieldErrorsOf = (error: unknown): FieldErrors | null => {
-  const err = error as {
-    status?: number
-    fields?: unknown
-    kind?: unknown
-  } | null
-  if (err?.status !== 422 || !Array.isArray(err.fields)) {
-    return null
-  }
-  const kind = err.kind === "missing" ? "missing" : "invalid"
-  const result: FieldErrors = {}
-  for (const field of err.fields) {
-    if (FIELDS.some((def) => def.key === field)) {
-      result[field as AmazonSettingsKey] = kind
-    }
-  }
-  return result
-}
 
 const SOURCE_KEYS = {
   database: "amazonSettings.source.database",
@@ -175,14 +163,18 @@ const SettingsForm = ({ settings }: { settings: AmazonSettings }) => {
     setFieldErrors((prev) => ({ ...prev, [key]: undefined }))
   }
 
+  // The message of a 422 names the offending body keys, so mark those fields.
+  // The alert is never blank: statusText can be empty.
   const handleFailure = (error: unknown) => {
-    const fields = fieldErrorsOf(error)
-    if (fields) {
-      setFieldErrors(fields)
-      setActionError(null)
-    } else {
-      setActionError(errorMessage(error))
+    const message = errorMessage(error)
+    setActionError(message || t("amazonSettings.saveFailed"))
+    const marked: FieldErrors = {}
+    for (const { key } of FIELDS) {
+      if (message.includes(key)) {
+        marked[key] = true
+      }
     }
+    setFieldErrors(marked)
   }
 
   const handleSave = async () => {
@@ -190,6 +182,8 @@ const SettingsForm = ({ settings }: { settings: AmazonSettings }) => {
     setFieldErrors({})
     try {
       await save.mutateAsync(changedInput())
+      // Drop typed secrets and the dirty state; the refetch refreshes the rest.
+      setValues(initialForm(settings))
       setTestResult(null)
       toast.success(t("amazonSettings.toast.saved"))
     } catch (error) {
@@ -223,6 +217,7 @@ const SettingsForm = ({ settings }: { settings: AmazonSettings }) => {
     setTestResult(null)
     try {
       await clear.mutateAsync()
+      setValues(initialForm(settings))
       toast.success(t("amazonSettings.toast.cleared"))
     } catch (error) {
       handleFailure(error)
@@ -274,9 +269,7 @@ const SettingsForm = ({ settings }: { settings: AmazonSettings }) => {
               />
               {error ? (
                 <Text size="small" className="text-ui-fg-error" role="alert">
-                  {error === "missing"
-                    ? t("amazonSettings.fieldMissing")
-                    : t("amazonSettings.fieldInvalid")}
+                  {t("amazonSettings.fieldInvalid")}
                 </Text>
               ) : null}
             </div>
@@ -297,8 +290,9 @@ const SettingsForm = ({ settings }: { settings: AmazonSettings }) => {
           ) : (
             <Alert variant="error">
               <span className="break-words">
-                {testResult.message ||
-                  t(`amazonSettings.testCodes.${testResult.code}`)}
+                {KNOWN_CODES.includes(testResult.code)
+                  ? t(`amazonSettings.testCodes.${testResult.code}`)
+                  : testResult.message}
               </span>
             </Alert>
           )}

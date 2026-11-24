@@ -186,7 +186,12 @@ describe("internal amazon settings API", () => {
   test("POST half key pair is 422 naming the field not the value", async () => {
     const r = await call("POST", "/internal/amazon-settings", { aws_access_key_id: NEW_SECRET })
     expect(r.status).toBe(422)
-    expect(r.json).toEqual({ error: "invalid_input", fields: ["aws_secret_access_key"], kind: "missing" })
+    expect(r.json).toEqual({
+      error: "invalid_input",
+      message: "Missing value for: aws_secret_access_key",
+      fields: ["aws_secret_access_key"],
+      kind: "missing",
+    })
     expectNoSecrets(r.text)
     expect(runtime.apply).not.toHaveBeenCalled()
   })
@@ -196,6 +201,7 @@ describe("internal amazon settings API", () => {
     const r = await call("POST", "/internal/amazon-settings", { aws_region: bad })
     expect(r.status).toBe(422)
     expect(r.json.fields).toEqual(["aws_region"])
+    expect(r.json.message).toBe("Invalid value for: aws_region")
     expect(r.text).not.toContain(bad)
   })
 
@@ -257,6 +263,7 @@ describe("internal amazon settings API", () => {
     const a = await call("POST", "/internal/amazon-settings/test", { aws_region: "bad" + NEW_SECRET })
     expect(a.status).toBe(422)
     expect(a.json.fields).toEqual(["aws_region"])
+    expect(a.json.message).toBe("Invalid value for: aws_region")
     expectNoSecrets(a.text)
     const b = await call("POST", "/internal/amazon-settings/test", { aws_secret_access_key: NEW_SECRET })
     expect(b.status).toBe(422)
@@ -292,9 +299,11 @@ describe("internal amazon settings API", () => {
     const p = await call("POST", "/internal/amazon-settings", { aws_region: "bad", lwa_client_id: "nope" })
     expect(p.status).toBe(422)
     expect(p.json.fields).toEqual(["aws_region", "lwa_client_id"])
+    expect(p.json.message).toBe("Invalid value for: aws_region, lwa_client_id")
     const t = await call("POST", "/internal/amazon-settings/test", { sqs_queue_url: "http://x", lwa_client_id: "nope" })
     expect(t.status).toBe(422)
     expect(t.json.fields).toEqual(["sqs_queue_url", "lwa_client_id"])
+    expect(t.json.message).toBe("Invalid value for: sqs_queue_url, lwa_client_id")
   })
 
   test("test: lone key half does not pair with environment keys", async () => {
@@ -317,7 +326,12 @@ describe("internal amazon settings API", () => {
     })
     const text = await res.text()
     expect(res.status).toBe(422)
-    expect(JSON.parse(text)).toEqual({ error: "invalid_input", fields: ["aws_secret_access_key"], kind: "missing" })
+    expect(JSON.parse(text)).toEqual({
+      error: "invalid_input",
+      message: "Missing value for: aws_secret_access_key",
+      fields: ["aws_secret_access_key"],
+      kind: "missing",
+    })
     expect(text).not.toContain("ENVSECRET")
     expect(makeSqs).not.toHaveBeenCalled()
     s.closeAllConnections?.()

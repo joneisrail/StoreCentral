@@ -66,7 +66,10 @@ const view = async (deps: AmazonSettingsRouteDeps): Promise<Record<string, unkno
 }
 
 const sendInputError = (res: http.ServerResponse, err: AmazonSettingsInputError): void => {
-  send(res, 422, { error: "invalid_input", fields: err.fields.map((f) => SNAKE_BY_FIELD[f] ?? f), kind: err.kind })
+  const fields = err.fields.map((f) => SNAKE_BY_FIELD[f] ?? f)
+  // Fixed text naming keys only; the admin client surfaces just `message`.
+  const message = `${err.kind === "missing" ? "Missing" : "Invalid"} value for: ${fields.join(", ")}`
+  send(res, 422, { error: "invalid_input", message, fields, kind: err.kind })
 }
 
 const trimmed = (v: string | undefined): string => v?.trim() ?? ""
