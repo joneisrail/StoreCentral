@@ -38,7 +38,7 @@ test("schema adds the marketplace connection columns idempotently", () => {
   }
 })
 
-test("amazon_settings table exists after runMigrations", async () => {
+test.skipIf(!process.env.TEST_DATABASE_URL)("amazon_settings table exists after runMigrations", async () => {
   const pool = new Pool({ connectionString: assertTestDatabase(process.env.TEST_DATABASE_URL) })
   try {
     await runMigrations(pool)

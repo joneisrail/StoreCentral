@@ -28,7 +28,7 @@ const FULL = {
   lwa_client_secret: LWA_SECRET,
 }
 
-describe("internal amazon settings API", () => {
+describe.skipIf(!process.env.TEST_DATABASE_URL)("internal amazon settings API", () => {
   let pool: Pool
   let server: http.Server | undefined
   let base = ""

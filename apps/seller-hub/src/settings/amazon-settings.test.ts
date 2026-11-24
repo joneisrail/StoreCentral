@@ -14,7 +14,7 @@ const REGION = "us-east-1"
 const QUEUE = "https://sqs.us-east-1.amazonaws.com/123456789012/orders"
 const CLIENT_ID = "amzn1.application-oa2-client.abc123"
 
-describe("amazon settings store", () => {
+describe.skipIf(!process.env.TEST_DATABASE_URL)("amazon settings store", () => {
   let pool: Pool
 
   beforeAll(async () => {

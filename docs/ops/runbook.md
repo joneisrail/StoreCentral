@@ -240,7 +240,7 @@ Design: `docs/superpowers/specs/2026-11-24-phase-4c-base-price-propagation-desig
 
 ## Amazon settings
 
-Admin, Settings, Amazon. The settings are stored encrypted in seller-hub's database and applied when you save, with no restart.
+Admin, Settings, Amazon. The secrets (AWS access key id, AWS secret access key, LWA client secret) are stored encrypted in seller-hub's database; region, queue URL and LWA client id are stored as plain text. Saving applies when you save, with no restart.
 
 What to enter:
 
@@ -248,9 +248,9 @@ What to enter:
 - AWS access key id and secret for that queue. Leave them empty only if the host provides an instance role.
 - The Login with Amazon (LWA) client id and client secret of your SP-API application.
 
-Precedence: for each field the stored value wins over the matching environment variable. The environment variables (`AWS_REGION`, `SQS_QUEUE_URL`, `AMAZON_LWA_CLIENT_ID`, `AMAZON_LWA_CLIENT_SECRET`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`) remain as a per-field fallback and are optional.
+Precedence: for each plain field the stored value wins over the matching environment variable. The AWS access key id and secret are saved and resolved together as a pair: both come from the database, or both from the environment or default credential chain; saving only one half is rejected. The environment variables (`AWS_REGION`, `SQS_QUEUE_URL`, `AMAZON_LWA_CLIENT_ID`, `AMAZON_LWA_CLIENT_SECRET`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`) remain as a per-field fallback and are optional.
 
-Test connection: runs a `GetQueueAttributes` call against the configured SQS queue. It checks the region, queue URL and AWS credentials only. It does NOT verify the LWA client id or secret; those are first exercised by a real Amazon call.
+Test connection: runs a `GetQueueAttributes` call against the configured SQS queue. It checks read access only (SQS `GetQueueAttributes`), so it does not prove `ReceiveMessage` or `DeleteMessage` permission. It tests the values currently typed in the form layered over the saved ones; nothing is saved by testing. It checks the region, queue URL and AWS credentials only. It does NOT verify the LWA client id or secret; those are first exercised by a real Amazon call.
 
 Status line: the page shows whether the Amazon queue consumer is running. It does not run when the SQS settings are incomplete.
 

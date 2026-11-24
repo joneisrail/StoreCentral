@@ -27,8 +27,11 @@ task breakdown it was built from).
    The four Amazon variables above, plus `AWS_ACCESS_KEY_ID` and
    `AWS_SECRET_ACCESS_KEY`, are optional. They are normally entered in the
    admin under Settings, Amazon and stored encrypted in this service's
-   database; the stored value wins per field and the environment is only a
-   fallback. Saving applies without a restart.
+   database. For each plain field the stored value wins over the environment,
+   which is only a fallback; the AWS access key id and secret are saved and
+   resolved together as a pair (both from the database, or both from the
+   environment/default credential chain), and saving only one half is
+   rejected. Saving applies without a restart.
 
 2. Make sure Postgres, Redis, and the Medusa backend are running, and that
    the Medusa backend's own `.env` has `SELLER_HUB_WEBHOOK_URL` pointing at
@@ -320,4 +323,4 @@ affecting the other connections.
   id, marketplace, encrypted refresh token) but are not started by the
   connection manager; the single Amazon sync engine still runs from the legacy
   unmanaged account and the Amazon settings (Settings, Amazon; the
-`AMAZON_LWA_*` env is the per-field fallback).
+  `AMAZON_LWA_*` env is the per-field fallback).
