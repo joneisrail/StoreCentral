@@ -30,6 +30,10 @@ const BODY_KEYS: Record<string, keyof AmazonSettingsInput> = {
   lwa_client_secret: "lwaClientSecret",
 }
 
+const SNAKE_BY_FIELD: Record<string, string> = Object.fromEntries(
+  Object.entries(BODY_KEYS).map(([snake, camel]) => [camel, snake])
+)
+
 /** Returns null (after sending 400) for an unknown key or a non-string value. Never echoes input. */
 const parseInput = async (
   req: http.IncomingMessage,
@@ -39,7 +43,7 @@ const parseInput = async (
   const input: AmazonSettingsInput = {}
   for (const [key, value] of Object.entries(raw)) {
     const mapped = BODY_KEYS[key]
-    if (!Object.hasOwn(BODY_KEYS, key) || !mapped || typeof value !== "string") {
+    if (!Object.hasOwn(BODY_KEYS, key) || typeof value !== "string") {
       send(res, 400, { error: "invalid_body" })
       return null
     }
@@ -62,7 +66,7 @@ const view = async (deps: AmazonSettingsRouteDeps): Promise<Record<string, unkno
 }
 
 const sendInputError = (res: http.ServerResponse, err: AmazonSettingsInputError): void => {
-  send(res, 422, { error: "invalid_input", fields: err.fields, kind: err.kind })
+  send(res, 422, { error: "invalid_input", fields: err.fields.map((f) => SNAKE_BY_FIELD[f] ?? f), kind: err.kind })
 }
 
 const trimmed = (v: string | undefined): string => v?.trim() ?? ""
@@ -75,8 +79,9 @@ const overlay = (base: ResolvedAmazonSettings, input: AmazonSettingsInput): Reso
   const invalid = invalidAmazonFields({ awsRegion: region, sqsQueueUrl: queueUrl, lwaClientId: clientId })
   if (invalid.length > 0) throw new AmazonSettingsInputError(invalid, undefined, "invalid")
 
-  const keyId = trimmed(input.awsAccessKeyId) || base.awsKeys?.accessKeyId || ""
-  const secret = trimmed(input.awsSecretAccessKey) || base.awsKeys?.secretAccessKey || ""
+  const stored = base.awsKeysSource === "database" ? base.awsKeys : null
+  const keyId = trimmed(input.awsAccessKeyId) || stored?.accessKeyId || ""
+  const secret = trimmed(input.awsSecretAccessKey) || stored?.secretAccessKey || ""
   if (Boolean(keyId) !== Boolean(secret)) {
     throw new AmazonSettingsInputError(
       [keyId ? "awsSecretAccessKey" : "awsAccessKeyId"],

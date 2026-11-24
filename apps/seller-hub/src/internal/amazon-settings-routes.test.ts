@@ -186,7 +186,7 @@ describe("internal amazon settings API", () => {
   test("POST half key pair is 422 naming the field not the value", async () => {
     const r = await call("POST", "/internal/amazon-settings", { aws_access_key_id: NEW_SECRET })
     expect(r.status).toBe(422)
-    expect(r.json).toEqual({ error: "invalid_input", fields: ["awsSecretAccessKey"], kind: "missing" })
+    expect(r.json).toEqual({ error: "invalid_input", fields: ["aws_secret_access_key"], kind: "missing" })
     expectNoSecrets(r.text)
     expect(runtime.apply).not.toHaveBeenCalled()
   })
@@ -195,7 +195,7 @@ describe("internal amazon settings API", () => {
     const bad = "not-a-region-" + NEW_SECRET
     const r = await call("POST", "/internal/amazon-settings", { aws_region: bad })
     expect(r.status).toBe(422)
-    expect(r.json.fields).toEqual(["awsRegion"])
+    expect(r.json.fields).toEqual(["aws_region"])
     expect(r.text).not.toContain(bad)
   })
 
@@ -256,11 +256,11 @@ describe("internal amazon settings API", () => {
   test("test with invalid overlay is 422 and half pair is 422", async () => {
     const a = await call("POST", "/internal/amazon-settings/test", { aws_region: "bad" + NEW_SECRET })
     expect(a.status).toBe(422)
-    expect(a.json.fields).toEqual(["awsRegion"])
+    expect(a.json.fields).toEqual(["aws_region"])
     expectNoSecrets(a.text)
     const b = await call("POST", "/internal/amazon-settings/test", { aws_secret_access_key: NEW_SECRET })
     expect(b.status).toBe(422)
-    expect(b.json.fields).toEqual(["awsAccessKeyId"])
+    expect(b.json.fields).toEqual(["aws_access_key_id"])
     expectNoSecrets(b.text)
     expect(makeSqs).not.toHaveBeenCalled()
   })
@@ -286,5 +286,52 @@ describe("internal amazon settings API", () => {
 
   test("unknown subpath is 404", async () => {
     expect((await call("GET", "/internal/amazon-settings/nope")).status).toBe(404)
+  })
+
+  test("422 from POST and from test both name snake_case fields", async () => {
+    const p = await call("POST", "/internal/amazon-settings", { aws_region: "bad", lwa_client_id: "nope" })
+    expect(p.status).toBe(422)
+    expect(p.json.fields).toEqual(["aws_region", "lwa_client_id"])
+    const t = await call("POST", "/internal/amazon-settings/test", { sqs_queue_url: "http://x", lwa_client_id: "nope" })
+    expect(t.status).toBe(422)
+    expect(t.json.fields).toEqual(["sqs_queue_url", "lwa_client_id"])
+  })
+
+  test("test: lone key half does not pair with environment keys", async () => {
+    const env = { AWS_ACCESS_KEY_ID: "ENVKEYID", AWS_SECRET_ACCESS_KEY: "ENVSECRET" } as NodeJS.ProcessEnv
+    const handler = createInternalHandler({
+      pool,
+      manager: {} as never,
+      encryptionKey: KEY,
+      secret: TOKEN,
+      env,
+      amazon: { runtime, makeSqs: makeSqs as never },
+    })
+    const s = http.createServer((req, res) => void handler(req, res))
+    await new Promise<void>((r) => s.listen(0, "127.0.0.1", r))
+    const port = (s.address() as AddressInfo).port
+    const res = await fetch(`http://127.0.0.1:${port}/internal/amazon-settings/test`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
+      body: JSON.stringify({ aws_access_key_id: AWS_KEY_ID }),
+    })
+    const text = await res.text()
+    expect(res.status).toBe(422)
+    expect(JSON.parse(text)).toEqual({ error: "invalid_input", fields: ["aws_secret_access_key"], kind: "missing" })
+    expect(text).not.toContain("ENVSECRET")
+    expect(makeSqs).not.toHaveBeenCalled()
+    s.closeAllConnections?.()
+    await new Promise((r) => s.close(r))
+  })
+
+  test("test: lone key half pairs with the stored other half", async () => {
+    await call("POST", "/internal/amazon-settings", FULL)
+    const r = await call("POST", "/internal/amazon-settings/test", { aws_access_key_id: "AKIA_OVERLAY_ID" })
+    expect(r.status).toBe(200)
+    expect(makeSqs).toHaveBeenCalledWith({
+      region: REGION,
+      credentials: { accessKeyId: "AKIA_OVERLAY_ID", secretAccessKey: AWS_SECRET },
+    })
+    expectNoSecrets(r.text)
   })
 })
