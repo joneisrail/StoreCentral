@@ -23,6 +23,9 @@ import { testShopifyConnection, testWooCommerceConnection } from "../connectors/
 import type { ShopifyConfig } from "../shopify/config.js"
 import type { WooCommerceConfig } from "../woocommerce/config.js"
 import { isAuthorized } from "./auth.js"
+import { BodyError, readJsonBody, send } from "./http-helpers.js"
+import { handleAmazonSettings } from "./amazon-settings-routes.js"
+import type { AmazonRuntime, SqsFactory } from "../settings/amazon-runtime.js"
 import { getSyncStatus } from "../sync/sync-status.js"
 import { shapeImportOutcome, shapeImportPreview } from "./import-response.js"
 
@@ -36,9 +39,9 @@ export type InternalHandlerDeps = {
   testShopify?: typeof testShopifyConnection
   testWoo?: typeof testWooCommerceConnection
   getSyncStatus?: typeof getSyncStatus
+  amazon?: { runtime: AmazonRuntime; makeSqs: SqsFactory }
 }
 
-const MAX_BODY_BYTES = 64 * 1024
 // Upper bound on an explicit SKU selection for one import request.
 const MAX_IMPORT_SKUS = 500
 const MARKETPLACES: readonly string[] = ["shopify", "woocommerce", "amazon"]
@@ -65,63 +68,7 @@ const BODY_KEYS = [
 ] as const
 
 class UnreadableError extends Error {}
-class BodyError extends Error {
-  constructor(readonly status: number) {
-    super("body")
-  }
-}
 
-const send = (res: http.ServerResponse, status: number, body?: unknown): void => {
-  if (body === undefined) {
-    res.writeHead(status).end()
-    return
-  }
-  const text = JSON.stringify(body)
-  res.writeHead(status, {
-    "content-type": "application/json",
-    "content-length": Buffer.byteLength(text),
-  })
-  res.end(text)
-}
-
-const readJsonBody = (req: http.IncomingMessage, res: http.ServerResponse): Promise<unknown> =>
-  new Promise((resolve, reject) => {
-    const chunks: Buffer[] = []
-    let size = 0
-    let done = false
-    const finish = (fn: () => void): void => {
-      if (done) return
-      done = true
-      req.off("data", onData)
-      fn()
-    }
-    const onData = (chunk: Buffer): void => {
-      size += chunk.length
-      if (size > MAX_BODY_BYTES) {
-        finish(() => {
-          req.pause()
-          res.once("close", () => req.destroy())
-          reject(new BodyError(413))
-        })
-        return
-      }
-      chunks.push(chunk)
-    }
-    req.on("data", onData)
-    req.once("end", () =>
-      finish(() => {
-        try {
-          const parsed: unknown = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}")
-          if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-            reject(new BodyError(400))
-          } else resolve(parsed)
-        } catch {
-          reject(new BodyError(400))
-        }
-      })
-    )
-    req.once("error", () => finish(() => reject(new BodyError(400))))
-  })
 
 const resolveStored = async <T>(fn: () => Promise<T>): Promise<T> => {
   try {
@@ -544,6 +491,21 @@ export const createInternalHandler = (deps: InternalHandlerDeps) => {
     try {
       const path = new URL(req.url ?? "/", "http://x").pathname
       const parts = path.split("/").filter(Boolean)
+      if (parts[0] === "internal" && parts[1] === "amazon-settings") {
+        if (!deps.amazon) return send(res, 404)
+        return await handleAmazonSettings(
+          {
+            pool: deps.pool,
+            encryptionKey: deps.encryptionKey,
+            env: deps.env,
+            runtime: deps.amazon.runtime,
+            makeSqs: deps.amazon.makeSqs,
+          },
+          req,
+          res,
+          parts.slice(2)
+        )
+      }
       await route(req, res, parts)
     } catch (err) {
       if (res.headersSent) return

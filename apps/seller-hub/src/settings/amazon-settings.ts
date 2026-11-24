@@ -119,6 +119,17 @@ export const resolveAmazonSettings = async (
 
 const clean = (v: string | undefined): string => v?.trim() ?? ""
 
+/** Names of the plain fields whose (already trimmed, non-blank) value is invalid. */
+export const invalidAmazonFields = (
+  input: Pick<AmazonSettingsInput, "awsRegion" | "sqsQueueUrl" | "lwaClientId">
+): string[] => {
+  const invalid: string[] = []
+  if (input.awsRegion && !REGION_RE.test(input.awsRegion)) invalid.push("awsRegion")
+  if (input.sqsQueueUrl && !isValidQueueUrl(input.sqsQueueUrl)) invalid.push("sqsQueueUrl")
+  if (input.lwaClientId && !input.lwaClientId.startsWith(LWA_CLIENT_ID_PREFIX)) invalid.push("lwaClientId")
+  return invalid
+}
+
 /** Blank input keeps the stored value (NULL stays NULL). */
 export const saveAmazonSettings = async (
   pool: Pool,
@@ -129,10 +140,7 @@ export const saveAmazonSettings = async (
   const queueUrl = clean(input.sqsQueueUrl)
   const clientId = clean(input.lwaClientId)
 
-  const invalid: string[] = []
-  if (region && !REGION_RE.test(region)) invalid.push("awsRegion")
-  if (queueUrl && !isValidQueueUrl(queueUrl)) invalid.push("sqsQueueUrl")
-  if (clientId && !clientId.startsWith(LWA_CLIENT_ID_PREFIX)) invalid.push("lwaClientId")
+  const invalid = invalidAmazonFields({ awsRegion: region, sqsQueueUrl: queueUrl, lwaClientId: clientId })
   if (invalid.length > 0) throw new AmazonSettingsInputError(invalid, undefined, "invalid")
 
   const stored = await readRow(pool)

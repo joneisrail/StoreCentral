@@ -302,6 +302,7 @@ const main = async (): Promise<void> => {
         encryptionKey: env.encryptionKey,
         secret: internalSecret,
         publicUrl: process.env.SELLER_HUB_PUBLIC_URL,
+        amazon: { runtime: amazonRuntime, makeSqs: createSqsClient },
       })
     : undefined
   if (!internalHandler) {
