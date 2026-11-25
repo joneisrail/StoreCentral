@@ -10,7 +10,7 @@ export enum LOGIN_VIEW {
   REGISTER = "register",
 }
 
-const LoginTemplate = () => {
+const LoginTemplate = ({ storeName }: { storeName: string }) => {
   const [currentView, setCurrentView] = useState("sign-in")
 
   return (
@@ -18,7 +18,7 @@ const LoginTemplate = () => {
       {currentView === "sign-in" ? (
         <Login setCurrentView={setCurrentView} />
       ) : (
-        <Register setCurrentView={setCurrentView} />
+        <Register setCurrentView={setCurrentView} storeName={storeName} />
       )}
     </div>
   )

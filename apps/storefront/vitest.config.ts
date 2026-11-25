@@ -6,14 +6,14 @@ export default defineConfig({
     jsx: "automatic",
   },
   resolve: {
+    // headless-ui pulls @floating-ui/react and @react-aria from the hoisted
+    // root node_modules, which carries React 18. Force a single React copy.
     alias: {
       "@lib": path.resolve(__dirname, "src/lib"),
       "@modules": path.resolve(__dirname, "src/modules"),
       react: path.dirname(require.resolve("react/package.json")),
       "react-dom": path.dirname(require.resolve("react-dom/package.json")),
     },
-    // headless-ui pulls @floating-ui/react and @react-aria from the hoisted
-    // root node_modules, which carries React 18. Force a single React copy.
   },
   test: {
     environment: "node",

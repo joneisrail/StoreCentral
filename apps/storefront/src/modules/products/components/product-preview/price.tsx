@@ -12,7 +12,7 @@ export function PriceLabels({
   }
 
   return (
-    <div className="flex items-baseline gap-x-2">
+    <div className="flex flex-wrap items-baseline gap-x-2">
       {originalPriceLabel && (
         <span
           className="text-warm-grey line-through"
