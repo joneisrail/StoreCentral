@@ -2,44 +2,15 @@ import { notFound } from "next/navigation"
 import { ProductCardView } from "@modules/products/components/product-preview"
 import DesignSystemDemos from "./demos"
 import { isPreviewEnabled } from "./gate"
+import { contrastRatio, swatches } from "./swatches"
 
 export const metadata = {
   title: "Design system",
   robots: { index: false, follow: false },
 }
 
-type Swatch = { name: string; hex: string }
-
-// Mirrors src/styles/tokens.css; tokens.test.ts guards the real values.
-const swatches: Swatch[] = [
-  { name: "ivory", hex: "#faf7f2" },
-  { name: "paper", hex: "#ffffff" },
-  { name: "charcoal", hex: "#1e1d1b" },
-  { name: "warm-grey", hex: "#6f685e" },
-  { name: "line", hex: "#e6dfd3" },
-  { name: "line-strong", hex: "#978e80" },
-  { name: "gold", hex: "#c2a361" },
-  { name: "gold-deep", hex: "#80651f" },
-]
-
-const channel = (value: number): number => {
-  const c = value / 255
-  return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4)
-}
-
-const luminance = (color: string): number => {
-  const n = parseInt(color.slice(1), 16)
-  return (
-    0.2126 * channel((n >> 16) & 255) +
-    0.7152 * channel((n >> 8) & 255) +
-    0.0722 * channel(n & 255)
-  )
-}
-
-const ratio = (a: string, b: string): string => {
-  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x)
-  return ((hi + 0.05) / (lo + 0.05)).toFixed(2)
-}
+const ratio = (a: string, b: string): string =>
+  contrastRatio(a, b).toFixed(2)
 
 const longTitle = "Extraordinarily long perfume title ".repeat(9).slice(0, 300)
 

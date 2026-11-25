@@ -110,7 +110,7 @@ bg-[rgb(30_29_27/0.4)]
 1. Add `--sc-<name>: #rrggbb;` to `:root` in `apps/storefront/src/styles/tokens.css`.
 2. Add `"<name>": "var(--sc-<name>)"` under `theme.extend.colors` in `apps/storefront/tailwind.config.js`.
 3. Add the hex check and any contrast assertions to `apps/storefront/src/styles/tokens.test.ts`.
-4. Add a swatch to the `swatches` list in `apps/storefront/src/app/[countryCode]/(main)/design-system/page.tsx` and a row to the tables above.
+4. Add a swatch to the `swatches` list in `apps/storefront/src/app/[countryCode]/(main)/design-system/swatches.ts` and a row to the tables above. `swatches.test.ts` compares that list with `tokens.css` in both directions, so it fails if the swatch is forgotten or its hex differs.
 
 ## Viewing the preview
 
