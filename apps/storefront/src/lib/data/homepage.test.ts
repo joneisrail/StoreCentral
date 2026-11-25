@@ -1,3 +1,4 @@
+import type { HttpTypes } from "@medusajs/types"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("@lib/data/products", () => ({ listProducts: vi.fn() }))
@@ -13,11 +14,18 @@ import {
   getHomepageSections,
   listBrandTiles,
   listSectionProducts,
+  listShopTiles,
   pickBrands,
   pickShopCategories,
 } from "./homepage"
 
-const cat = (o: Record<string, unknown>) => o as any
+const cat = (o: Record<string, unknown>) =>
+  o as unknown as HttpTypes.StoreProductCategory
+const asProducts = (o: unknown) =>
+  o as Awaited<ReturnType<typeof listProducts>>
+const asRegion = (o: unknown) => o as unknown as HttpTypes.StoreRegion
+const asCollections = (o: unknown) =>
+  o as Awaited<ReturnType<typeof listCollections>>
 
 describe("pickBrands", () => {
   it("returns [] without a brands category", () => {
@@ -78,10 +86,10 @@ describe("server helpers", () => {
   })
 
   it("listSectionProducts orders latest by -created_at", async () => {
-    vi.mocked(listProducts).mockResolvedValue({
+    vi.mocked(listProducts).mockResolvedValue(asProducts({
       response: { products: [{ id: "p" }], count: 1 },
       nextPage: null,
-    } as any)
+    }))
     const r = await listSectionProducts(
       { id: "new-arrivals", title: "New", kind: "latest" },
       "reg"
@@ -100,10 +108,10 @@ describe("server helpers", () => {
   })
 
   it("listSectionProducts filters by collection_id", async () => {
-    vi.mocked(listProducts).mockResolvedValue({
+    vi.mocked(listProducts).mockResolvedValue(asProducts({
       response: { products: [], count: 0 },
       nextPage: null,
-    } as any)
+    }))
     await listSectionProducts(
       {
         id: "mens",
@@ -125,22 +133,24 @@ describe("server helpers", () => {
   })
 
   it("getHomepageSections returns null without region", async () => {
-    vi.mocked(getRegion).mockResolvedValue(null as any)
+    vi.mocked(getRegion).mockResolvedValue(null as unknown as HttpTypes.StoreRegion)
     expect(await getHomepageSections("us")).toBeNull()
   })
 
   it("getHomepageSections returns null when collections reject", async () => {
-    vi.mocked(getRegion).mockResolvedValue({ id: "r" } as any)
+    vi.mocked(getRegion).mockResolvedValue(asRegion({ id: "r" }))
     vi.mocked(listCollections).mockRejectedValue(new Error("x"))
     expect(await getHomepageSections("us")).toBeNull()
   })
 
   it("getHomepageSections returns resolved sections", async () => {
-    vi.mocked(getRegion).mockResolvedValue({ id: "r" } as any)
-    vi.mocked(listCollections).mockResolvedValue({
-      collections: [{ id: "c1", handle: "mens" }],
-      count: 1,
-    } as any)
+    vi.mocked(getRegion).mockResolvedValue(asRegion({ id: "r" }))
+    vi.mocked(listCollections).mockResolvedValue(
+      asCollections({
+        collections: [{ id: "c1", handle: "mens" }],
+        count: 1,
+      })
+    )
     const r = await getHomepageSections("us")
     expect(r?.region.id).toBe("r")
     expect(r?.sections.map((s) => s.id)).toEqual(["new-arrivals", "mens"])
@@ -149,5 +159,19 @@ describe("server helpers", () => {
   it("listBrandTiles returns [] when listCategories rejects", async () => {
     vi.mocked(listCategories).mockRejectedValue(new Error("x"))
     expect(await listBrandTiles()).toEqual([])
+  })
+
+  it("listBrandTiles requests the category fields once", async () => {
+    vi.mocked(listCategories).mockResolvedValue([])
+    await listBrandTiles()
+    expect(listCategories).toHaveBeenCalledTimes(1)
+    expect(listCategories).toHaveBeenCalledWith({
+      fields: "id,name,handle,parent_category_id,metadata,*category_children",
+    })
+  })
+
+  it("listShopTiles returns [] when listCategories rejects", async () => {
+    vi.mocked(listCategories).mockRejectedValue(new Error("x"))
+    expect(await listShopTiles()).toEqual([])
   })
 })
