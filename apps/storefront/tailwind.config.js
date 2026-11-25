@@ -66,7 +66,9 @@ module.exports = {
         "3xl": "2rem",
       },
       fontFamily: {
+        serif: ["var(--font-serif)", "Georgia", "Times New Roman", "serif"],
         sans: [
+          "var(--font-sans)",
           "Inter",
           "-apple-system",
           "BlinkMacSystemFont",
