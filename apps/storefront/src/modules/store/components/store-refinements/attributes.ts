@@ -26,3 +26,9 @@ export const getSortOptions = (currencyCode: string) => {
     { value: `${PRODUCT_INDEX_NAME}/sort/title:desc`, label: "Title: Z -> A" },
   ]
 }
+
+export const BRAND_ATTRIBUTE = "brand"
+export const GENDER_ATTRIBUTE = "gender"
+export const FAMILY_ATTRIBUTE = "fragrance_family"
+export const NOTES_ATTRIBUTE = "notes"
+export const IN_STOCK_ATTRIBUTE = "in_stock"
