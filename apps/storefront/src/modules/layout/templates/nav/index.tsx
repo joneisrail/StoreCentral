@@ -20,7 +20,11 @@ export default async function Nav() {
         <nav className="content-container txt-xsmall-plus text-charcoal flex items-center justify-between w-full h-full text-small-regular">
           <div className="flex-1 basis-0 h-full flex items-center">
             <div className="h-full">
-              <SideMenu locales={locales} currentLocale={currentLocale} />
+              <SideMenu
+                locales={locales}
+                currentLocale={currentLocale}
+                storeName={getStoreName()}
+              />
             </div>
           </div>
 

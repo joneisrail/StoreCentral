@@ -4,7 +4,6 @@ import useToggleState from "@lib/hooks/use-toggle-state"
 import { ArrowRightMini } from "@medusajs/icons"
 import Drawer from "@modules/common/components/drawer"
 import LocalizedClientLink from "@modules/common/components/localized-client-link"
-import { getStoreName } from "@lib/util/store-name"
 import { Text, clx } from "@modules/common/components/ui"
 import { useState } from "react"
 import LanguageSelect from "../language-select"
@@ -21,9 +20,10 @@ const SideMenuItems = {
 type SideMenuProps = {
   locales: Locale[] | null
   currentLocale: string | null
+  storeName: string
 }
 
-const SideMenu = ({ locales, currentLocale }: SideMenuProps) => {
+const SideMenu = ({ locales, currentLocale, storeName }: SideMenuProps) => {
   const languageToggleState = useToggleState()
   const [open, setOpen] = useState(false)
   const close = () => setOpen(false)
@@ -89,7 +89,7 @@ const SideMenu = ({ locales, currentLocale }: SideMenuProps) => {
                 </div>
               )}
               <Text className="flex justify-between txt-compact-small text-warm-grey">
-                &copy; {new Date().getFullYear()} {getStoreName()}. All rights
+                &copy; {new Date().getFullYear()} {storeName}. All rights
                 reserved.
               </Text>
             </div>

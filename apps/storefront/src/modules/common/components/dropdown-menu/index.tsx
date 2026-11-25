@@ -20,7 +20,7 @@ const ring =
   "focus:outline-none focus-visible:ring-2 focus-visible:ring-gold-deep focus-visible:ring-offset-2"
 
 const itemClass =
-  "flex min-h-[44px] w-full items-center px-4 py-2 text-left text-sm text-charcoal data-[focus]:bg-ivory data-[disabled]:cursor-not-allowed data-[disabled]:text-warm-grey lg:min-h-0"
+  "flex min-h-[44px] w-full items-center px-4 py-2 text-left text-sm text-charcoal data-[focus]:bg-line data-[focus]:ring-2 data-[focus]:ring-inset data-[focus]:ring-gold-deep data-[disabled]:cursor-not-allowed data-[disabled]:text-warm-grey lg:min-h-0"
 
 const DropdownMenu = ({ label, items }: DropdownMenuProps) => {
   return (

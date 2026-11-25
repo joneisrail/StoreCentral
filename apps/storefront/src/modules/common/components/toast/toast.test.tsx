@@ -59,11 +59,18 @@ describe("toast", () => {
       "lg:top-0",
       "lg:right-0",
       "lg:bottom-auto",
-      "max-h-screen",
+      "max-h-[40dvh]",
+      "lg:max-h-screen",
       "overflow-y-auto",
     ]) {
       expect(region.className).toContain(c)
     }
+  })
+
+  it("region is a persistent polite live region", () => {
+    setup()
+    const region = document.querySelector('[role="region"]') as HTMLElement
+    expect(region.getAttribute("aria-live")).toBe("polite")
   })
 
   it("auto-dismisses after the default 5000ms", () => {
@@ -144,6 +151,46 @@ describe("toast", () => {
     expect(items().length).toBe(1)
     advance(1)
     expect(items().length).toBe(0)
+  })
+
+  it("focus within pauses the timer and blur out resumes it", () => {
+    setup()
+    act(() => {
+      api.toast({ title: "Focus", durationMs: 1000 })
+    })
+    advance(500)
+    const btn = items()[0].querySelector("button") as HTMLButtonElement
+    act(() => {
+      btn.focus()
+    })
+    advance(5000)
+    expect(items().length).toBe(1)
+    act(() => {
+      btn.blur()
+    })
+    advance(499)
+    expect(items().length).toBe(1)
+    advance(1)
+    expect(items().length).toBe(0)
+  })
+
+  it("focus moving between elements inside the toast keeps it paused", () => {
+    setup()
+    act(() => {
+      api.toast({ title: "Inner", durationMs: 1000 })
+    })
+    const el = items()[0]
+    const btn = el.querySelector("button") as HTMLButtonElement
+    act(() => {
+      btn.focus()
+    })
+    act(() => {
+      el.dispatchEvent(
+        new FocusEvent("focusout", { bubbles: true, relatedTarget: btn })
+      )
+    })
+    advance(5000)
+    expect(items().length).toBe(1)
   })
 
   it("error tone uses role alert, others role status", () => {

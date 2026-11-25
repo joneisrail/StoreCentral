@@ -74,8 +74,14 @@ function ToastView({
     <div
       data-toast=""
       role={tone === "error" ? "alert" : "status"}
-      onMouseOver={() => setPaused(true)}
-      onMouseOut={() => setPaused(false)}
+      onMouseEnter={() => setPaused(true)}
+      onMouseLeave={() => setPaused(false)}
+      onFocus={() => setPaused(true)}
+      onBlur={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+          setPaused(false)
+        }
+      }}
       className={clsx(
         "pointer-events-auto flex items-start gap-3 rounded-rounded border border-line border-l-4 bg-paper p-4 text-charcoal shadow-md",
         "motion-safe:transition-opacity motion-safe:duration-200",
@@ -122,8 +128,9 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       {children}
       <div
         role="region"
+        aria-live="polite"
         aria-label="Notifications"
-        className="pointer-events-none fixed inset-x-0 bottom-0 z-50 flex max-h-screen flex-col gap-2 overflow-y-auto p-4 lg:inset-x-auto lg:bottom-auto lg:right-0 lg:top-0 lg:w-96"
+        className="pointer-events-none fixed inset-x-0 bottom-0 z-50 flex max-h-[40dvh] flex-col gap-2 overflow-y-auto p-4 lg:max-h-screen lg:inset-x-auto lg:bottom-auto lg:right-0 lg:top-0 lg:w-96"
       >
         {items.map((item) => (
           <ToastView key={item.id} item={item} onDismiss={dismiss} />
