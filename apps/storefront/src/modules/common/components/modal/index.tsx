@@ -34,7 +34,7 @@ const Modal = ({
           leaveFrom="opacity-100"
           leaveTo="opacity-0"
         >
-          <div className="fixed inset-0 bg-opacity-75 backdrop-blur-md  h-screen" />
+          <div className="fixed inset-0 bg-charcoal/40 backdrop-blur-md h-screen" />
         </Transition.Child>
 
         <div className="fixed inset-0 overflow-y-hidden">
@@ -59,13 +59,13 @@ const Modal = ({
               <Dialog.Panel
                 data-testid={dataTestId}
                 className={clx(
-                  "flex flex-col justify-start w-full transform p-5 text-left align-middle transition-all max-h-[75vh] h-fit",
+                  "flex flex-col justify-start w-full transform p-5 text-left align-middle motion-safe:transition-all motion-reduce:transition-none max-h-[75vh] h-fit",
                   {
                     "max-w-md": size === "small",
                     "max-w-xl": size === "medium",
                     "max-w-3xl": size === "large",
                     "bg-transparent shadow-none": search,
-                    "bg-white shadow-xl border rounded-rounded": !search,
+                    "bg-paper text-charcoal shadow-xl border border-line rounded-soft": !search,
                   }
                 )}
               >
@@ -86,7 +86,12 @@ const Title: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     <Dialog.Title className="flex items-center justify-between">
       <div className="text-large-semi">{children}</div>
       <div>
-        <button onClick={close} data-testid="close-modal-button">
+        <button
+          onClick={close}
+          data-testid="close-modal-button"
+          aria-label="Close"
+          className="flex h-11 w-11 items-center justify-center rounded-soft text-charcoal focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold-deep lg:h-8 lg:w-8"
+        >
           <X size={20} />
         </button>
       </div>

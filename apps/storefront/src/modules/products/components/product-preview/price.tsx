@@ -1,29 +1,47 @@
-import { Text, clx } from "@modules/common/components/ui"
 import { VariantPrice } from "types/global"
 
-export default async function PreviewPrice({ price }: { price: VariantPrice }) {
+export function PriceLabels({
+  priceLabel,
+  originalPriceLabel,
+}: {
+  priceLabel?: string | null
+  originalPriceLabel?: string | null
+}) {
+  if (!priceLabel) {
+    return null
+  }
+
+  return (
+    <div className="flex shrink-0 items-baseline gap-x-2 whitespace-nowrap">
+      {originalPriceLabel && (
+        <span
+          className="text-warm-grey line-through"
+          data-testid="original-price"
+        >
+          {originalPriceLabel}
+        </span>
+      )}
+      <span
+        className={originalPriceLabel ? "text-gold-deep" : "text-charcoal"}
+        data-testid="price"
+      >
+        {priceLabel}
+      </span>
+    </div>
+  )
+}
+
+export default function PreviewPrice({ price }: { price: VariantPrice }) {
   if (!price) {
     return null
   }
 
   return (
-    <>
-      {price.price_type === "sale" && (
-        <Text
-          className="line-through text-ui-fg-muted"
-          data-testid="original-price"
-        >
-          {price.original_price}
-        </Text>
-      )}
-      <Text
-        className={clx("text-ui-fg-muted", {
-          "text-ui-fg-interactive": price.price_type === "sale",
-        })}
-        data-testid="price"
-      >
-        {price.calculated_price}
-      </Text>
-    </>
+    <PriceLabels
+      priceLabel={price.calculated_price}
+      originalPriceLabel={
+        price.price_type === "sale" ? price.original_price : null
+      }
+    />
   )
 }
