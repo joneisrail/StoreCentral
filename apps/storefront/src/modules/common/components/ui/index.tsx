@@ -59,7 +59,7 @@ Heading.displayName = "Heading"
 
 // Button Component
 type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
-  variant?: "primary" | "secondary" | "transparent"
+  variant?: "primary" | "secondary" | "transparent" | "gold"
   size?: "small" | "medium" | "large"
   isLoading?: boolean
 }
@@ -82,11 +82,15 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
         ref={ref}
         disabled={disabled || isLoading}
         className={clsx(
-          "inline-flex gap-2 items-center justify-center rounded-md font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50",
-          variant === "primary" && "bg-black text-white hover:bg-gray-800",
+          "inline-flex gap-2 items-center justify-center rounded-base font-medium min-h-[44px] lg:min-h-0 transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-deep focus-visible:ring-offset-2 focus-visible:ring-offset-ivory disabled:pointer-events-none disabled:opacity-50",
+          variant === "primary" &&
+            "bg-charcoal text-ivory hover:bg-gold-deep hover:text-paper",
           variant === "secondary" &&
-            "bg-white text-black border border-gray-200 hover:bg-gray-50",
-          variant === "transparent" && "bg-transparent hover:bg-gray-100",
+            "bg-paper text-charcoal border border-line-strong hover:bg-ivory",
+          variant === "transparent" &&
+            "bg-transparent text-charcoal hover:bg-line",
+          variant === "gold" &&
+            "bg-gold text-charcoal hover:bg-gold-deep hover:text-paper",
           size === "small" && "h-8 px-3 text-sm",
           size === "medium" && "h-10 px-4",
           size === "large" && "h-12 px-6 text-lg",
@@ -109,7 +113,7 @@ export const Container = forwardRef<HTMLDivElement, ContainerProps>(
     return (
       <div
         ref={ref}
-        className={clsx("bg-white rounded-lg p-4", className)}
+        className={clsx("bg-paper rounded-large p-4", className)}
         {...props}
       >
         {children}
@@ -133,10 +137,10 @@ export const Badge = forwardRef<HTMLSpanElement, BadgeProps>(
           "inline-flex items-center rounded-full px-2 py-1 text-xs font-medium",
           color === "green" && "bg-green-100 text-green-700",
           color === "red" && "bg-red-100 text-red-700",
-          color === "blue" && "bg-blue-100 text-blue-700",
+          color === "blue" && "bg-line text-charcoal",
           color === "orange" && "bg-orange-100 text-orange-700",
-          color === "grey" && "bg-gray-100 text-gray-700",
-          color === "purple" && "bg-purple-100 text-purple-700",
+          color === "grey" && "bg-line text-warm-grey",
+          color === "purple" && "bg-ivory text-gold-deep border border-line",
           className
         )}
         {...props}
@@ -157,7 +161,7 @@ export const IconBadge = forwardRef<HTMLSpanElement, IconBadgeProps>(
       <span
         ref={ref}
         className={clsx(
-          "inline-flex items-center justify-center rounded-full bg-gray-100 p-1",
+          "inline-flex items-center justify-center rounded-full bg-line text-charcoal p-1",
           className
         )}
         {...props}
@@ -178,7 +182,7 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
       <button
         ref={ref}
         className={clsx(
-          "inline-flex items-center justify-center rounded-md p-2 hover:bg-gray-100 transition-colors focus-visible:outline-none focus-visible:ring-2",
+          "inline-flex items-center justify-center rounded-base p-2 min-h-[44px] min-w-[44px] lg:min-h-0 lg:min-w-0 text-charcoal hover:bg-line transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-deep focus-visible:ring-offset-2 focus-visible:ring-offset-ivory",
           className
         )}
         {...props}
@@ -198,7 +202,7 @@ export const Label = forwardRef<HTMLLabelElement, LabelProps>(
     return (
       <label
         ref={ref}
-        className={clsx("text-sm font-medium", className)}
+        className={clsx("text-sm font-medium text-charcoal", className)}
         {...props}
       >
         {children}
@@ -221,7 +225,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
         <input
           ref={ref}
           className={clsx(
-            "flex h-10 w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50",
+            "flex h-11 lg:h-10 w-full rounded-base border border-line-strong bg-paper text-charcoal px-3 py-2 text-sm placeholder:text-warm-grey transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-deep focus-visible:ring-offset-2 focus-visible:ring-offset-ivory disabled:cursor-not-allowed disabled:opacity-50",
             className
           )}
           {...props}
@@ -378,13 +382,13 @@ type RadioGroupItemProps = InputHTMLAttributes<HTMLInputElement> & {
 const RadioGroupItem = forwardRef<HTMLInputElement, RadioGroupItemProps>(
   ({ className, label, id, ...props }, ref) => {
     return (
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 min-h-[44px] lg:min-h-0">
         <input
           ref={ref}
           type="radio"
           id={id}
           className={clsx(
-            "h-4 w-4 border-gray-300 text-gray-900 focus:ring-gray-900",
+            "h-5 w-5 lg:h-4 lg:w-4 border-line-strong text-charcoal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-deep focus-visible:ring-offset-2 focus-visible:ring-offset-ivory",
             className
           )}
           {...props}
@@ -408,13 +412,13 @@ type CheckboxProps = Omit<InputHTMLAttributes<HTMLInputElement>, "type"> & {
 export const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(
   ({ className, label, id, ...props }, ref) => {
     return (
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 min-h-[44px] lg:min-h-0">
         <input
           ref={ref}
           type="checkbox"
           id={id}
           className={clsx(
-            "h-4 w-4 rounded border-gray-300 text-gray-900 focus:ring-gray-900",
+            "h-5 w-5 lg:h-4 lg:w-4 rounded-soft border-line-strong text-charcoal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-deep focus-visible:ring-offset-2 focus-visible:ring-offset-ivory",
             className
           )}
           {...props}
