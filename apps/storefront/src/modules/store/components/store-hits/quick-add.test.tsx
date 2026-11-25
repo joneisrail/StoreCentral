@@ -116,6 +116,9 @@ describe("QuickAdd", () => {
         resolve = r
       })
     )
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+    const unhandled = vi.fn()
+    process.on("unhandledRejection", unhandled)
     const view = setup()
     await act(async () => {
       button().click()
@@ -125,6 +128,10 @@ describe("QuickAdd", () => {
       resolve()
     })
     expect(addToCart).toHaveBeenCalledTimes(1)
+    await new Promise((r) => setTimeout(r, 0))
+    process.off("unhandledRejection", unhandled)
+    expect(unhandled).not.toHaveBeenCalled()
+    expect(errorSpy).not.toHaveBeenCalled()
   })
 
   it("falls back to a generic message for non-Error rejections", async () => {

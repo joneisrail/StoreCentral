@@ -11,6 +11,7 @@ import {
 const EMPTY: readonly string[] = Object.freeze([])
 
 let current: string[] | null = null
+let unsaved = false
 const listeners = new Set<() => void>()
 let storageBound = false
 
@@ -31,6 +32,9 @@ const onStorage = (event: StorageEvent) => {
   if (event.key !== null && event.key !== WISHLIST_KEY) {
     return
   }
+  if (unsaved) {
+    return
+  }
   current = readStorage()
   emit()
 }
@@ -46,7 +50,9 @@ const subscribe = (listener: () => void) => {
     if (listeners.size === 0 && storageBound) {
       window.removeEventListener("storage", onStorage)
       storageBound = false
-      current = null
+      if (!unsaved) {
+        current = null
+      }
     }
   }
 }
@@ -64,8 +70,10 @@ const write = (next: string[]) => {
   current = next
   try {
     window.localStorage.setItem(WISHLIST_KEY, serializeWishlist(next))
+    unsaved = false
   } catch {
     // In-memory list keeps working for this session.
+    unsaved = true
   }
   emit()
 }

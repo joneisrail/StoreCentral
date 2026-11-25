@@ -130,4 +130,54 @@ describe("WishlistButton", () => {
     expect(button().getAttribute("aria-pressed")).toBe("true")
     expect(window.localStorage.getItem("sc-wishlist")).toBe('["prod_1"]')
   })
+
+  it("keeps unsaved toggles after every heart unmounts", async () => {
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("denied")
+    })
+    const { ToastProvider, WishlistButton } = await loadButton()
+    const ui = (
+      <ToastProvider>
+        <WishlistButton productId="prod_1" title="Oud" />
+      </ToastProvider>
+    )
+    const first = render(ui)
+    await act(async () => {
+      await userEvent.click(button())
+    })
+    expect(button().getAttribute("aria-pressed")).toBe("true")
+    first.unmount()
+    render(ui)
+    expect(button().getAttribute("aria-pressed")).toBe("true")
+  })
+
+  it("re-reads storage after a persisted toggle clears the unsaved flag", async () => {
+    const setItem = vi
+      .spyOn(Storage.prototype, "setItem")
+      .mockImplementation(() => {
+        throw new Error("denied")
+      })
+    const { ToastProvider, WishlistButton } = await loadButton()
+    const ui = (
+      <ToastProvider>
+        <WishlistButton productId="prod_1" title="Oud" />
+      </ToastProvider>
+    )
+    const first = render(ui)
+    await act(async () => {
+      await userEvent.click(button())
+    })
+    setItem.mockRestore()
+    await act(async () => {
+      await userEvent.click(button())
+    })
+    await act(async () => {
+      await userEvent.click(button())
+    })
+    expect(window.localStorage.getItem("sc-wishlist")).toBe('["prod_1"]')
+    first.unmount()
+    window.localStorage.setItem("sc-wishlist", "[]")
+    render(ui)
+    expect(button().getAttribute("aria-pressed")).toBe("false")
+  })
 })
