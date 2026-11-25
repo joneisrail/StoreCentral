@@ -120,4 +120,14 @@ The page is only available outside production. When `NODE_ENV` is `production` i
 
 ## Verification results
 
-Filled in during phase verification.
+Date: 2026-11-25. Run on branch storefront-phase-2 at the commit that adds this section.
+
+- Typecheck (tsc --noEmit): 0 errors.
+- Unit tests (vitest, apps/storefront): 16 files, 104 tests, all pass.
+- Lint (next lint): 0 errors, 3 warnings that were there before this phase (react-hooks/exhaustive-deps in checkout and product-actions).
+- Deploy workflow tests (node --test deploy/*.test.mjs): 66 pass, 0 fail.
+- Production build (next build) from a copy outside the worktree: exit 0, fonts fetched. The first attempt failed because side-menu held a lone Latin-1 byte (invalid UTF-8); fixed and a test now checks every source file is valid UTF-8.
+- Secret scan of .next/static for sk_live, sk_test and whsec_: no matches.
+- Built server against the local backend: /us, /us/store, a product page and /us/cart return 200. /us/design-system returns 404 in production as intended. The home page shows the store name (default "Store"), no "Medusa Store" text, and the charcoal footer band.
+
+Not checked: pages were not opened in a browser, so there are no screenshots and no check of layout jump, fonts as rendered, focus rings, the drawer or the toasts on real screens; no real catalog (4 demo clothing products locally); checkout payment; the Docker image build; the first CI run.
