@@ -19,6 +19,16 @@ export type TileCategory = {
 const CATEGORY_FIELDS =
   "id,name,handle,parent_category_id,metadata,*category_children"
 
+// Top-level only (children arrive through *category_children) with a limit
+// far above any realistic catalogue, so "brands" is never paged out.
+const CATEGORY_QUERY = {
+  fields: CATEGORY_FIELDS,
+  parent_category_id: "null",
+  limit: 1000,
+}
+
+export const MAX_BRAND_TILES = 12
+
 const toTile = (
   c: Pick<HttpTypes.StoreProductCategory, "id" | "name" | "handle" | "metadata">
 ): TileCategory | null => {
@@ -45,7 +55,10 @@ export const pickBrands = (
   if (!brands) {
     return []
   }
-  return compact((brands.category_children ?? []).map((c) => toTile(c)))
+  return compact((brands.category_children ?? []).map((c) => toTile(c))).slice(
+    0,
+    MAX_BRAND_TILES
+  )
 }
 
 export const pickShopCategories = (
@@ -105,7 +118,7 @@ export const listSectionProducts = async (
 
 export const listBrandTiles = async (): Promise<TileCategory[]> => {
   try {
-    return pickBrands(await listCategories({ fields: CATEGORY_FIELDS }))
+    return pickBrands(await listCategories(CATEGORY_QUERY))
   } catch {
     console.error("homepage: listBrandTiles failed")
     return []
@@ -114,7 +127,7 @@ export const listBrandTiles = async (): Promise<TileCategory[]> => {
 
 export const listShopTiles = async (): Promise<TileCategory[]> => {
   try {
-    return pickShopCategories(await listCategories({ fields: CATEGORY_FIELDS }))
+    return pickShopCategories(await listCategories(CATEGORY_QUERY))
   } catch {
     console.error("homepage: listShopTiles failed")
     return []

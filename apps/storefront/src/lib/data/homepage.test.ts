@@ -167,7 +167,37 @@ describe("server helpers", () => {
     expect(listCategories).toHaveBeenCalledTimes(1)
     expect(listCategories).toHaveBeenCalledWith({
       fields: "id,name,handle,parent_category_id,metadata,*category_children",
+      parent_category_id: "null",
+      limit: 1000,
     })
+  })
+
+  it("listShopTiles queries top-level categories with a large limit", async () => {
+    vi.mocked(listCategories).mockResolvedValue([])
+    await listShopTiles()
+    expect(listCategories).toHaveBeenCalledWith({
+      fields: "id,name,handle,parent_category_id,metadata,*category_children",
+      parent_category_id: "null",
+      limit: 1000,
+    })
+  })
+
+  it("listBrandTiles caps the strip at 12 brands", async () => {
+    vi.mocked(listCategories).mockResolvedValue([
+      cat({
+        id: "b",
+        name: "Brands",
+        handle: "brands",
+        category_children: Array.from({ length: 30 }, (_, i) => ({
+          id: `c${i}`,
+          name: `Brand ${i}`,
+          handle: `brand-${i}`,
+        })),
+      }),
+    ])
+    const tiles = await listBrandTiles()
+    expect(tiles).toHaveLength(12)
+    expect(tiles[0].handle).toBe("brand-0")
   })
 
   it("listShopTiles returns [] when listCategories rejects", async () => {

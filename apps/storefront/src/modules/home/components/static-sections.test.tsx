@@ -24,6 +24,16 @@ describe("PromoBanners", () => {
     expect(container.querySelectorAll("a")).toHaveLength(1)
     expect(container.querySelector("a")?.getAttribute("href")).toBe("/store")
   })
+
+  it("uses h2 for promo titles", () => {
+    const { container } = render(
+      <PromoBanners
+        promos={[{ id: "p", title: "Sale", href: "/store", ctaLabel: "Shop" }]}
+      />
+    )
+    expect(container.querySelector("h2")?.textContent).toBe("Sale")
+    expect(container.querySelector("h3")).toBeNull()
+  })
 })
 
 describe("Editorial", () => {

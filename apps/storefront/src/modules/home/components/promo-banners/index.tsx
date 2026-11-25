@@ -28,7 +28,7 @@ const PromoBanners = ({ promos }: { promos: Promo[] }) => {
                 />
               ) : null}
               <div className="flex flex-col items-start gap-3 p-6">
-                <Heading level="h3" className="break-words">
+                <Heading level="h2" className="break-words">
                   {promo.title}
                 </Heading>
                 {promo.text ? (

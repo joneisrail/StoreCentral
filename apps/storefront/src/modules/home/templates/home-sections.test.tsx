@@ -30,8 +30,8 @@ vi.mock("@modules/products/components/product-preview", () => ({
 }))
 
 import HomeSections, {
+  ProductSections,
   SectionProducts,
-  planHomeSections,
 } from "./home-sections"
 
 const region = { id: "reg_1" } as HttpTypes.StoreRegion
@@ -49,23 +49,50 @@ beforeEach(() => {
 afterEach(cleanup)
 
 describe("HomeSections", () => {
-  it("renders nothing and does not throw when the data layer fails", async () => {
-    getHomepageSections.mockResolvedValue(null)
-    await expect(HomeSections({ countryCode: "us" })).resolves.toBeNull()
-  })
+  const keysOf = (el: unknown) =>
+    (el as ReactElement<{ children: ReactElement[] }>).props.children.map(
+      (c) => c.key
+    )
 
-  it("plans category, brand, sections, then static blocks in order", () => {
-    expect(planHomeSections([latest]).map((s) => s.key)).toEqual([
+  it("does not read region or collections itself", async () => {
+    const el = await HomeSections({ countryCode: "us" })
+    expect(getHomepageSections).not.toHaveBeenCalled()
+    expect(keysOf(el)).toEqual([
       "categories",
       "brands",
-      "section:new-arrivals",
+      "products",
       "promos",
       "editorial",
       "newsletter",
     ])
   })
+})
 
-  it("renders blocks in page order", async () => {
+describe("ProductSections", () => {
+  it("renders nothing and does not throw when the data layer fails", async () => {
+    getHomepageSections.mockResolvedValue(null)
+    await expect(ProductSections({ countryCode: "us" })).resolves.toBeNull()
+  })
+
+  it("keeps categories, brands, promos, editorial and newsletter when data fails", async () => {
+    getHomepageSections.mockResolvedValue(null)
+    const el = await HomeSections({ countryCode: "us" })
+    const keys = (
+      el as ReactElement<{ children: ReactElement[] }>
+    ).props.children.map((c) => c.key)
+    expect(keys).toEqual(
+      expect.arrayContaining([
+        "categories",
+        "brands",
+        "promos",
+        "editorial",
+        "newsletter",
+      ])
+    )
+    expect(await ProductSections({ countryCode: "us" })).toBeNull()
+  })
+
+  it("renders one block per section in order", async () => {
     const bestSellers: ResolvedSection = {
       id: "best-sellers",
       title: "Best sellers",
@@ -76,17 +103,12 @@ describe("HomeSections", () => {
       region,
       sections: [bestSellers, latest],
     })
-    const ordered = (await HomeSections({ countryCode: "us" })) as ReactElement<{
-      children: ReactElement[]
-    }>
-    expect(ordered.props.children.map((c) => c.key)).toEqual([
-      "categories",
-      "brands",
+    const el = (await ProductSections({
+      countryCode: "us",
+    })) as ReactElement<{ children: ReactElement[] }>
+    expect(el.props.children.map((c) => c.key)).toEqual([
       "section:best-sellers",
       "section:new-arrivals",
-      "promos",
-      "editorial",
-      "newsletter",
     ])
   })
 })

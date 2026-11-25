@@ -17,24 +17,6 @@ import PromoBanners from "@modules/home/components/promo-banners"
 
 import { ProductSectionSkeleton, TileSkeleton } from "./home-skeleton"
 
-export type PlannedBlock =
-  | { key: "categories" | "brands" | "promos" | "editorial" | "newsletter" }
-  | { key: `section:${string}`; section: ResolvedSection }
-
-// Pure ordering of the homepage blocks below the hero.
-export const planHomeSections = (
-  sections: ResolvedSection[]
-): PlannedBlock[] => [
-  { key: "categories" },
-  { key: "brands" },
-  ...sections.map(
-    (section): PlannedBlock => ({ key: `section:${section.id}`, section })
-  ),
-  { key: "promos" },
-  { key: "editorial" },
-  { key: "newsletter" },
-]
-
 const ShopTiles = async () => (
   <CategoryGrid categories={await listShopTiles()} />
 )
@@ -62,7 +44,11 @@ export const SectionProducts = async ({
   )
 }
 
-const HomeSections = async ({ countryCode }: { countryCode: string }) => {
+export const ProductSections = async ({
+  countryCode,
+}: {
+  countryCode: string
+}) => {
   const data = await getHomepageSections(countryCode)
   if (!data) {
     return null
@@ -71,40 +57,36 @@ const HomeSections = async ({ countryCode }: { countryCode: string }) => {
 
   return (
     <>
-      {planHomeSections(sections).map((block) => {
-        switch (block.key) {
-          case "categories":
-            return (
-              <Suspense key={block.key} fallback={<TileSkeleton />}>
-                <ShopTiles />
-              </Suspense>
-            )
-          case "brands":
-            return (
-              <Suspense key={block.key} fallback={<TileSkeleton variant="brand" />}>
-                <BrandTiles />
-              </Suspense>
-            )
-          case "promos":
-            return <PromoBanners key={block.key} promos={homepageContent.promos} />
-          case "editorial":
-            return (
-              <Editorial key={block.key} blocks={homepageContent.editorial} />
-            )
-          case "newsletter":
-            return (
-              <Newsletter key={block.key} action={getNewsletterAction()} />
-            )
-          default:
-            return "section" in block ? (
-              <Suspense key={block.key} fallback={<ProductSectionSkeleton />}>
-                <SectionProducts section={block.section} regionId={region.id} />
-              </Suspense>
-            ) : null
-        }
-      })}
+      {sections.map((section) => (
+        <Suspense
+          key={`section:${section.id}`}
+          fallback={<ProductSectionSkeleton />}
+        >
+          <SectionProducts section={section} regionId={region.id} />
+        </Suspense>
+      ))}
     </>
   )
 }
+
+// Category, brand and static blocks never wait on region or collections:
+// the product sections sit in their own Suspense and render nothing when
+// that lookup fails.
+const HomeSections = ({ countryCode }: { countryCode: string }) => (
+  <>
+    <Suspense key="categories" fallback={<TileSkeleton />}>
+      <ShopTiles />
+    </Suspense>
+    <Suspense key="brands" fallback={<TileSkeleton variant="brand" />}>
+      <BrandTiles />
+    </Suspense>
+    <Suspense key="products" fallback={<ProductSectionSkeleton />}>
+      <ProductSections countryCode={countryCode} />
+    </Suspense>
+    <PromoBanners key="promos" promos={homepageContent.promos} />
+    <Editorial key="editorial" blocks={homepageContent.editorial} />
+    <Newsletter key="newsletter" action={getNewsletterAction()} />
+  </>
+)
 
 export default HomeSections
