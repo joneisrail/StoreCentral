@@ -95,4 +95,39 @@ describe("WishlistButton", () => {
     })
     expect(onParent).not.toHaveBeenCalled()
   })
+
+  it("updates a mounted heart on a storage event", async () => {
+    await setup()
+    expect(button().getAttribute("aria-pressed")).toBe("false")
+    window.localStorage.setItem("sc-wishlist", '["prod_1"]')
+    await act(async () => {
+      window.dispatchEvent(new StorageEvent("storage", { key: "sc-wishlist" }))
+    })
+    expect(button().getAttribute("aria-pressed")).toBe("true")
+  })
+
+  it("keeps the in-memory list across toggles and resyncs when storage recovers", async () => {
+    const setItem = vi
+      .spyOn(Storage.prototype, "setItem")
+      .mockImplementation(() => {
+        throw new Error("denied")
+      })
+    await setup()
+    for (let i = 0; i < 3; i++) {
+      await act(async () => {
+        await userEvent.click(button())
+      })
+    }
+    expect(button().getAttribute("aria-pressed")).toBe("true")
+    expect(window.localStorage.getItem("sc-wishlist")).toBeNull()
+
+    setItem.mockRestore()
+    for (let i = 0; i < 2; i++) {
+      await act(async () => {
+        await userEvent.click(button())
+      })
+    }
+    expect(button().getAttribute("aria-pressed")).toBe("true")
+    expect(window.localStorage.getItem("sc-wishlist")).toBe('["prod_1"]')
+  })
 })

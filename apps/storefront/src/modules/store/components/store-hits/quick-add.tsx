@@ -31,6 +31,7 @@ const QuickAdd = ({ title, inStock, singleVariantId, href }: QuickAddProps) => {
         variant="secondary"
         size="small"
         disabled
+        aria-label={`Sold out: ${title}`}
         className="w-full"
       >
         Sold out
@@ -66,7 +67,7 @@ const QuickAdd = ({ title, inStock, singleVariantId, href }: QuickAddProps) => {
         variant="primary"
         size="small"
         disabled={pending}
-        aria-label={`Add ${title} to cart`}
+        aria-label={`Add to cart: ${title}`}
         onClick={onAdd}
         className="w-full"
       >
@@ -78,6 +79,7 @@ const QuickAdd = ({ title, inStock, singleVariantId, href }: QuickAddProps) => {
   return (
     <LocalizedClientLink
       href={href}
+      aria-label={`Choose options: ${title}`}
       className="inline-flex w-full min-h-[44px] lg:min-h-0 h-8 items-center justify-center rounded-base border border-line-strong bg-paper px-3 text-sm font-medium text-charcoal transition-colors motion-reduce:transition-none hover:bg-ivory focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-deep focus-visible:ring-offset-2 focus-visible:ring-offset-ivory"
     >
       Choose options

@@ -90,6 +90,43 @@ describe("QuickAdd", () => {
     expect(refresh).not.toHaveBeenCalled()
   })
 
+  it("has accessible names containing the visible text", () => {
+    setup({ inStock: false })
+    expect(button().getAttribute("aria-label")).toBe("Sold out: Oud")
+    cleanup()
+    setup()
+    expect(button().getAttribute("aria-label")).toBe("Add to cart: Oud")
+    cleanup()
+    setup({ singleVariantId: null })
+    expect(document.querySelector("a")?.getAttribute("aria-label")).toBe(
+      "Choose options: Oud"
+    )
+  })
+
+  it.each([undefined, null])("treats inStock %s as purchasable", (inStock) => {
+    setup({ inStock })
+    expect(button().textContent).toBe("Add to cart")
+    expect(button().disabled).toBe(false)
+  })
+
+  it("does not throw when unmounted while the add is pending", async () => {
+    let resolve: () => void = () => {}
+    addToCart.mockReturnValue(
+      new Promise<void>((r) => {
+        resolve = r
+      })
+    )
+    const view = setup()
+    await act(async () => {
+      button().click()
+    })
+    view.unmount()
+    await act(async () => {
+      resolve()
+    })
+    expect(addToCart).toHaveBeenCalledTimes(1)
+  })
+
   it("falls back to a generic message for non-Error rejections", async () => {
     addToCart.mockRejectedValue("nope")
     setup()

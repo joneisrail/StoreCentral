@@ -46,6 +46,7 @@ const subscribe = (listener: () => void) => {
     if (listeners.size === 0 && storageBound) {
       window.removeEventListener("storage", onStorage)
       storageBound = false
+      current = null
     }
   }
 }
@@ -70,7 +71,7 @@ const write = (next: string[]) => {
 }
 
 export function useWishlist(): {
-  ids: string[]
+  ids: readonly string[]
   has: (id: string) => boolean
   toggle: (id: string) => void
 } {
@@ -81,5 +82,5 @@ export function useWishlist(): {
     write(toggleWishlist([...getSnapshot()], id))
   }, [])
 
-  return { ids: ids as string[], has, toggle }
+  return { ids, has, toggle }
 }
