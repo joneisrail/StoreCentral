@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { cleanup, render } from "../../../../test/render"
+import { act, cleanup, render } from "../../../../test/render"
 
 import Reveal from "./index"
 
@@ -70,5 +70,53 @@ describe("Reveal", () => {
     )
     expect(container.textContent).toContain("hello")
     expect(container.innerHTML).not.toContain("opacity-0")
+  })
+
+  describe("below the fold", () => {
+    let callback: (entries: { isIntersecting: boolean }[]) => void = () => {}
+    const setup = () => {
+      g.IntersectionObserver = class {
+        constructor(cb: typeof callback) {
+          callback = cb
+        }
+        observe() {}
+        disconnect() {}
+      }
+      mockMedia(false)
+      vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
+        top: 5000,
+      } as DOMRect)
+      return render(
+        <Reveal>
+          <p>hello</p>
+        </Reveal>
+      )
+    }
+
+    it("hides then shows once intersecting", () => {
+      const { container } = setup()
+      expect(container.innerHTML).toContain("opacity-0")
+      act(() => callback([{ isIntersecting: true }]))
+      expect(container.innerHTML).not.toContain("opacity-0")
+      expect(container.textContent).toContain("hello")
+    })
+
+    it("fails open after 3s", () => {
+      vi.useFakeTimers()
+      try {
+        const { container } = setup()
+        expect(container.innerHTML).toContain("opacity-0")
+        act(() => {
+          vi.advanceTimersByTime(2900)
+        })
+        expect(container.innerHTML).toContain("opacity-0")
+        act(() => {
+          vi.advanceTimersByTime(100)
+        })
+        expect(container.innerHTML).not.toContain("opacity-0")
+      } finally {
+        vi.useRealTimers()
+      }
+    })
   })
 })

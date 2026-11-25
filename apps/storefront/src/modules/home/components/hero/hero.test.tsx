@@ -40,6 +40,32 @@ describe("Hero", () => {
     expect(container.querySelector("h1")?.textContent).toBe("Discover")
   })
 
+  it("switches to the no-image palette after an image error", () => {
+    const { container } = render(
+      <Hero
+        content={{
+          eyebrow: "New",
+          headline: "Discover",
+          cta: { label: "Shop", href: "/store" },
+          image: { src: "/hero.jpg", alt: "A bottle" },
+        }}
+      />
+    )
+    const tone = () =>
+      container.querySelector('[data-testid="home-hero"]')?.getAttribute("data-tone")
+    expect(tone()).toBe("light")
+    act(() => {
+      container.querySelector("img")!.dispatchEvent(new Event("error"))
+    })
+    expect(tone()).toBe("dark")
+    const wrapper = container.querySelector("h1")!.parentElement!
+    const cta = container.querySelector("a")!
+    expect(wrapper.classList.contains("text-charcoal")).toBe(true)
+    expect(wrapper.classList.contains("text-ivory")).toBe(false)
+    expect(cta.classList.contains("bg-charcoal")).toBe(true)
+    expect(cta.classList.contains("bg-ivory")).toBe(false)
+  })
+
   it("renders a 200 character headline", () => {
     const headline = "x".repeat(200)
     const { container } = render(<Hero content={{ headline }} />)
