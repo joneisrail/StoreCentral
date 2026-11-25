@@ -19,7 +19,7 @@ export default async function Footer() {
           <div>
             <LocalizedClientLink
               href="/"
-              className="font-serif text-xl tracking-wide text-ivory underline-offset-4 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ivory"
+              className="font-serif text-xl tracking-wide text-ivory inline-flex min-h-[44px] items-center underline-offset-4 hover:underline lg:min-h-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ivory"
             >
               {storeName}
             </LocalizedClientLink>
@@ -53,7 +53,7 @@ export default async function Footer() {
                       >
                         <LocalizedClientLink
                           className={clx(
-                            "underline-offset-4 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ivory",
+                            "inline-flex min-h-[44px] items-center underline-offset-4 hover:underline lg:min-h-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ivory",
                             children && "txt-small-plus"
                           )}
                           href={`/categories/${c.handle}`}
@@ -67,7 +67,7 @@ export default async function Footer() {
                               children.map((child) => (
                                 <li key={child.id}>
                                   <LocalizedClientLink
-                                    className="underline-offset-4 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ivory"
+                                    className="inline-flex min-h-[44px] items-center underline-offset-4 hover:underline lg:min-h-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ivory"
                                     href={`/categories/${child.handle}`}
                                     data-testid="category-link"
                                   >
@@ -99,7 +99,7 @@ export default async function Footer() {
                   {collections?.slice(0, 6).map((c) => (
                     <li key={c.id}>
                       <LocalizedClientLink
-                        className="underline-offset-4 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ivory"
+                        className="inline-flex min-h-[44px] items-center underline-offset-4 hover:underline lg:min-h-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ivory"
                         href={`/collections/${c.handle}`}
                       >
                         {c.title}
@@ -109,41 +109,6 @@ export default async function Footer() {
                 </ul>
               </div>
             )}
-            <div className="flex flex-col gap-y-2">
-              <span className="txt-small-plus text-ivory">Medusa</span>
-              <ul className="grid grid-cols-1 gap-y-2 text-ivory txt-small">
-                <li>
-                  <a
-                    href="https://github.com/medusajs"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="underline-offset-4 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ivory"
-                  >
-                    GitHub
-                  </a>
-                </li>
-                <li>
-                  <a
-                    href="https://docs.medusajs.com"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="underline-offset-4 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ivory"
-                  >
-                    Documentation
-                  </a>
-                </li>
-                <li>
-                  <a
-                    href="https://github.com/medusajs/dtc-starter"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="underline-offset-4 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ivory"
-                  >
-                    Source code
-                  </a>
-                </li>
-              </ul>
-            </div>
           </div>
         </div>
         <div className="flex w-full mb-16 justify-between text-ivory">

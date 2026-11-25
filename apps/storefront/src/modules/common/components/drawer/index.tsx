@@ -38,7 +38,7 @@ const Drawer = ({
         data-drawer-overlay
         data-testid={backdropTestId}
         transition
-        className="fixed inset-0 bg-charcoal/40 motion-safe:transition-opacity motion-safe:duration-200 data-[closed]:opacity-0"
+        className="fixed inset-0 bg-[rgb(30_29_27/0.4)] motion-safe:transition-opacity motion-safe:duration-200 data-[closed]:opacity-0"
       />
       <div
         className={clx(

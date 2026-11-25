@@ -49,15 +49,11 @@ export function ProductCardView({
 
 export default async function ProductPreview({
   product,
-  isFeatured,
   region: _region,
 }: {
   product: HttpTypes.StoreProduct
-  isFeatured?: boolean
   region: HttpTypes.StoreRegion
 }) {
-  void isFeatured
-
   const { cheapestPrice } = getProductPrice({
     product,
   })

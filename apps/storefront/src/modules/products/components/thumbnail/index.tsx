@@ -8,7 +8,6 @@ type ThumbnailProps = {
   thumbnail?: string | null
   images?: { url?: string }[] | null
   size?: "small" | "medium" | "large" | "full" | "square"
-  isFeatured?: boolean
   className?: string
   "data-testid"?: string
 }

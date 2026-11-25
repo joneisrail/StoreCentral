@@ -15,6 +15,7 @@ describe("ProductCardView", () => {
     expect(titleEl?.textContent).toBe(title)
     expect(titleEl?.className).toContain("line-clamp-2")
     expect(container.querySelector('[data-testid="product-wrapper"]')?.className).toContain("min-w-0")
+    expect(container.querySelector("a")?.className).toContain("min-w-0")
   })
 
   it("uses the same 4:5 ratio class for placeholder and image", () => {
