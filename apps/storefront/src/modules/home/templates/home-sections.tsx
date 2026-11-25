@@ -81,7 +81,7 @@ const HomeSections = async ({ countryCode }: { countryCode: string }) => {
             )
           case "brands":
             return (
-              <Suspense key={block.key} fallback={<TileSkeleton />}>
+              <Suspense key={block.key} fallback={<TileSkeleton variant="brand" />}>
                 <BrandTiles />
               </Suspense>
             )

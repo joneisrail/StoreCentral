@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { HttpTypes } from "@medusajs/types"
 import type { ResolvedSection } from "@lib/content/homepage-sections"
+import type { ReactElement } from "react"
 import { cleanup, render } from "../../../test/render"
 
 const getHomepageSections = vi.fn()
@@ -64,10 +65,29 @@ describe("HomeSections", () => {
     ])
   })
 
-  it("returns an element tree for resolved sections", async () => {
-    getHomepageSections.mockResolvedValue({ region, sections: [latest] })
-    const tree = await HomeSections({ countryCode: "us" })
-    expect(tree).not.toBeNull()
+  it("renders blocks in page order", async () => {
+    const bestSellers: ResolvedSection = {
+      id: "best-sellers",
+      title: "Best sellers",
+      kind: "collection",
+      collection: { id: "c0", handle: "best-sellers" },
+    }
+    getHomepageSections.mockResolvedValue({
+      region,
+      sections: [bestSellers, latest],
+    })
+    const ordered = (await HomeSections({ countryCode: "us" })) as ReactElement<{
+      children: ReactElement[]
+    }>
+    expect(ordered.props.children.map((c) => c.key)).toEqual([
+      "categories",
+      "brands",
+      "section:best-sellers",
+      "section:new-arrivals",
+      "promos",
+      "editorial",
+      "newsletter",
+    ])
   })
 })
 
