@@ -30,7 +30,7 @@ const Hero = ({ content }: { content: HeroContent }) => {
         {cta ? (
           <LocalizedClientLink
             href={cta.href}
-            className="mt-2 inline-flex min-h-[44px] items-center justify-center rounded-base bg-charcoal px-6 font-sans font-medium text-ivory transition-colors hover:bg-gold-deep hover:text-paper motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-deep focus-visible:ring-offset-2 focus-visible:ring-offset-ivory group-data-[tone=light]:bg-ivory group-data-[tone=light]:text-charcoal"
+            className="mt-2 inline-flex min-h-[44px] items-center justify-center rounded-base bg-charcoal px-6 font-sans font-medium text-ivory transition-colors hover:bg-gold-deep hover:text-paper motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-deep focus-visible:ring-offset-2 focus-visible:ring-offset-ivory group-data-[tone=light]:bg-ivory group-data-[tone=light]:text-charcoal group-data-[tone=light]:hover:bg-paper"
           >
             {cta.label}
           </LocalizedClientLink>

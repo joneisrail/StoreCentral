@@ -22,10 +22,10 @@ const HeroFrame = ({
     <section
       data-testid="home-hero"
       data-tone={showImage ? "light" : "dark"}
-      className="group relative w-full overflow-hidden border-b border-line bg-gradient-to-b from-ivory to-line min-h-[420px] aspect-[4/5] xsmall:aspect-[16/10] small:aspect-[16/9] small:min-h-[480px]"
+      className="group relative w-full border-b border-line bg-gradient-to-b from-ivory to-line min-h-[420px] aspect-[4/5] xsmall:aspect-[16/10] small:aspect-[16/9] small:min-h-[480px]"
     >
       {showImage && image ? (
-        <>
+        <div className="absolute inset-0 overflow-hidden">
           <Image
             src={image.src}
             alt={image.alt}
@@ -41,7 +41,7 @@ const HeroFrame = ({
             aria-hidden="true"
             className="absolute inset-0 bg-[rgb(30_29_27/0.65)]"
           />
-        </>
+        </div>
       ) : null}
       {children}
     </section>
