@@ -68,9 +68,44 @@ async function productIdsInSalesChannels(
 }
 
 /**
+ * The products whose stock an inventory level or reservation feeds: the row
+ * leads to its inventory item, and the item to the variants linked to it.
+ */
+async function productIdsForInventoryRows(
+  query: RemoteQueryFunction,
+  entity: string,
+  ids: string[],
+  withDeleted: boolean,
+): Promise<string[]> {
+  const itemIds = await relatedProductIds(
+    query,
+    entity,
+    ["inventory_item_id"],
+    ids,
+    (row) => [row.inventory_item_id],
+    withDeleted,
+  );
+
+  if (!itemIds.length) {
+    return [];
+  }
+
+  const productIds = await relatedProductIds(
+    query,
+    "inventory_item",
+    ["variants.product_id"],
+    [...new Set(itemIds)],
+    (row) => (row.variants ?? []).map((variant: any) => variant?.product_id),
+    false,
+  );
+
+  return [...new Set(productIds)];
+}
+
+/**
  * The products an event affects. A product event carries them directly; an
- * event about a variant, option, tag, category or sales channel is mapped to
- * the products behind it.
+ * event about a variant, option, tag, category, sales channel, inventory
+ * level or reservation is mapped to the products behind it.
  */
 export async function resolveProductIds(
   event: { name: string; data: unknown },
@@ -135,6 +170,10 @@ export async function resolveProductIds(
       );
     case "sales-channel":
       return productIdsInSalesChannels(query, ids);
+    case "inventory-level":
+      return productIdsForInventoryRows(query, "inventory_level", ids, deleted);
+    case "reservation-item":
+      return productIdsForInventoryRows(query, "reservation", ids, deleted);
     default:
       return [];
   }
