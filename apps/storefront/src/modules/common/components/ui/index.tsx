@@ -10,8 +10,6 @@ import {
   ThHTMLAttributes,
 } from "react"
 
-// TODO: Add Toaster component back when needed for notifications
-
 // Re-export clsx as clx for compatibility
 export { clsx as clx }
 

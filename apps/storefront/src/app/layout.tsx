@@ -1,6 +1,7 @@
 import { getBaseURL } from "@lib/util/env"
 import { Metadata } from "next"
 import { Cormorant_Garamond, Inter } from "next/font/google"
+import { ToastProvider } from "@modules/common/components/toast"
 import "styles/globals.css"
 
 const serif = Cormorant_Garamond({
@@ -28,7 +29,9 @@ export default function RootLayout(props: { children: React.ReactNode }) {
       className={`${serif.variable} ${sans.variable}`}
     >
       <body>
-        <main className="relative">{props.children}</main>
+        <ToastProvider>
+          <main className="relative">{props.children}</main>
+        </ToastProvider>
       </body>
     </html>
   )
