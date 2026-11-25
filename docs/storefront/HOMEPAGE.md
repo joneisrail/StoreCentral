@@ -39,7 +39,7 @@ Each section loads up to 8 products with `*variants.calculated_price` for the vi
 The handles must match exactly (lowercase, as listed).
 
 1. Collections: create seven collections with handles `best-sellers`, `trending`, `mens`, `womens`, `unisex`, `arabic`, `niche`. Add products to each. `new-arrivals` needs no collection.
-2. Brands: create a top-level product category with handle `brands`. Create one child category per brand under it. Each child becomes a brand tile.
+2. Brands: create a top-level product category with handle `brands`. Create one child category per brand under it. Each child becomes a brand tile. The strip shows at most the first 12 brands (`MAX_BRAND_TILES` in `src/lib/data/homepage.ts`).
 3. Shop categories: any other top-level category (no parent) becomes a "Shop by category" tile. The `brands` category is excluded from that grid.
 4. Tile images (optional): on a category, set `metadata.image_url` to an `https://` URL. Values that are not strings or do not start with `https://` are ignored and the tile shows its name only. Tiles render this with a plain `<img>` (lazy loaded, empty alt text because the name is shown beside it).
 
@@ -72,7 +72,7 @@ The section reads `NEXT_PUBLIC_NEWSLETTER_ACTION_URL` through `getNewsletterActi
 
 - Value must be an `https:` URL. Anything else (unset, blank, `http:`, unparsable) hides the section.
 - The form is a plain HTML POST to that URL, with one field named `email` (`type="email"`, required). No JavaScript, no API call from the storefront, no success message of its own; the visitor lands on whatever the provider returns.
-- `NEXT_PUBLIC_` variables are inlined at build time, so changing the value needs a rebuild.
+- The value is read on the server at runtime (not inlined into client code). The Docker and compose setup passes it at both build time and run time, so set it in both places to keep them consistent.
 
 ## Adding a product section
 
@@ -86,12 +86,12 @@ Then create a collection with that handle in Medusa Admin. `kind: "latest"` is o
 
 ## Failure behaviour
 
-- Region lookup fails, or the collections request fails: everything below the hero (categories, brands, product sections, promos, editorial, newsletter) renders nothing, because `getHomepageSections` returns `null` and `HomeSections` returns `null`. The announcement bar and hero are outside it and still show. A one-line `console.error` is logged.
+- Region lookup fails, or the collections request fails: only the product sections render nothing, because `getHomepageSections` returns `null` and `ProductSections` returns `null`. The hero, shop by category, shop by brand, promos, editorial and newsletter do not depend on region or collections and still render. A one-line `console.error` is logged.
 - Collection handle not found: that section is skipped.
 - A product list request fails: that section returns an empty list and renders nothing.
 - Category request fails: the category grid or brand strip renders nothing.
 - The data functions in `src/lib/data/homepage.ts` catch their errors and do not throw, so a Medusa outage does not produce an error page for the homepage.
-- Each block streams in its own `Suspense` boundary with a skeleton that matches the section height, to limit layout shift.
+- The categories, brands and product sections each sit in their own `Suspense` boundary. The fallbacks are a tile skeleton for categories, a six-tile brand skeleton for brands, and a single product-section skeleton for the whole product block (the real block has one section per entry in `PRODUCT_SECTIONS`, so it can grow past that fallback). Promos, editorial and newsletter are not suspended. Category and brand fetches do not wait on region or collections.
 - The reveal-on-scroll animation (`reveal`) fails open: no `IntersectionObserver` or reduced motion means content shows immediately, and anything still hidden after 3 seconds is shown.
 
 ## Deliberately not done
@@ -112,6 +112,6 @@ Date: 2026-11-25. Run on branch storefront-phase-3 before the final review.
 - Deploy workflow tests (node --test deploy/*.test.mjs): 66 pass, 0 fail.
 - Production build (next build) from a copy outside the worktree, with NEXT_PUBLIC_STORE_NAME set to a custom value: exit 0.
 - Secret scan of .next/static for sk_live, sk_test and whsec_: no matches.
-- Built server against the local backend (4 demo clothing products, no collections, no brands category): /us, /us/store and /us/cart return 200 and /us/design-system returns 404. The home page contains the hero, the shop-by-category tiles (links like /categories/pants) and a New arrivals section with the four demo products; it contains no Best sellers, Trending, Featured brands, promo, editorial or newsletter section, as expected with no matching data. No "Medusa Store" text; the custom store name appears.
+- Built server against the local backend (4 demo clothing products, no collections, no brands category): /us, /us/store and /us/cart return 200 and /us/design-system returns 404. The home page contains the hero, the shop-by-category tiles (links like /categories/pants) and a New arrivals section with the four demo products; it contains no Best sellers, Trending, Shop by brand, promo, editorial or newsletter section, as expected with no matching data. No "Medusa Store" text; the custom store name appears.
 
 Not checked: pages were not opened in a browser (no screenshots, no check of layout shift, fonts as rendered, the reveal animation or the search field on real screens); a homepage with real collections, brands and promos (only the empty and demo-data cases were run against the backend; the filled cases are covered by unit tests with fixtures); the hero image path with a real image; the newsletter form against a real provider; the Docker image build; the first CI run.
