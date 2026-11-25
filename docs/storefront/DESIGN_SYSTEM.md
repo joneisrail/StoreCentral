@@ -1,5 +1,7 @@
 # Storefront Design System
 
+Homepage sections and content: see [HOMEPAGE.md](./HOMEPAGE.md).
+
 Reference for the storefront design tokens, shared components and accessibility rules. The storefront is `apps/storefront`.
 
 ## Tokens

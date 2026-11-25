@@ -1,9 +1,11 @@
 import { Metadata } from "next"
 
+import { homepageContent } from "@lib/content/homepage"
 import { listCartOptions, retrieveCart } from "@lib/data/cart"
 import { retrieveCustomer } from "@lib/data/customer"
 import { getBaseURL } from "@lib/util/env"
 import { StoreCartShippingOption } from "@medusajs/types"
+import AnnouncementBar from "@modules/home/components/announcement-bar"
 import CartMismatchBanner from "@modules/layout/components/cart-mismatch-banner"
 import Footer from "@modules/layout/templates/footer"
 import Nav from "@modules/layout/templates/nav"
@@ -26,6 +28,9 @@ export default async function PageLayout(props: { children: React.ReactNode }) {
 
   return (
     <>
+      {homepageContent.announcement && (
+        <AnnouncementBar {...homepageContent.announcement} />
+      )}
       <Nav />
       {customer && cart && (
         <CartMismatchBanner customer={customer} cart={cart} />
