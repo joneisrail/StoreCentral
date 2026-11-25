@@ -139,7 +139,7 @@ export const Badge = forwardRef<HTMLSpanElement, BadgeProps>(
           color === "red" && "bg-red-100 text-red-700",
           color === "blue" && "bg-line text-charcoal",
           color === "orange" && "bg-orange-100 text-orange-700",
-          color === "grey" && "bg-line text-warm-grey",
+          color === "grey" && "bg-line text-charcoal",
           color === "purple" && "bg-ivory text-gold-deep border border-line",
           className
         )}
