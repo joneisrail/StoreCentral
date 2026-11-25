@@ -89,6 +89,12 @@ dismiss(id)
 
 `@modules/products/components/product-preview` (named export). A presentational card with no data fetching. Props: `title`, `href`, `thumbnail?` (string or null; a placeholder renders when empty), `priceLabel?`, `originalPriceLabel?` (shows the sale price treatment when set). Titles clamp to two lines. The default export, `ProductPreview`, maps a Medusa product to this view.
 
+## Deferred from the spec
+
+- ProductCardView brand line: the spec's placeholder brand line is not rendered. There is no brand data yet; it returns with the catalog phases.
+- Hover image swap on product cards: deferred until a second image exists (multi-image catalog). Cards show the single thumbnail.
+- Footer focus ring: the footer sits on the charcoal surface and uses an ivory focus outline, because gold-deep on charcoal is only about 2.97:1.
+
 ## Accessibility rules
 
 - Focus ring: every interactive element shows a `gold-deep` ring or outline on `focus-visible`, with a 2px width and an offset.
