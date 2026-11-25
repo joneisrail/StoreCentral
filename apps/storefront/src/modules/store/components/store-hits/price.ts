@@ -1,20 +1,16 @@
-"use client"
-
 import { indexedCurrency, priceAttribute } from "@lib/search-client"
 import { convertToLocale } from "@lib/util/money"
-import { Text, clx } from "@modules/common/components/ui"
 
 /** The per-currency price fields a hit may carry, e.g. `min_price_eur`. */
 export type HitPricing = Record<string, unknown>
 
-type HitPriceProps = {
-  hit: HitPricing
-  currencyCode: string
-}
-
 const amount = (value: unknown) => (typeof value === "number" ? value : null)
 
-const HitPrice = ({ hit, currencyCode }: HitPriceProps) => {
+/**
+ * Formats a hit's indexed pricing into the labels ProductCardView renders.
+ * A sale shows the original price only for a single (non-range) price.
+ */
+export const hitPriceLabels = (hit: HitPricing, currencyCode: string) => {
   const currency_code = indexedCurrency(currencyCode)
   const min_price = amount(hit[priceAttribute("min_price", currencyCode)])
   const max_price = amount(hit[priceAttribute("max_price", currencyCode)])
@@ -24,7 +20,7 @@ const HitPrice = ({ hit, currencyCode }: HitPriceProps) => {
   const on_sale = hit[priceAttribute("on_sale", currencyCode)] === true
 
   if (min_price === null) {
-    return null
+    return { priceLabel: null, originalPriceLabel: null }
   }
 
   const format = (value: number) =>
@@ -33,26 +29,13 @@ const HitPrice = ({ hit, currencyCode }: HitPriceProps) => {
   const max = max_price ?? min_price
   const isRange = max > min_price
 
-  return (
-    <div className="flex items-center gap-x-2" data-testid="product-price">
-      {!isRange && on_sale && original_price !== null && (
-        <Text
-          className="line-through text-ui-fg-muted"
-          data-testid="original-price"
-        >
-          {format(original_price)}
-        </Text>
-      )}
-      <Text
-        className={clx("text-ui-fg-muted", {
-          "text-ui-tag-red-text": on_sale,
-        })}
-        data-testid="price"
-      >
-        {isRange ? `${format(min_price)} - ${format(max)}` : format(min_price)}
-      </Text>
-    </div>
-  )
+  return {
+    priceLabel: isRange
+      ? `${format(min_price)} - ${format(max)}`
+      : format(min_price),
+    originalPriceLabel:
+      !isRange && on_sale && original_price !== null
+        ? format(original_price)
+        : null,
+  }
 }
-
-export default HitPrice

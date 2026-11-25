@@ -5,12 +5,11 @@ import { useEffect, useRef } from "react"
 import { useHits, useInstantSearch } from "react-instantsearch"
 
 import useSearchSettled from "@lib/hooks/use-search-settled"
-import LocalizedClientLink from "@modules/common/components/localized-client-link"
 import { Text } from "@modules/common/components/ui"
-import Thumbnail from "@modules/products/components/thumbnail"
+import { ProductCardView } from "@modules/products/components/product-preview"
 import SkeletonProductGrid from "@modules/skeletons/templates/skeleton-product-grid"
 import SearchPagination from "./pagination"
-import HitPrice, { HitPricing } from "./price"
+import { hitPriceLabels, HitPricing } from "./price"
 
 type ProductHit = Hit<
   {
@@ -79,23 +78,12 @@ const StoreHits = ({ hitsPerPage, currencyCode }: StoreHitsProps) => {
           {items.map((hit) =>
             hit.handle ? (
               <li key={hit.objectID}>
-                <LocalizedClientLink
+                <ProductCardView
+                  title={hit.title ?? ""}
                   href={`/products/${hit.handle}`}
-                  className="group"
-                >
-                  <div data-testid="product-wrapper">
-                    <Thumbnail thumbnail={hit.thumbnail} size="full" />
-                    <div className="flex txt-compact-medium mt-4 justify-between">
-                      <Text
-                        className="text-ui-fg-subtle"
-                        data-testid="product-title"
-                      >
-                        {hit.title}
-                      </Text>
-                      <HitPrice hit={hit} currencyCode={currencyCode} />
-                    </div>
-                  </div>
-                </LocalizedClientLink>
+                  thumbnail={hit.thumbnail}
+                  {...hitPriceLabels(hit, currencyCode)}
+                />
               </li>
             ) : null
           )}

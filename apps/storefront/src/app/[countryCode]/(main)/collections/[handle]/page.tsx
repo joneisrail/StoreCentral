@@ -4,6 +4,7 @@ import { notFound } from "next/navigation"
 import { getCollectionByHandle } from "@lib/data/collections"
 import CollectionTemplate from "@modules/collections/templates"
 import { SortOptions } from "@modules/store/components/refinement-list/sort-products"
+import { getStoreName } from "@lib/util/store-name"
 import { parseOptionValueIds } from "@lib/util/product-option-filters"
 
 type Props = {
@@ -26,7 +27,7 @@ export async function generateMetadata(props: Props): Promise<Metadata> {
   }
 
   const metadata = {
-    title: `${collection.title} | Medusa Store`,
+    title: `${collection.title} | ${getStoreName()}`,
     description: `${collection.title} collection`,
   } as Metadata
 
