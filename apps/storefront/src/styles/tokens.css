@@ -1,0 +1,39 @@
+/*
+ * Brand design tokens (light mode only).
+ * Loaded after Tailwind base so these :root values win over the
+ * @medusajs/ui-preset variables of equal specificity.
+ */
+:root {
+  --sc-ivory: #faf7f2;
+  --sc-paper: #ffffff;
+  --sc-charcoal: #1e1d1b;
+  --sc-warm-grey: #6f685e;
+  --sc-line: #e6dfd3;
+  --sc-line-strong: #978e80;
+  --sc-gold: #c2a361;
+  --sc-gold-deep: #80651f;
+
+  --bg-base: var(--sc-paper);
+  --bg-base-hover: var(--sc-ivory);
+  --bg-base-pressed: var(--sc-line);
+  --bg-subtle: var(--sc-ivory);
+  --bg-subtle-hover: var(--sc-paper);
+  --bg-subtle-pressed: var(--sc-line);
+  --bg-field: var(--sc-paper);
+  --bg-field-hover: var(--sc-ivory);
+  --fg-base: var(--sc-charcoal);
+  --fg-subtle: var(--sc-warm-grey);
+  --fg-muted: var(--sc-warm-grey);
+  --border-base: var(--sc-line);
+  --border-strong: var(--sc-line-strong);
+  --button-inverted: var(--sc-charcoal);
+  --button-inverted-hover: var(--sc-warm-grey);
+  --button-inverted-pressed: var(--sc-warm-grey);
+  --fg-interactive: var(--sc-gold-deep);
+  --fg-interactive-hover: var(--sc-charcoal);
+}
+
+body {
+  background: var(--sc-ivory);
+  color: var(--sc-charcoal);
+}
