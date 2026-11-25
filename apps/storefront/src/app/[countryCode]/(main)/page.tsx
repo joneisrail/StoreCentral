@@ -1,42 +1,30 @@
 import { Metadata } from "next"
+import { Suspense } from "react"
 
-import FeaturedProducts from "@modules/home/components/featured-products"
-import Hero from "@modules/home/components/hero"
 import { homepageContent } from "@lib/content/homepage"
-import { listCollections } from "@lib/data/collections"
-import { getRegion } from "@lib/data/regions"
+import { getStoreName } from "@lib/util/store-name"
+import Hero from "@modules/home/components/hero"
+import HomeSections from "@modules/home/templates/home-sections"
+import { ProductSectionSkeleton } from "@modules/home/templates/home-skeleton"
 
-export const metadata: Metadata = {
-  title: "Medusa Next.js Starter Template",
-  description:
-    "A performant frontend ecommerce starter template with Next.js 15 and Medusa.",
+export function generateMetadata(): Metadata {
+  return {
+    title: getStoreName(),
+    description: homepageContent.description,
+  }
 }
 
 export default async function Home(props: {
   params: Promise<{ countryCode: string }>
 }) {
-  const params = await props.params
-
-  const { countryCode } = params
-
-  const region = await getRegion(countryCode)
-
-  const { collections } = await listCollections({
-    fields: "id, handle, title",
-  })
-
-  if (!collections || !region) {
-    return null
-  }
+  const { countryCode } = await props.params
 
   return (
     <>
       <Hero content={homepageContent.hero} />
-      <div className="py-12">
-        <ul className="flex flex-col gap-x-6">
-          <FeaturedProducts collections={collections} region={region} />
-        </ul>
-      </div>
+      <Suspense fallback={<ProductSectionSkeleton />}>
+        <HomeSections countryCode={countryCode} />
+      </Suspense>
     </>
   )
 }

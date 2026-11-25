@@ -122,10 +122,19 @@ const Search = () => {
         type="button"
         onClick={open}
         aria-label="Search products"
-        className="flex items-center hover:text-ui-fg-base"
+        className="flex min-h-[44px] min-w-[44px] items-center justify-center hover:text-ui-fg-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-deep small:hidden"
         data-testid="nav-search-button"
       >
         <MagnifyingGlass />
+      </button>
+      <button
+        type="button"
+        onClick={open}
+        className="hidden h-11 min-w-[14rem] items-center gap-x-2 rounded-soft border border-line bg-paper px-3 font-sans text-charcoal hover:text-gold-deep focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-deep small:flex"
+        data-testid="nav-search-field"
+      >
+        <MagnifyingGlass className="shrink-0" />
+        <span>Search products</span>
       </button>
 
       <SearchDrawer isOpen={isOpen} close={close}>
