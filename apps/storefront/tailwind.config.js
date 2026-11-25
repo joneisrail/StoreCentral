@@ -20,6 +20,14 @@ module.exports = {
         padding: "padding-top padding-right padding-bottom padding-left",
       },
       colors: {
+        ivory: "var(--sc-ivory)",
+        paper: "var(--sc-paper)",
+        charcoal: "var(--sc-charcoal)",
+        "warm-grey": "var(--sc-warm-grey)",
+        line: "var(--sc-line)",
+        "line-strong": "var(--sc-line-strong)",
+        gold: "var(--sc-gold)",
+        "gold-deep": "var(--sc-gold-deep)",
         grey: {
           0: "#FFFFFF",
           5: "#F9FAFB",
@@ -38,8 +46,8 @@ module.exports = {
         none: "0px",
         soft: "2px",
         base: "4px",
-        rounded: "8px",
-        large: "16px",
+        rounded: "6px",
+        large: "12px",
         circle: "9999px",
       },
       maxWidth: {
@@ -58,7 +66,9 @@ module.exports = {
         "3xl": "2rem",
       },
       fontFamily: {
+        serif: ["var(--font-serif)", "Georgia", "Times New Roman", "serif"],
         sans: [
+          "var(--font-sans)",
           "Inter",
           "-apple-system",
           "BlinkMacSystemFont",

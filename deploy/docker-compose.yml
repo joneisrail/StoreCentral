@@ -186,6 +186,7 @@ services:
         NEXT_PUBLIC_BASE_URL: "${NEXT_PUBLIC_BASE_URL:?NEXT_PUBLIC_BASE_URL is required}"
         NEXT_PUBLIC_DEFAULT_REGION: "${NEXT_PUBLIC_DEFAULT_REGION:?NEXT_PUBLIC_DEFAULT_REGION is required}"
         NEXT_PUBLIC_STRIPE_KEY: "${NEXT_PUBLIC_STRIPE_KEY:-}"
+        NEXT_PUBLIC_STORE_NAME: "${NEXT_PUBLIC_STORE_NAME:-}"
     image: storecentral/storefront:local
     restart: unless-stopped
     # floor value; dev measurement is a lower bound, revisit after the first compose run (docs/ops/memory.md)
@@ -201,6 +202,7 @@ services:
       NEXT_PUBLIC_BASE_URL: "${NEXT_PUBLIC_BASE_URL:?NEXT_PUBLIC_BASE_URL is required}"
       NEXT_PUBLIC_DEFAULT_REGION: "${NEXT_PUBLIC_DEFAULT_REGION:?NEXT_PUBLIC_DEFAULT_REGION is required}"
       NEXT_PUBLIC_STRIPE_KEY: "${NEXT_PUBLIC_STRIPE_KEY:-}"
+      NEXT_PUBLIC_STORE_NAME: "${NEXT_PUBLIC_STORE_NAME:-}"
     depends_on:
       backend:
         condition: service_healthy

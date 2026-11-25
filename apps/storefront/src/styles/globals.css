@@ -1,4 +1,5 @@
 @import "tailwindcss/base";
+@import "./tokens.css";
 @import "tailwindcss/components";
 @import "tailwindcss/utilities";
 
@@ -99,7 +100,7 @@
   }
 
   .text-2xl-semi {
-    @apply text-[30px] leading-[48px] font-semibold;
+    @apply font-serif text-[30px] leading-[48px] font-semibold;
   }
 
   .text-3xl-regular {
@@ -107,6 +108,6 @@
   }
 
   .text-3xl-semi {
-    @apply text-[32px] leading-[44px] font-semibold;
+    @apply font-serif text-[32px] leading-[44px] font-semibold;
   }
 }

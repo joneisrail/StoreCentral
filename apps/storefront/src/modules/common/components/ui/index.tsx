@@ -23,7 +23,7 @@ type TextProps = HTMLAttributes<HTMLParagraphElement> & {
 export const Text = forwardRef<HTMLParagraphElement, TextProps>(
   ({ className, as: Component = "p", children, ...props }, ref) => {
     return (
-      <Component ref={ref} className={clsx("txt-medium", className)} {...props}>
+      <Component ref={ref} className={clsx("font-sans txt-medium", className)} {...props}>
         {children}
       </Component>
     )
@@ -42,10 +42,10 @@ export const Heading = forwardRef<HTMLHeadingElement, HeadingProps>(
       <Component
         ref={ref}
         className={clsx(
-          "font-semibold",
-          Component === "h1" && "text-3xl",
-          Component === "h2" && "text-2xl",
-          Component === "h3" && "text-xl",
+          "font-serif font-semibold",
+          Component === "h1" && "text-3xl tracking-tight",
+          Component === "h2" && "text-2xl tracking-tight",
+          Component === "h3" && "text-xl tracking-normal",
           className
         )}
         {...props}
