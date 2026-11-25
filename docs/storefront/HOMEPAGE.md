@@ -104,4 +104,14 @@ Then create a collection with that handle in Medusa Admin. `kind: "latest"` is o
 
 ## Verification results
 
-Filled in during phase verification.
+Date: 2026-11-25. Run on branch storefront-phase-3 before the final review.
+
+- Typecheck (tsc --noEmit): 0 errors.
+- Unit tests (vitest, apps/storefront): 28 files, 175 tests, all pass.
+- Lint (next lint): 0 errors, 3 warnings that were there before this phase.
+- Deploy workflow tests (node --test deploy/*.test.mjs): 66 pass, 0 fail.
+- Production build (next build) from a copy outside the worktree, with NEXT_PUBLIC_STORE_NAME set to a custom value: exit 0.
+- Secret scan of .next/static for sk_live, sk_test and whsec_: no matches.
+- Built server against the local backend (4 demo clothing products, no collections, no brands category): /us, /us/store and /us/cart return 200 and /us/design-system returns 404. The home page contains the hero, the shop-by-category tiles (links like /categories/pants) and a New arrivals section with the four demo products; it contains no Best sellers, Trending, Featured brands, promo, editorial or newsletter section, as expected with no matching data. No "Medusa Store" text; the custom store name appears.
+
+Not checked: pages were not opened in a browser (no screenshots, no check of layout shift, fonts as rendered, the reveal animation or the search field on real screens); a homepage with real collections, brands and promos (only the empty and demo-data cases were run against the backend; the filled cases are covered by unit tests with fixtures); the hero image path with a real image; the newsletter form against a real provider; the Docker image build; the first CI run.
