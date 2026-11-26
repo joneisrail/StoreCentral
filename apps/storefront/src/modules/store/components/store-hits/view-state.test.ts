@@ -1,6 +1,8 @@
-import { describe, expect, it } from "vitest"
+// @vitest-environment jsdom
+import { describe, expect, it, vi } from "vitest"
 import {
   applyViewToUrl,
+  createPush,
   createStateMapping,
   type CatalogRoute,
   parseView,
@@ -64,5 +66,40 @@ describe("createStateMapping", () => {
       [index]: { query: "oud" },
     })
     expect(mapping.routeToState({ view: "bogus" } as unknown as CatalogRoute)).toEqual({ [index]: {} })
+  })
+
+  it("keeps configure out of the route in both directions", () => {
+    const mapping = createStateMapping(index, () => "grid")
+
+    expect(
+      mapping.stateToRoute({
+        [index]: { query: "oud", configure: { hitsPerPage: 12 } },
+      })
+    ).toEqual({ query: "oud" })
+    expect(
+      mapping.routeToState({
+        query: "oud",
+        configure: { hitsPerPage: 1000 },
+      } as unknown as CatalogRoute)
+    ).toEqual({ [index]: { query: "oud" } })
+  })
+})
+
+describe("createPush", () => {
+  it("re-applies the current view at push time", () => {
+    let view: "grid" | "list" = "grid"
+    const push = createPush(() => view)
+    const spy = vi.spyOn(window.history, "pushState")
+
+    // URL built while the view was grid; the visitor toggled before the push.
+    view = "list"
+    push(`${window.location.origin}/store?page=2`)
+
+    expect(spy).toHaveBeenCalledWith(
+      null,
+      "",
+      `${window.location.origin}/store?page=2&view=list`
+    )
+    spy.mockRestore()
   })
 })

@@ -9,6 +9,7 @@ import { PRODUCT_INDEX_NAME, searchClient } from "@lib/search-client"
 import StoreHits from "@modules/store/components/store-hits"
 import {
   applyViewToUrl,
+  createPush,
   createStateMapping,
   type CatalogRoute,
   readViewFromSearch,
@@ -84,7 +85,9 @@ const StoreTemplate = ({ currencyCode }: { currencyCode: string }) => {
 
   const routing = useMemo(
     () => ({
-      router: history<CatalogRoute>(),
+      // The router writes after a 400ms debounce; `push` re-applies the view
+      // at that moment so a refine-then-toggle inside the window keeps it.
+      router: history<CatalogRoute>({ push: createPush(() => viewRef.current) }),
       stateMapping: createStateMapping(PRODUCT_INDEX_NAME, () => viewRef.current),
     }),
     []

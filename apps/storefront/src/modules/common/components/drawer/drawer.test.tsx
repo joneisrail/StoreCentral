@@ -156,4 +156,25 @@ describe("Drawer", () => {
     expect(document.querySelector('[role="dialog"]')).toBeNull()
     expect(document.activeElement).toBe(document.body)
   })
+
+  it("renders a footer outside the scrolling area", async () => {
+    function WithFooter() {
+      return (
+        <Drawer
+          open
+          title="T"
+          onClose={() => {}}
+          footer={<button data-testid="foot-btn">Go</button>}
+        >
+          <p>body</p>
+        </Drawer>
+      )
+    }
+    render(<WithFooter />)
+    await settle()
+    const footer = document.querySelector('[data-testid="drawer-footer"]')
+    expect(footer).not.toBeNull()
+    expect(footer?.querySelector('[data-testid="foot-btn"]')).not.toBeNull()
+    expect(footer?.closest(".overflow-y-auto")).toBeNull()
+  })
 })

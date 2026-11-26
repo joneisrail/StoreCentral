@@ -1,11 +1,7 @@
 "use client"
 
 import { useEffect, useRef } from "react"
-import {
-  useClearRefinements,
-  useHits,
-  useInstantSearch,
-} from "react-instantsearch"
+import { useHits, useInstantSearch } from "react-instantsearch"
 
 import useSearchSettled from "@lib/hooks/use-search-settled"
 import { Text } from "@modules/common/components/ui"
@@ -28,7 +24,6 @@ const StoreHits = ({
 }: StoreHitsProps) => {
   const { items } = useHits<CatalogHit>()
   const { status, error, indexUiState, setIndexUiState } = useInstantSearch()
-  const { refine: clearAll, canRefine: canClear } = useClearRefinements()
   const { isSearching, hasNoResultsYet } = useSearchSettled()
 
   const { page, ...refinements } = indexUiState
@@ -49,14 +44,14 @@ const StoreHits = ({
 
   const showSkeleton = hasNoResultsYet || (isSearching && isPagingOnly)
 
-  // Clearing refinements resets the page itself; a requested page past the
-  // last one has nothing to clear, so drop the page directly.
+  // Drops every refinement, the text query and the page, keeping the sort
+  // and the page's own configure. useClearRefinements leaves the query and a
+  // bare out-of-range page untouched, so the state is rebuilt directly.
   const resetFilters = () => {
-    if (canClear) {
-      clearAll()
-    } else {
-      setIndexUiState((prev) => ({ ...prev, page: undefined }))
-    }
+    setIndexUiState((prev) => ({
+      ...(prev.sortBy ? { sortBy: prev.sortBy } : {}),
+      ...(prev.configure ? { configure: prev.configure } : {}),
+    }))
   }
 
   if (status === "error") {

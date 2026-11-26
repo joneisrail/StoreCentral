@@ -30,6 +30,17 @@ export const applyViewToUrl = (url: string, view: CatalogView): string => {
 }
 
 /**
+ * `push` for the history router. The router builds its URL when a write is
+ * scheduled but pushes it 400ms later, so a view toggled in between would be
+ * lost; re-applying the current view at push time closes that window.
+ */
+export const createPush =
+  (getView: () => CatalogView) =>
+  (url: string): void => {
+    window.history.pushState(null, "", applyViewToUrl(url, getView()))
+  }
+
+/**
  * InstantSearch routing state mapping that carries `view` as a top-level
  * route key. InstantSearch UI state has no `view`, so it is read from the
  * caller on every write and dropped again when the route is read back.
@@ -39,9 +50,9 @@ export const createStateMapping = (
   getView: () => CatalogView
 ) => ({
   stateToRoute(uiState: UiState): CatalogRoute {
-    const route: CatalogRoute = {
-      ...(uiState[indexName] ?? {}),
-    }
+    // `configure` (hitsPerPage) is set by the page, not the visitor.
+    const { configure: _configure, ...state } = uiState[indexName] ?? {}
+    const route: CatalogRoute = { ...state }
 
     if (getView() === "list") {
       route.view = "list"
@@ -50,7 +61,11 @@ export const createStateMapping = (
     return route
   },
   routeToState(routeState: CatalogRoute): UiState {
-    const { [VIEW_PARAM]: _view, ...rest } = routeState
+    const {
+      [VIEW_PARAM]: _view,
+      configure: _configure,
+      ...rest
+    } = routeState
 
     return { [indexName]: rest as IndexUiState }
   },
