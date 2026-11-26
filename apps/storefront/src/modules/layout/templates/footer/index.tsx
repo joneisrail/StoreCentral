@@ -1,6 +1,7 @@
 import { listCategories } from "@lib/data/categories";
 import { listCollections } from "@lib/data/collections";
 import { Text, clx } from "@modules/common/components/ui";
+import { footerCategories } from "@lib/util/footer-categories";
 import { getStoreName } from "@lib/util/store-name";
 
 import LocalizedClientLink from "@modules/common/components/localized-client-link";
@@ -9,7 +10,7 @@ export default async function Footer() {
   const { collections } = await listCollections({
     fields: "*products",
   });
-  const productCategories = await listCategories();
+  const productCategories = footerCategories(await listCategories());
   const storeName = getStoreName();
 
   return (
@@ -34,11 +35,7 @@ export default async function Footer() {
                   className="grid grid-cols-1 gap-2"
                   data-testid="footer-categories"
                 >
-                  {productCategories?.slice(0, 6).map((c) => {
-                    if (c.parent_category) {
-                      return;
-                    }
-
+                  {productCategories.map((c) => {
                     const children =
                       c.category_children?.map((child) => ({
                         name: child.name,
