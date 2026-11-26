@@ -1,6 +1,7 @@
 "use client"
 
 import clsx from "clsx"
+import { useState } from "react"
 import { useRefinementList } from "react-instantsearch"
 
 type RefinementGroupProps = {
@@ -8,15 +9,42 @@ type RefinementGroupProps = {
   title: string
 }
 
+const INITIAL_LIMIT = 20
+const SHOW_MORE_LIMIT = 200
+
+const FOCUS_RING =
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-deep focus-visible:ring-offset-2"
+
 const RefinementGroup = ({ attribute, title }: RefinementGroupProps) => {
-  const { items, refine } = useRefinementList({
+  const [query, setQuery] = useState("")
+  const {
+    items,
+    refine,
+    searchForItems,
+    toggleShowMore,
+    canToggleShowMore,
+    isShowingMore,
+  } = useRefinementList({
     attribute,
-    limit: 20,
+    limit: INITIAL_LIMIT,
+    showMore: true,
+    showMoreLimit: SHOW_MORE_LIMIT,
     sortBy: ["count:desc", "name:asc"],
   })
 
-  if (!items.length) {
+  // The box stays up while a query is typed so a search with no matches does
+  // not remove the field the shopper is typing in.
+  const searchable =
+    canToggleShowMore || isShowingMore || items.length > INITIAL_LIMIT
+  const showSearch = searchable || query !== ""
+
+  if (!items.length && !showSearch) {
     return null
+  }
+
+  const handleSearch = (value: string) => {
+    setQuery(value)
+    searchForItems(value)
   }
 
   return (
@@ -24,6 +52,20 @@ const RefinementGroup = ({ attribute, title }: RefinementGroupProps) => {
       <span className="txt-compact-small-plus text-ui-fg-subtle">
         {title}
       </span>
+      {showSearch && (
+        <input
+          type="search"
+          value={query}
+          onChange={(event) => handleSearch(event.target.value)}
+          aria-label={`Search ${title}`}
+          placeholder={`Search ${title.toLowerCase()}`}
+          className={clsx(
+            "mr-6 min-h-[44px] rounded-soft border border-line bg-paper px-3 text-sm text-charcoal lg:min-h-0 lg:py-1.5",
+            FOCUS_RING
+          )}
+          data-testid={`refinement-search-${attribute}`}
+        />
+      )}
       <ul className="flex flex-col gap-y-2 pr-6">
         {items.map((item) => (
           <li key={item.value}>
@@ -50,6 +92,20 @@ const RefinementGroup = ({ attribute, title }: RefinementGroupProps) => {
           </li>
         ))}
       </ul>
+      {(canToggleShowMore || isShowingMore) && (
+        <button
+          type="button"
+          onClick={toggleShowMore}
+          aria-expanded={isShowingMore}
+          className={clsx(
+            "min-h-[44px] self-start rounded-soft px-1 text-left txt-compact-small-plus text-charcoal underline underline-offset-2 hover:text-gold-deep lg:min-h-0",
+            FOCUS_RING
+          )}
+          data-testid={`refinement-show-more-${attribute}`}
+        >
+          {isShowingMore ? "Show less" : "Show more"}
+        </button>
+      )}
     </div>
   )
 }

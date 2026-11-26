@@ -4,10 +4,15 @@ import { useSortBy } from "react-instantsearch"
 
 import FilterRadioGroup from "@modules/common/components/filter-radio-group"
 import {
+  BRAND_ATTRIBUTE,
   CATEGORY_ATTRIBUTE,
+  FAMILY_ATTRIBUTE,
+  GENDER_ATTRIBUTE,
   LABELS_ATTRIBUTE,
+  NOTES_ATTRIBUTE,
   getSortOptions,
 } from "./attributes"
+import AvailabilityToggle from "./availability-toggle"
 import CurrentRefinements from "./current-refinements"
 import OnSaleToggle from "./on-sale-toggle"
 import OptionRefinements from "./option-refinements"
@@ -34,10 +39,15 @@ const StoreRefinements = ({ currencyCode }: { currencyCode: string }) => {
     <div className="flex flex-col gap-12 py-4 mb-8 small:px-0 pl-6 small:w-[250px] small:shrink-0 small:ml-[1.675rem]">
       <SortProducts currencyCode={currencyCode} />
       <CurrentRefinements currencyCode={currencyCode} />
-      <OptionRefinements />
-      <PriceRange currencyCode={currencyCode} />
-      <OnSaleToggle currencyCode={currencyCode} />
+      <RefinementGroup attribute={BRAND_ATTRIBUTE} title="Brand" />
       <RefinementGroup attribute={CATEGORY_ATTRIBUTE} title="Category" />
+      <RefinementGroup attribute={GENDER_ATTRIBUTE} title="Gender" />
+      <RefinementGroup attribute={FAMILY_ATTRIBUTE} title="Fragrance family" />
+      <RefinementGroup attribute={NOTES_ATTRIBUTE} title="Notes" />
+      <PriceRange currencyCode={currencyCode} />
+      <AvailabilityToggle />
+      <OnSaleToggle currencyCode={currencyCode} />
+      <OptionRefinements />
       <RefinementGroup attribute={LABELS_ATTRIBUTE} title="Labels" />
     </div>
   )

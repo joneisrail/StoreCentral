@@ -6,8 +6,13 @@ import { useClearRefinements, useCurrentRefinements } from "react-instantsearch"
 import { indexedCurrency, priceAttribute } from "@lib/search-client"
 import { convertToLocale } from "@lib/util/money"
 import {
+  BRAND_ATTRIBUTE,
   CATEGORY_ATTRIBUTE,
+  FAMILY_ATTRIBUTE,
+  GENDER_ATTRIBUTE,
+  IN_STOCK_ATTRIBUTE,
   LABELS_ATTRIBUTE,
+  NOTES_ATTRIBUTE,
   OPTION_VALUES_ATTRIBUTE,
 } from "./attributes"
 
@@ -55,6 +60,26 @@ function refinementLabel(refinement: Refinement, currencyCode: string) {
 
   if (attribute === LABELS_ATTRIBUTE) {
     return `Label: ${label}`
+  }
+
+  if (attribute === BRAND_ATTRIBUTE) {
+    return `Brand: ${label}`
+  }
+
+  if (attribute === GENDER_ATTRIBUTE) {
+    return `Gender: ${label}`
+  }
+
+  if (attribute === FAMILY_ATTRIBUTE) {
+    return `Fragrance family: ${label}`
+  }
+
+  if (attribute === NOTES_ATTRIBUTE) {
+    return `Note: ${label}`
+  }
+
+  if (attribute === IN_STOCK_ATTRIBUTE) {
+    return "In stock"
   }
 
   return label
