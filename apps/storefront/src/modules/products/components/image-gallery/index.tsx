@@ -4,9 +4,10 @@ import Image from "next/image"
 
 type ImageGalleryProps = {
   images: HttpTypes.StoreProductImage[]
+  title: string
 }
 
-const ImageGallery = ({ images }: ImageGalleryProps) => {
+const ImageGallery = ({ images, title }: ImageGalleryProps) => {
   return (
     <div className="flex items-start relative">
       <div className="flex flex-col flex-1 small:mx-16 gap-y-4">
@@ -14,7 +15,7 @@ const ImageGallery = ({ images }: ImageGalleryProps) => {
           return (
             <Container
               key={image.id}
-              className="relative aspect-[29/34] w-full overflow-hidden bg-ui-bg-subtle"
+              className="relative aspect-[29/34] w-full overflow-hidden bg-paper"
               id={image.id}
             >
               {!!image.url && (
@@ -22,9 +23,9 @@ const ImageGallery = ({ images }: ImageGalleryProps) => {
                   src={image.url}
                   priority={index <= 2 ? true : false}
                   className="absolute inset-0 rounded-rounded"
-                  alt={`Product image ${index + 1}`}
+                  alt={`${title} image ${index + 1}`}
                   fill
-                  sizes="(max-width: 576px) 280px, (max-width: 768px) 360px, (max-width: 992px) 480px, 800px"
+                  sizes="(min-width: 1024px) 50vw, 100vw"
                   style={{
                     objectFit: "cover",
                   }}
