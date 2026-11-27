@@ -35,7 +35,7 @@ const ProductInfo = ({
 }: ProductInfoProps) => {
   return (
     <div id="product-info">
-      <div className="flex flex-col gap-y-4 lg:max-w-[500px] mx-auto">
+      <div className="flex flex-col gap-y-4">
         {brand &&
           (brandHref ? (
             <LocalizedClientLink
