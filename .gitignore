@@ -61,3 +61,5 @@ yarn-error.log*
 ehthumbs.db
 Thumbs.db
 **/.DS_Store
+# Meilisearch dev binary and data (scripts/dev/meilisearch.ps1)
+.meilisearch/

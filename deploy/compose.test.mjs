@@ -43,6 +43,9 @@ const LITERAL_ALLOWLIST = new Set([
   "WEBHOOK_PORT",
   "NEXT_TELEMETRY_DISABLED",
   "NODE_OPTIONS",
+  "MEILI_ENV",
+  "MEILI_NO_ANALYTICS",
+  "MEILISEARCH_HOST",
 ])
 
 test("the expected services exist", () => {
@@ -153,6 +156,7 @@ const MEM_FLOORS_MB = {
   caddy: 128,
   postgres: 512,
   redis: 128,
+  meilisearch: 512,
 }
 
 test("every service has a mem_limit at or above its floor", () => {
