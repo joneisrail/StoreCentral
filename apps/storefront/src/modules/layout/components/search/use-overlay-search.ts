@@ -32,18 +32,23 @@ export function useOverlaySearch() {
   useEffect(() => () => window.clearTimeout(timer.current), [])
 
   const { query, refine } = useSearchBox({ queryHook })
-  const { status, results: raw } = useInstantSearch()
+  // `catchError` registers an error listener; without one InstantSearch
+  // re-throws a failed search as an unhandled rejection.
+  const { status, results: raw } = useInstantSearch({ catchError: true })
   const results = raw as unknown as OverlayResults | undefined
 
   const [value, setValue] = useState(query)
   const typed = value.trim()
 
+  // The error check comes before the query comparison: a failed search never
+  // renders the widgets, so `query` keeps its previous value and would leave
+  // the overlay on "Searching…". The next search moves the status off "error".
   const mode: Mode = !typed
     ? "suggest"
-    : typed !== query.trim()
-      ? "loading"
-      : status === "error"
-        ? "error"
+    : status === "error"
+      ? "error"
+      : typed !== query.trim()
+        ? "loading"
         : (results?._state?.query ?? "") !== query
           ? "loading"
           : results?.hits?.length
