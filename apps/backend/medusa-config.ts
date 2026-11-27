@@ -23,6 +23,9 @@ module.exports = defineConfig({
       resolve: './src/modules/review',
     },
     {
+      resolve: './src/modules/search-insights',
+    },
+    {
       resolve: './src/modules/order-events',
     },
     {
