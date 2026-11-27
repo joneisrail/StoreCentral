@@ -230,10 +230,11 @@ const SearchResults = ({
       router: history<CatalogRoute>({ push: createPush(() => viewRef.current) }),
       stateMapping: createSearchStateMapping(
         PRODUCT_INDEX_NAME,
-        () => viewRef.current
+        () => viewRef.current,
+        () => query
       ),
     }),
-    []
+    [query]
   )
 
   return (
@@ -253,7 +254,7 @@ const SearchResults = ({
         routing={routing}
         future={{ preserveSharedStateOnUnmount: true }}
       >
-        <Configure hitsPerPage={PRODUCT_LIMIT} />
+        <Configure hitsPerPage={PRODUCT_LIMIT} query={query} />
         <SearchTracker query={query} />
         <FilterDrawer currencyCode={currencyCode} />
         <div className="flex flex-col small:flex-row small:items-start small:gap-x-8">

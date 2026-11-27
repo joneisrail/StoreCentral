@@ -17,23 +17,20 @@ describe("normalizeQuery", () => {
 })
 
 describe("createSearchStateMapping", () => {
-  const m = createSearchStateMapping("product", () => "grid")
+  const m = createSearchStateMapping("product", () => "grid", () => "rose")
 
-  it("maps query to q and keeps other refinements", () => {
-    const route = m.stateToRoute({
-      product: { query: "rose", page: 2, refinementList: { brand: ["Dior"] } },
-    })
-    expect(route).toEqual({
-      q: "rose",
-      page: 2,
-      refinementList: { brand: ["Dior"] },
-    })
+  it("re-adds the page query as q and keeps other refinements", () => {
+    expect(
+      m.stateToRoute({
+        product: { page: 2, refinementList: { brand: ["Dior"] } },
+      })
+    ).toEqual({ q: "rose", page: 2, refinementList: { brand: ["Dior"] } })
   })
 
-  it("maps q back to query", () => {
+  it("drops q and view when reading the route back", () => {
     expect(
       m.routeToState({ q: "rose", page: 2, view: "list" } as never)
-    ).toEqual({ product: { query: "rose", page: 2 } })
+    ).toEqual({ product: { page: 2 } })
   })
 })
 
