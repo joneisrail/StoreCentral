@@ -15,10 +15,13 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push }),
 }))
 
+const onPendingChange = vi.fn()
 const setup = (variantId: string | undefined, disabled = false) =>
   render(
     <ToastProvider>
-      <BuyNowButton variantId={variantId} quantity={3} disabled={disabled} />
+      <BuyNowButton variantId={variantId} quantity={3} disabled={disabled}
+        onPendingChange={onPendingChange}
+      />
     </ToastProvider>
   )
 const button = () => document.querySelector("button") as HTMLButtonElement
@@ -26,6 +29,7 @@ const button = () => document.querySelector("button") as HTMLButtonElement
 beforeEach(() => {
   addToCart.mockReset()
   push.mockReset()
+  onPendingChange.mockReset()
 })
 afterEach(cleanup)
 
@@ -65,5 +69,13 @@ describe("BuyNowButton", () => {
       await userEvent.click(button())
     })
     expect(addToCart).not.toHaveBeenCalled()
+  })
+  it("reports pending state to the parent", async () => {
+    addToCart.mockResolvedValue(undefined)
+    setup("variant_1")
+    await act(async () => {
+      await userEvent.click(button())
+    })
+    expect(onPendingChange.mock.calls).toEqual([[true], [false]])
   })
 })

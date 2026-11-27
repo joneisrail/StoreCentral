@@ -42,6 +42,7 @@ export default function ProductActions({
 
   const [options, setOptions] = useState<Record<string, string | undefined>>({})
   const [isAdding, setIsAdding] = useState(false)
+  const [buyNowPending, setBuyNowPending] = useState(false)
   const [quantity, setQuantity] = useState(1)
   const { toast } = useToast()
   const countryCode = useParams().countryCode as string
@@ -162,7 +163,7 @@ export default function ProductActions({
           <div className="flex flex-col gap-y-1 text-sm text-charcoal">
             <p data-testid="availability">{availabilityLabel(availability)}</p>
             {selectedVariant.sku && (
-              <p className="text-warm-gray" data-testid="product-sku">
+              <p className="text-warm-grey" data-testid="product-sku">
                 SKU: {selectedVariant.sku}
               </p>
             )}
@@ -182,6 +183,7 @@ export default function ProductActions({
             !selectedVariant ||
             !!disabled ||
             isAdding ||
+            buyNowPending ||
             !isValidVariant
           }
           variant="primary"
@@ -198,6 +200,7 @@ export default function ProductActions({
         <BuyNowButton
           variantId={selectedVariant?.id}
           quantity={quantity}
+          onPendingChange={setBuyNowPending}
           disabled={
             !inStock || !selectedVariant || !!disabled || isAdding || !isValidVariant
           }

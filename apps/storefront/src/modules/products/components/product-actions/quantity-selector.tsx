@@ -11,7 +11,7 @@ type QuantitySelectorProps = {
 const MAX_PER_ORDER = 10
 
 const buttonClass =
-  "inline-flex h-11 w-11 items-center justify-center text-lg text-charcoal transition-colors motion-reduce:transition-none hover:bg-ivory disabled:cursor-not-allowed disabled:text-warm-gray focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-deep"
+  "inline-flex h-11 w-11 items-center justify-center text-lg text-charcoal transition-colors motion-reduce:transition-none hover:bg-ivory disabled:cursor-not-allowed disabled:text-warm-grey focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-deep"
 
 const QuantitySelector = ({ value, onChange, max }: QuantitySelectorProps) => {
   const limit = Math.max(1, Math.min(MAX_PER_ORDER, max ?? MAX_PER_ORDER))

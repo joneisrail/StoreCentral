@@ -10,9 +10,15 @@ type BuyNowButtonProps = {
   variantId: string | undefined
   quantity: number
   disabled: boolean
+  onPendingChange?: (pending: boolean) => void
 }
 
-const BuyNowButton = ({ variantId, quantity, disabled }: BuyNowButtonProps) => {
+const BuyNowButton = ({
+  variantId,
+  quantity,
+  disabled,
+  onPendingChange,
+}: BuyNowButtonProps) => {
   const params = useParams()
   const router = useRouter()
   const { toast } = useToast()
@@ -27,6 +33,7 @@ const BuyNowButton = ({ variantId, quantity, disabled }: BuyNowButtonProps) => {
     }
     inFlight.current = true
     setPending(true)
+    onPendingChange?.(true)
     try {
       await addToCart({ variantId, quantity, countryCode })
       router.push(`/${countryCode}/checkout`)
@@ -36,6 +43,7 @@ const BuyNowButton = ({ variantId, quantity, disabled }: BuyNowButtonProps) => {
     } finally {
       inFlight.current = false
       setPending(false)
+      onPendingChange?.(false)
     }
   }
 
