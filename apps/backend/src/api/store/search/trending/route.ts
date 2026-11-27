@@ -1,28 +1,43 @@
 import type { MedusaRequest, MedusaResponse } from "@medusajs/framework/http"
 import { ContainerRegistrationKeys } from "@medusajs/framework/utils"
 import {
+  MAX_ORDER_PAGES,
+  TRENDING_TTL_MS,
   TRENDING_WINDOW_DAYS,
   clampLimit,
+  createTtlCache,
+  loadOrDegrade,
   rankTrending,
   sumUnits,
+  trendingCacheKey,
 } from "./helpers"
 
 const ORDER_PAGE = 1000
+const cache = createTtlCache<TrendingProduct[]>(Date.now, TRENDING_TTL_MS)
 
-export async function GET(req: MedusaRequest, res: MedusaResponse) {
+type TrendingProduct = {
+  id: string
+  title: string
+  handle: string
+  thumbnail: string | null
+}
+
+async function loadTrending(
+  req: MedusaRequest,
+  channelIds: string[],
+  limit: number
+): Promise<TrendingProduct[]> {
   const query = req.scope.resolve(ContainerRegistrationKeys.QUERY)
-  const limit = clampLimit((req.query as Record<string, unknown>).limit)
-  const channelIds: string[] =
-    (req as any).publishable_key_context?.sales_channel_ids ?? []
   const since = new Date(
     Date.now() - TRENDING_WINDOW_DAYS * 24 * 60 * 60 * 1000
   )
 
   const visible: Record<string, unknown> = { status: "published" }
-  if (channelIds.length) visible.sales_channels = { id: channelIds }
+  visible.sales_channels = { id: channelIds }
 
   const items: { product_id?: string | null; quantity?: number | null }[] = []
-  for (let skip = 0; ; skip += ORDER_PAGE) {
+  for (let page = 0; ; page++) {
+    const skip = page * ORDER_PAGE
     const { data: orders } = await query.graph({
       entity: "order",
       fields: ["id", "items.product_id", "items.quantity"],
@@ -37,6 +52,13 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
       for (const i of o.items ?? []) if (i) items.push(i)
     }
     if (orders.length < ORDER_PAGE) break
+    if (page + 1 >= MAX_ORDER_PAGES) {
+      const logger: any = req.scope.resolve("logger")
+      logger.warn(
+        `[search-trending] order scan capped at ${MAX_ORDER_PAGES} pages`
+      )
+      break
+    }
   }
 
   const sold = sumUnits(items)
@@ -72,7 +94,7 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
       })
     : { data: [] as any[] }
   const byId = new Map((found as any[]).map((p) => [p.id, p]))
-  const products = ids
+  return ids
     .map((id) => byId.get(id))
     .filter(Boolean)
     .map((p: any) => ({
@@ -82,6 +104,32 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
       thumbnail: p.thumbnail ?? null,
     }))
 
-  res.setHeader("Cache-Control", "public, max-age=300")
-  res.json({ products })
+}
+
+export async function GET(req: MedusaRequest, res: MedusaResponse) {
+  const logger: any = req.scope.resolve("logger")
+  const limit = clampLimit((req.query as Record<string, unknown>).limit)
+  const channelIds: string[] =
+    (req as any).publishable_key_context?.sales_channel_ids ?? []
+
+  // Fail closed: without a channel scope nothing is visible.
+  if (!channelIds.length) {
+    res.setHeader("Cache-Control", "public, max-age=300")
+    return res.json({ products: [] })
+  }
+
+  const { value, degraded } = await loadOrDegrade(
+    () =>
+      cache.getOrLoad(trendingCacheKey(channelIds, limit), () =>
+        loadTrending(req, channelIds, limit)
+      ),
+    [] as TrendingProduct[],
+    logger,
+    "[search-trending]"
+  )
+  res.setHeader(
+    "Cache-Control",
+    degraded ? "no-store" : "public, max-age=300"
+  )
+  res.json({ products: value })
 }
