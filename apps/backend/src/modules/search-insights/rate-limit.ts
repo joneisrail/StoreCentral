@@ -40,3 +40,50 @@ export function createRateLimiter(options: {
     },
   }
 }
+
+export type QueryDeduper = {
+  /**
+   * True the first time `key` is seen within the window (and claims it);
+   * false while an earlier claim of the same key is still inside it.
+   */
+  claim(key: string): boolean
+  /** Forgets a claim, for when the event it was taken for was not recorded. */
+  release(key: string): void
+}
+
+/**
+ * Remembers which (client, query) pairs were recorded recently, so one client
+ * repeating a query cannot push it up the popular list: each pair counts at
+ * most once per window. In-memory and per process, like the limiter; the map
+ * is pruned of expired claims when full and cleared outright if that is not
+ * enough, which at worst lets a pair count once more.
+ */
+export function createQueryDeduper(options: {
+  windowMs: number
+  now?: () => number
+  maxKeys?: number
+}): QueryDeduper {
+  const { windowMs, now = Date.now, maxKeys = 50000 } = options
+  const claims = new Map<string, number>()
+
+  return {
+    claim(key) {
+      const t = now()
+      const at = claims.get(key)
+      if (at !== undefined && t - at < windowMs) {
+        return false
+      }
+      if (at === undefined && claims.size >= maxKeys) {
+        for (const [k, v] of claims) {
+          if (t - v >= windowMs) claims.delete(k)
+        }
+        if (claims.size >= maxKeys) claims.clear()
+      }
+      claims.set(key, t)
+      return true
+    },
+    release(key) {
+      claims.delete(key)
+    },
+  }
+}
