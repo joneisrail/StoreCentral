@@ -1,7 +1,10 @@
 import { MedusaError } from "@medusajs/framework/utils";
 import type { SearchTypes } from "@medusajs/framework/types";
 import { buildSettings } from "../../../providers/search-meilisearch/utils/settings";
-import { SYNONYMS } from "../../../providers/search-meilisearch/utils/synonyms";
+import {
+  countSynonymGroups,
+  SYNONYMS,
+} from "../../../providers/search-meilisearch/utils/synonyms";
 
 type Field = SearchTypes.SearchFieldDefinition;
 
@@ -216,6 +219,25 @@ describe("SYNONYMS", () => {
     expect(SYNONYMS.edp).toContain("eau de parfum");
     expect(SYNONYMS.edt).toContain("eau de toilette");
     expect(SYNONYMS["100ml"]).toContain("3.4oz");
+  });
+
+  it("maps men and women forms to each other without crossing", () => {
+    expect([...SYNONYMS.men].sort()).toEqual(["man", "men's", "mens"]);
+    expect(SYNONYMS.mens).toContain("men");
+    expect(SYNONYMS["men's"]).toContain("mens");
+    expect(SYNONYMS.women).toEqual(
+      expect.arrayContaining(["womens", "women's", "ladies", "woman"]),
+    );
+    expect(SYNONYMS.ladies).toContain("women");
+    expect(SYNONYMS.men).not.toContain("women");
+    expect(SYNONYMS.women).not.toContain("men");
+  });
+
+  it("counts each group once", () => {
+    expect(countSynonymGroups({ a: ["b"], b: ["a"], c: ["d"], d: ["c"] })).toBe(
+      2,
+    );
+    expect(countSynonymGroups(SYNONYMS)).toBe(16);
   });
 
   it("lists every group under every member, symmetrically", () => {
