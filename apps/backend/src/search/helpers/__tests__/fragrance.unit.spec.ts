@@ -1,4 +1,47 @@
-import { toBrands, toMetadataValues, toStock } from "../fragrance";
+import {
+  toBrands,
+  toCategoryNames,
+  toMetadataValues,
+  toStock,
+} from "../fragrance";
+
+describe("toCategoryNames", () => {
+  it("drops brand categories and keeps department categories", () => {
+    expect(
+      toCategoryNames([
+        { name: "Dior", parent_category: { handle: "brands" } },
+        { name: "Men", parent_category: { handle: "gender" } },
+        { name: "Perfume", parent_category: null },
+        null,
+        { name: " Gift Sets ", parent_category: undefined },
+        { name: "  ", parent_category: null },
+      ]),
+    ).toEqual(["Men", "Perfume", "Gift Sets"]);
+  });
+
+  it("is empty for a product with only brand categories", () => {
+    expect(
+      toCategoryNames([
+        { name: "Dior", parent_category: { handle: "brands" } },
+        { name: "Chanel", parent_category: { handle: "brands" } },
+      ]),
+    ).toEqual([]);
+  });
+
+  it("drops the brands category itself", () => {
+    expect(
+      toCategoryNames([
+        { name: "Brands", handle: "brands", parent_category: null },
+        { name: "Women", handle: "women", parent_category: null },
+      ]),
+    ).toEqual(["Women"]);
+  });
+
+  it("handles null and undefined", () => {
+    expect(toCategoryNames(null)).toEqual([]);
+    expect(toCategoryNames(undefined)).toEqual([]);
+  });
+});
 
 describe("toBrands", () => {
   it("keeps only categories whose parent is brands", () => {

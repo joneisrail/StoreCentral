@@ -11,6 +11,7 @@ import {
   BrandCategoryRow,
   StockVariantRow,
   toBrands,
+  toCategoryNames,
   toMetadataValues,
   toStock,
 } from "./helpers/fragrance";
@@ -29,6 +30,7 @@ const PRODUCT_GRAPH_FIELDS = [
   "metadata",
   "sales_channels.id",
   "categories.name",
+  "categories.handle",
   "categories.parent_category.handle",
   "tags.value",
   "options.title",
@@ -130,9 +132,7 @@ export function toDocument(
   pricing: Parameters<typeof toProductPricing>[0],
   availability?: VariantAvailability,
 ): ProductDocument {
-  const category = (product.categories ?? [])
-    .map((productCategory) => productCategory?.name?.trim())
-    .filter((name): name is string => Boolean(name));
+  const category = toCategoryNames(product.categories);
   const labels = (product.tags ?? [])
     .map((tag) => tag?.value?.trim())
     .filter((value): value is string => Boolean(value));

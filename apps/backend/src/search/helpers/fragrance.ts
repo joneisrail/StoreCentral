@@ -2,6 +2,7 @@ const MAX_METADATA_VALUES = 30;
 
 export type BrandCategoryRow = {
   name?: string | null;
+  handle?: string | null;
   parent_category?: { handle?: string | null } | null;
 } | null;
 
@@ -36,6 +37,27 @@ export function toBrands(
 ): string[] {
   const names = (categories ?? [])
     .filter((category) => category?.parent_category?.handle === "brands")
+    .map((category) => category?.name?.trim())
+    .filter((name): name is string => Boolean(name));
+
+  return uniqueCaseInsensitive(names);
+}
+
+/**
+ * Names of the non-brand categories (departments, gender, ...). Brand
+ * categories, and the `brands` category itself, are left out: brands have
+ * their own `brand` field, and listing them here floods the Category facet.
+ * Existing indexes need a reindex to pick this up.
+ */
+export function toCategoryNames(
+  categories: BrandCategoryRow[] | null | undefined,
+): string[] {
+  const names = (categories ?? [])
+    .filter(
+      (category) =>
+        category?.handle !== "brands" &&
+        category?.parent_category?.handle !== "brands",
+    )
     .map((category) => category?.name?.trim())
     .filter((name): name is string => Boolean(name));
 
