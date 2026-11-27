@@ -144,7 +144,7 @@ At most two badges per card, shown over the image corner in this order:
 A button under each `/store` card, outside the card link:
 
 - `in_stock` false: disabled "Sold out".
-- One variant (the hit has `single_variant_id`): "Add to cart" adds quantity 1 and shows an "Added to cart" toast, then refreshes the page data. A second click while the first is running is ignored. A failure shows the error message in an error toast and the button works again.
+- One variant (the hit has `single_variant_id`): "Add to cart" adds quantity 1 and shows an "Added to cart" toast, then refreshes the page data. A second click while the first is running is ignored. A failure shows a fixed "Couldn't add to cart" error toast (server actions hide the real message in production) and the button works again.
 - Several variants: "Choose options" links to the product page.
 
 ## Wishlist
@@ -178,3 +178,7 @@ A heart button on each `/store` card. Toggling sets `aria-pressed` and shows an 
 ## Verification results
 
 Filled in during phase verification.
+
+## Image sizes
+
+Product cards pass a `sizes` hint to `Thumbnail` (grid: 25vw on desktop, 33vw on tablet, 50vw on phones; list: 40vw). Image optimisation itself stays off until Phase 7 (`images.unoptimized`), so the hint has no effect until then.

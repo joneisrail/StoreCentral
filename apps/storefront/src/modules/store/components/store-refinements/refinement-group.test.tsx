@@ -118,6 +118,29 @@ describe("RefinementGroup", () => {
     expect(document.querySelector('input[type="search"]')).not.toBeNull()
   })
 
+  it("labels the group with its title", () => {
+    state.items = makeItems(2)
+    render(<RefinementGroup attribute="brand" title="Brand" />)
+
+    const group = document.querySelector("fieldset") as HTMLElement
+    expect(group.querySelector("legend")?.textContent).toBe("Brand")
+  })
+
+  it("clears the search box once a value is picked", async () => {
+    state.items = makeItems(20)
+    state.canToggleShowMore = true
+    const user = userEvent.setup()
+    render(<RefinementGroup attribute="brand" title="Brand" />)
+
+    const input = document.querySelector('input[type="search"]') as HTMLInputElement
+    await user.type(input, "val")
+    await user.click(document.querySelector('[data-testid="refinement-brand"]') as Element)
+
+    expect(refine).toHaveBeenCalledWith("v0")
+    expect(input.value).toBe("")
+    expect(searchForItems).toHaveBeenLastCalledWith("")
+  })
+
   it("refines when a value is checked", async () => {
     state.items = makeItems(2)
     const user = userEvent.setup()

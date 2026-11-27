@@ -43,13 +43,19 @@ const ResultCount = () => {
   )
 }
 
-const StoreTemplate = ({ currencyCode }: { currencyCode: string }) => {
-  const [view, setView] = useState<CatalogView>("grid")
+const StoreTemplate = ({
+  currencyCode,
+  initialView = "grid",
+}: {
+  currencyCode: string
+  initialView?: CatalogView
+}) => {
+  const [view, setView] = useState<CatalogView>(initialView)
   // Read by the routing state mapping on every URL write.
   // Seeded from the URL up front so the router's first write keeps the param.
   const viewRef = useRef<CatalogView>(
     typeof window === "undefined"
-      ? "grid"
+      ? initialView
       : readViewFromSearch(window.location.search)
   )
 

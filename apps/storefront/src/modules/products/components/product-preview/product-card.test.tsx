@@ -32,6 +32,40 @@ describe("ProductCardView", () => {
     expect(image?.querySelector("img")).not.toBeNull()
   })
 
+  it("passes a sizes hint per layout and keeps the thumbnail decorative", () => {
+    const grid = render(
+      <ProductCardView title="T" href="/p" thumbnail="https://example.com/a.jpg" />
+    )
+    const gridImg = grid.container.querySelector("img") as HTMLImageElement
+    expect(gridImg.getAttribute("sizes")).toContain("25vw")
+    expect(gridImg.getAttribute("alt")).toBe("")
+    cleanup()
+    const list = render(
+      <ProductCardView
+        title="T"
+        href="/p"
+        layout="list"
+        thumbnail="https://example.com/a.jpg"
+      />
+    )
+    expect(
+      list.container.querySelector("img")?.getAttribute("sizes")
+    ).toContain("40vw")
+  })
+
+  it("keeps badges clear of the actions slot", () => {
+    const { container } = render(
+      <ProductCardView
+        title="T"
+        href="/p"
+        badges={["New"]}
+        actions={<button type="button">Heart</button>}
+      />
+    )
+    const badge = container.querySelector('[data-testid="product-badge"]')
+    expect((badge?.parentElement as HTMLElement).style.right).toBe("3.5rem")
+  })
+
   it("shows the original price struck through beside the sale price", () => {
     const { container } = render(
       <ProductCardView

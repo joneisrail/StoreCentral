@@ -12,6 +12,7 @@ import { act, cleanup, render, userEvent } from "../../../../test/render"
 import FilterDrawer from "./filter-drawer"
 
 const clearRefinements = vi.fn()
+let hitCount: number | undefined = 42
 
 vi.mock("react-instantsearch", () => ({
   useCurrentRefinements: () => ({
@@ -21,7 +22,9 @@ vi.mock("react-instantsearch", () => ({
     ],
   }),
   useClearRefinements: () => ({ refine: clearRefinements, canRefine: true }),
-  useInstantSearch: () => ({ results: { nbHits: 42 } }),
+  useInstantSearch: () => ({
+    results: hitCount === undefined ? undefined : { nbHits: hitCount },
+  }),
 }))
 vi.mock("./index", () => ({
   default: () => <div data-testid="groups-stub" />,
@@ -93,6 +96,15 @@ describe("FilterDrawer", () => {
       document.querySelector("[data-testid=drawer-clear-all]") as HTMLElement
     )
     expect(clearRefinements).toHaveBeenCalled()
+  })
+
+  it("says Show results before a count exists", async () => {
+    hitCount = undefined
+    await open()
+    expect(
+      document.querySelector("[data-testid=drawer-show-results]")?.textContent
+    ).toBe("Show results")
+    hitCount = 42
   })
 
   it("closes on Show N results", async () => {

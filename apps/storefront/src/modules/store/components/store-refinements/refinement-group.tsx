@@ -48,10 +48,10 @@ const RefinementGroup = ({ attribute, title }: RefinementGroupProps) => {
   }
 
   return (
-    <div className="flex flex-col gap-y-3">
-      <span className="txt-compact-small-plus text-ui-fg-subtle">
+    <fieldset className="m-0 flex min-w-0 flex-col gap-y-3 border-0 p-0">
+      <legend className="mb-3 p-0 txt-compact-small-plus text-warm-grey">
         {title}
-      </span>
+      </legend>
       {showSearch && (
         <input
           type="search"
@@ -73,19 +73,22 @@ const RefinementGroup = ({ attribute, title }: RefinementGroupProps) => {
               <input
                 type="checkbox"
                 checked={item.isRefined}
-                onChange={() => refine(item.value)}
-                className="mt-1 shrink-0 accent-ui-fg-interactive"
+                onChange={() => {
+                  refine(item.value)
+                  handleSearch("")
+                }}
+                className="mt-1 shrink-0 accent-gold-deep"
                 data-testid={`refinement-${attribute}`}
               />
               <span
                 className={clsx("text-small-regular min-w-0 break-words", {
-                  "text-ui-fg-base": item.isRefined,
-                  "text-ui-fg-subtle": !item.isRefined,
+                  "text-charcoal": item.isRefined,
+                  "text-warm-grey": !item.isRefined,
                 })}
               >
                 {item.label}
               </span>
-              <span className="text-small-regular shrink-0 text-ui-fg-muted">
+              <span className="text-small-regular shrink-0 text-warm-grey">
                 ({item.count})
               </span>
             </label>
@@ -106,7 +109,7 @@ const RefinementGroup = ({ attribute, title }: RefinementGroupProps) => {
           {isShowingMore ? "Show less" : "Show more"}
         </button>
       )}
-    </div>
+    </fieldset>
   )
 }
 

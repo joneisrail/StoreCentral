@@ -25,7 +25,7 @@ const FilterDrawer = ({ currencyCode }: { currencyCode: string }) => {
   const { results } = useInstantSearch()
 
   const count = items.reduce((sum, item) => sum + item.refinements.length, 0)
-  const total = results?.nbHits ?? 0
+  const total = results?.nbHits
 
   return (
     <div className="sticky top-16 z-20 -mx-6 mb-4 border-b border-line bg-ivory px-6 py-2 small:hidden">
@@ -58,12 +58,12 @@ const FilterDrawer = ({ currencyCode }: { currencyCode: string }) => {
               className={`inline-flex h-11 flex-1 items-center justify-center rounded-soft bg-charcoal px-4 text-sm font-medium text-paper ${FOCUS} focus-visible:ring-offset-paper`}
               data-testid="drawer-show-results"
             >
-              {`Show ${total} results`}
+              {typeof total === "number" ? `Show ${total} results` : "Show results"}
             </button>
           </div>
         }
       >
-        <div className="mt-6 flex-1 overflow-y-auto pr-2">
+        <div className="mt-6 flex-1">
           <div className="flex flex-col gap-12">
             <SortProducts currencyCode={currencyCode} />
             <StoreRefinements currencyCode={currencyCode} />

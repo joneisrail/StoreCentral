@@ -85,7 +85,7 @@ describe("QuickAdd", () => {
     await act(async () => {
       await userEvent.click(button())
     })
-    expect(document.body.textContent).toContain("No stock left")
+    expect(document.body.textContent).toContain("Couldn't add to cart")
     expect(button().disabled).toBe(false)
     expect(refresh).not.toHaveBeenCalled()
   })
@@ -134,13 +134,14 @@ describe("QuickAdd", () => {
     expect(errorSpy).not.toHaveBeenCalled()
   })
 
-  it("falls back to a generic message for non-Error rejections", async () => {
-    addToCart.mockRejectedValue("nope")
+  it("shows the fixed message even when the action throws a real message", async () => {
+    addToCart.mockRejectedValue(new Error("Variant is out of stock"))
     setup()
     await act(async () => {
       await userEvent.click(button())
     })
     expect(document.body.textContent).toContain("Couldn't add to cart")
+    expect(document.body.textContent).not.toContain("Variant is out of stock")
   })
 
   it("renders a link and no button for multi-variant products", () => {

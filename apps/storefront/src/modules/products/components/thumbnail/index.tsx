@@ -4,11 +4,18 @@ import React from "react"
 
 import PlaceholderImage from "@modules/common/icons/placeholder-image"
 
+const DEFAULT_SIZES =
+  "(max-width: 576px) 280px, (max-width: 768px) 360px, (max-width: 992px) 480px, 800px"
+
 type ThumbnailProps = {
   thumbnail?: string | null
   images?: { url?: string }[] | null
   size?: "small" | "medium" | "large" | "full" | "square"
   className?: string
+  /** Responsive `sizes` hint for the image. */
+  sizes?: string
+  /** Alt text. Pass "" when the image is decorative (e.g. inside a labelled link). */
+  alt?: string
   "data-testid"?: string
 }
 
@@ -17,6 +24,8 @@ const Thumbnail: React.FC<ThumbnailProps> = ({
   images,
   size = "small",
   className,
+  sizes,
+  alt,
   "data-testid": dataTestid,
 }) => {
   const initialImage = thumbnail || images?.[0]?.url
@@ -37,7 +46,12 @@ const Thumbnail: React.FC<ThumbnailProps> = ({
       )}
       data-testid={dataTestid}
     >
-      <ImageOrPlaceholder image={initialImage} size={size} />
+      <ImageOrPlaceholder
+        image={initialImage}
+        size={size}
+        sizes={sizes}
+        alt={alt}
+      />
     </Container>
   )
 }
@@ -45,15 +59,17 @@ const Thumbnail: React.FC<ThumbnailProps> = ({
 const ImageOrPlaceholder = ({
   image,
   size,
-}: Pick<ThumbnailProps, "size"> & { image?: string }) => {
+  sizes = DEFAULT_SIZES,
+  alt = "Thumbnail",
+}: Pick<ThumbnailProps, "size" | "sizes" | "alt"> & { image?: string }) => {
   return image ? (
     <Image
       src={image}
-      alt="Thumbnail"
+      alt={alt}
       className="absolute inset-0 object-cover object-center"
       draggable={false}
       quality={50}
-      sizes="(max-width: 576px) 280px, (max-width: 768px) 360px, (max-width: 992px) 480px, 800px"
+      sizes={sizes}
       fill
     />
   ) : (

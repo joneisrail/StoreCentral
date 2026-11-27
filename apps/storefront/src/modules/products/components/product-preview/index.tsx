@@ -5,6 +5,17 @@ import type { ReactNode } from "react"
 import Thumbnail from "../thumbnail"
 import { PriceLabels } from "./price"
 
+// The wishlist heart is a 44px target inset 0.5rem from the image corner.
+// Badges stop short of it by one gap, and the list layout positions the heart
+// from the same numbers.
+const ACTION_SIZE_REM = 2.75
+const ACTION_INSET_REM = 0.5
+const ACTION_GAP_REM = 0.25
+const BADGE_RIGHT_REM = ACTION_SIZE_REM + ACTION_INSET_REM + ACTION_GAP_REM
+
+const GRID_SIZES = "(min-width: 1024px) 25vw, (min-width: 640px) 33vw, 50vw"
+const LIST_SIZES = "(min-width: 640px) 40vw, 40vw"
+
 export type ProductCardViewProps = {
   title: string
   href: string
@@ -47,10 +58,15 @@ export function ProductCardView({
             <Thumbnail
               thumbnail={thumbnail}
               size="full"
+              alt=""
+              sizes={isList ? LIST_SIZES : GRID_SIZES}
               data-testid="product-thumbnail"
             />
             {badges && badges.length > 0 && (
-              <div className="absolute left-2 top-2 flex flex-wrap gap-1">
+              <div
+                className="absolute left-2 top-2 flex flex-wrap gap-1"
+                style={actions ? { right: `${BADGE_RIGHT_REM}rem` } : undefined}
+              >
                 {badges.map((badge) => (
                   <span
                     key={badge}
@@ -86,10 +102,11 @@ export function ProductCardView({
       {actions && (
         <div
           data-testid="product-actions"
-          className={
+          className="absolute top-2"
+          style={
             isList
-              ? "absolute left-[calc(40%-3.25rem)] top-2"
-              : "absolute right-2 top-2"
+              ? { left: `calc(40% - ${ACTION_SIZE_REM + ACTION_INSET_REM}rem)` }
+              : { right: `${ACTION_INSET_REM}rem` }
           }
         >
           {actions}

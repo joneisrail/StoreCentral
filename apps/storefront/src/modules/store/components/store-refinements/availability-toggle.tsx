@@ -24,14 +24,14 @@ const AvailabilityToggle = () => {
         type="checkbox"
         checked={value.isRefined}
         onChange={() => refine(value)}
-        className="shrink-0 accent-ui-fg-interactive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-deep focus-visible:ring-offset-2"
+        className="shrink-0 accent-gold-deep focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-deep focus-visible:ring-offset-2"
         data-testid="in-stock-toggle"
       />
-      <span className="txt-compact-small-plus text-ui-fg-subtle">
+      <span className="txt-compact-small-plus text-warm-grey">
         In stock only
       </span>
       {typeof value.count === "number" && (
-        <span className="text-small-regular text-ui-fg-muted">
+        <span className="text-small-regular text-warm-grey">
           ({value.count})
         </span>
       )}

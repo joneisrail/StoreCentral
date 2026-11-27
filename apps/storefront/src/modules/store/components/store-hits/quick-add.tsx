@@ -50,11 +50,9 @@ const QuickAdd = ({ title, inStock, singleVariantId, href }: QuickAddProps) => {
         await addToCart({ variantId: singleVariantId, quantity: 1, countryCode })
         toast({ title: "Added to cart", tone: "success" })
         router.refresh()
-      } catch (error) {
-        toast({
-          title: error instanceof Error ? error.message : "Couldn't add to cart",
-          tone: "error",
-        })
+      } catch {
+        // Server actions hide thrown messages in production, so the text is fixed.
+        toast({ title: "Couldn't add to cart", tone: "error" })
       } finally {
         inFlight.current = false
         setPending(false)
