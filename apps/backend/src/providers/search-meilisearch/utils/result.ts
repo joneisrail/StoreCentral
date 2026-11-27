@@ -59,9 +59,19 @@ export function fromMeiliResponse(
 
     if (highlight && _formatted) {
       const highlights: Record<string, string[]> = {};
+      const wildcard = highlight.fields.includes("*");
       for (const [field, value] of Object.entries(_formatted)) {
-        if (typeof value === "string" && value.includes(highlight.preTag)) {
-          highlights[field] = [value];
+        if (!wildcard && !highlight.fields.includes(field)) {
+          continue;
+        }
+
+        // Array fields come back as arrays of strings; keep the marked ones.
+        const marked = (Array.isArray(value) ? value : [value]).filter(
+          (v): v is string =>
+            typeof v === "string" && v.includes(highlight.preTag),
+        );
+        if (marked.length) {
+          highlights[field] = marked;
         }
       }
       if (Object.keys(highlights).length) {

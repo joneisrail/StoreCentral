@@ -65,6 +65,50 @@ describe("fromMeiliResponse", () => {
     expect(result.hits[0].highlights).toEqual({ title: ["<b>A</b>"] });
   });
 
+  it("ignores non-requested fields even when their text contains the tag", () => {
+    const result = fromMeiliResponse(
+      {
+        hits: [{ id: "1", title: "A", notes: "<mark>raw</mark>", _formatted: { id: "1", title: "<mark>A</mark>", notes: "<mark>raw</mark>" } }],
+        estimatedTotalHits: 1,
+        processingTimeMs: 1,
+      },
+      input({ q: "a", search_options: { highlight: { fields: ["title"] } } }),
+    );
+    expect(result.hits[0].highlights).toEqual({ title: ["<mark>A</mark>"] });
+  });
+
+  it("treats highlight true as a wildcard over every field", () => {
+    const result = fromMeiliResponse(
+      {
+        hits: [{ id: "1", title: "A", brand: "B", _formatted: { id: "1", title: "<mark>A</mark>", brand: "B" } }],
+        estimatedTotalHits: 1,
+        processingTimeMs: 1,
+      },
+      input({ q: "a", search_options: { highlight: true } }),
+    );
+    expect(result.hits[0].highlights).toEqual({ title: ["<mark>A</mark>"] });
+  });
+
+  it("keeps only highlighted elements of array fields", () => {
+    const result = fromMeiliResponse(
+      {
+        hits: [{ id: "1", notes: ["x", "y"], _formatted: { id: "1", notes: ["x", "<mark>y</mark>", "<mark>z</mark>"] } }],
+        estimatedTotalHits: 1,
+        processingTimeMs: 1,
+      },
+      input({ q: "y", search_options: { highlight: { fields: ["notes"] } } }),
+    );
+    expect(result.hits[0].highlights).toEqual({ notes: ["<mark>y</mark>", "<mark>z</mark>"] });
+  });
+
+  it("omits array fields with no highlighted element", () => {
+    const result = fromMeiliResponse(
+      { hits: [{ id: "1", notes: ["x"], _formatted: { id: "1", notes: ["x"] } }], estimatedTotalHits: 1, processingTimeMs: 1 },
+      input({ q: "y", search_options: { highlight: { fields: ["notes"] } } }),
+    );
+    expect(result.hits[0]).not.toHaveProperty("highlights");
+  });
+
   it("returns the score only when include_score is set", () => {
     const response = { hits: [{ id: "1", _rankingScore: 0.9 }], estimatedTotalHits: 1, processingTimeMs: 1 };
     expect(fromMeiliResponse(response, input({ search_options: { include_score: true } })).hits[0]).toEqual({
