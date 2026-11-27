@@ -43,6 +43,13 @@ describe("SearchPage", () => {
     expect(el.props.popularSearches).toEqual(["Dior"])
   })
 
+  it("keys the results by query so a new q remounts", async () => {
+    const a = (await call("rose")) as { key: string }
+    const b = (await call("oud")) as { key: string }
+    expect(a.key).toBe("rose")
+    expect(b.key).toBe("oud")
+  })
+
   it("is noindex,follow with a query title", async () => {
     const meta = await generateMetadata({ searchParams: Promise.resolve({ q: "rose" }) })
     expect(meta.robots).toEqual({ index: false, follow: true })

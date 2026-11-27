@@ -3,7 +3,12 @@
 import type { SearchClient } from "instantsearch.js"
 import { history } from "instantsearch.js/es/lib/routers"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { Configure, InstantSearch, useInstantSearch } from "react-instantsearch"
+import {
+  Configure,
+  InstantSearch,
+  useCurrentRefinements,
+  useInstantSearch,
+} from "react-instantsearch"
 
 import { trackSearch } from "@lib/data/track-search"
 import { PRODUCT_INDEX_NAME, searchClient } from "@lib/search-client"
@@ -35,9 +40,12 @@ const isArtificial = (results: unknown): boolean =>
  */
 const SearchTracker = () => {
   const { status, results } = useInstantSearch()
+  const { items } = useCurrentRefinements()
+  const refined = items.length > 0
   const tracked = useRef<string | null>(null)
+  // A refined count is not the query's count: record only unfiltered sets.
   const settledQuery =
-    status === "idle" && results && !isArtificial(results)
+    status === "idle" && !refined && results && !isArtificial(results)
       ? (results.query ?? "").trim()
       : null
   const nbHits = results?.nbHits
@@ -89,6 +97,7 @@ const SearchBody = ({
   view: CatalogView
 }) => {
   const { status, results } = useInstantSearch()
+  const { items } = useCurrentRefinements()
 
   if (status === "error") {
     return (
@@ -103,6 +112,20 @@ const SearchBody = ({
   }
 
   if (status === "idle" && !isArtificial(results) && results?.nbHits === 0) {
+    if (items.length > 0) {
+      return (
+        <div
+          className="flex flex-col items-center gap-3 py-16 text-center"
+          data-testid="search-no-filter-results"
+        >
+          <p className="font-serif text-xl text-charcoal">
+            No fragrances match these filters.
+          </p>
+          <p className="text-sm text-warm-grey">Try removing a filter.</p>
+        </div>
+      )
+    }
+
     const links = (popular ?? []).filter(Boolean)
     return (
       <div

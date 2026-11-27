@@ -4,6 +4,7 @@ import { cleanup, render } from "../../../test/render"
 import SearchResults from "./search-results"
 
 const state: { current: Record<string, unknown> } = { current: {} }
+const refinements: { current: unknown[] } = { current: [] }
 const trackSearch = vi.fn()
 
 vi.mock("@lib/data/track-search", () => ({
@@ -18,6 +19,7 @@ vi.mock("react-instantsearch", () => ({
   InstantSearch: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   Configure: () => null,
   useInstantSearch: () => state.current,
+  useCurrentRefinements: () => ({ items: refinements.current }),
 }))
 vi.mock("instantsearch.js/es/lib/routers", () => ({ history: () => ({}) }))
 vi.mock("@modules/store/components/store-hits", () => ({
@@ -44,6 +46,7 @@ const ui = (q: string, popular: string[] | null = null) => (
 
 beforeEach(() => {
   trackSearch.mockClear()
+  refinements.current = []
   state.current = settled("rose", 4)
 })
 afterEach(cleanup)
@@ -122,5 +125,35 @@ describe("SearchResults", () => {
     view.rerender(ui("oud"))
     expect(trackSearch).toHaveBeenCalledTimes(2)
     expect(trackSearch).toHaveBeenLastCalledWith("oud", 7)
+  })
+
+  it("does not track a refined first load; tracks the unfiltered count once cleared", () => {
+    refinements.current = [{ attribute: "brand" }]
+    state.current = settled("rose", 2)
+    const view = render(ui("rose"))
+    expect(trackSearch).not.toHaveBeenCalled()
+
+    refinements.current = []
+    state.current = settled("rose", 9)
+    view.rerender(ui("rose"))
+    expect(trackSearch).toHaveBeenCalledTimes(1)
+    expect(trackSearch).toHaveBeenCalledWith("rose", 9)
+
+    refinements.current = [{ attribute: "brand" }]
+    state.current = settled("rose", 0)
+    view.rerender(ui("rose"))
+    refinements.current = []
+    view.rerender(ui("rose"))
+    expect(trackSearch).toHaveBeenCalledTimes(1)
+  })
+
+  it("shows a filter-specific empty state when refinements zero the hits", () => {
+    refinements.current = [{ attribute: "brand" }]
+    state.current = settled("rose", 0)
+    const { container } = render(ui("rose", ["Dior"]))
+    expect(container.textContent).toContain("No fragrances match these filters.")
+    expect(container.textContent).toContain("Try removing a filter.")
+    expect(container.textContent).not.toContain("No fragrances found")
+    expect(container.querySelector("[data-testid=search-popular]")).toBeNull()
   })
 })

@@ -43,6 +43,7 @@ export default async function SearchPage(props: {
 
   return (
     <SearchResults
+      key={query}
       query={query}
       currencyCode={region.currency_code}
       popularSearches={popularSearches}
