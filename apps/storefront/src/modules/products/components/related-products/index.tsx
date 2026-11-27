@@ -1,12 +1,16 @@
 import { listProducts } from "@lib/data/products"
 import { getRegion } from "@lib/data/regions"
+import { toBrandName } from "@lib/util/fragrance-profile"
 import { HttpTypes } from "@medusajs/types"
 import Product from "../product-preview"
+import { buildRelatedQuery } from "./related-query"
 
 type RelatedProductsProps = {
   product: HttpTypes.StoreProduct
   countryCode: string
 }
+
+const RELATED_CAP = 8
 
 export default async function RelatedProducts({
   product,
@@ -18,52 +22,54 @@ export default async function RelatedProducts({
     return null
   }
 
-  // edit this function to define your related products logic
-  const queryParams: HttpTypes.StoreProductListParams = {}
-  if (region?.id) {
-    queryParams.region_id = region.id
+  const relatedQuery = buildRelatedQuery(product)
+  if (!relatedQuery.category_id && !relatedQuery.collection_id) {
+    return null
   }
-  if (product.collection_id) {
-    queryParams.collection_id = [product.collection_id]
-  }
-  if (product.tags) {
-    queryParams.tag_id = product.tags
-      .map((t) => t.id)
-      .filter(Boolean) as string[]
-  }
-  queryParams.is_giftcard = false
 
   const products = await listProducts({
-    queryParams,
+    queryParams: {
+      ...relatedQuery,
+      region_id: region.id,
+      is_giftcard: false,
+      limit: RELATED_CAP + 1,
+    },
     countryCode,
-  }).then(({ response }) => {
-    return response.products.filter(
-      (responseProduct) => responseProduct.id !== product.id
-    )
   })
+    .then(({ response }) =>
+      response.products
+        .filter((responseProduct) => responseProduct.id !== product.id)
+        .slice(0, RELATED_CAP)
+    )
+    .catch(() => [] as HttpTypes.StoreProduct[])
 
   if (!products.length) {
     return null
   }
 
+  const brand = toBrandName(product)
+
   return (
-    <div className="product-page-constraint">
-      <div className="flex flex-col items-center text-center mb-16">
-        <span className="text-base-regular text-gray-600 mb-6">
-          Related products
-        </span>
-        <p className="text-2xl-regular text-ui-fg-base max-w-lg">
-          You might also want to check out these products.
-        </p>
+    <section
+      aria-labelledby="related-products-heading"
+      className="product-page-constraint"
+    >
+      <div className="mb-12 flex flex-col items-center text-center">
+        <h2
+          id="related-products-heading"
+          className="font-serif text-2xl text-charcoal"
+        >
+          {brand ? `More from ${brand}` : "You may also like"}
+        </h2>
       </div>
 
-      <ul className="grid grid-cols-2 small:grid-cols-3 medium:grid-cols-4 gap-x-6 gap-y-8">
-        {products.map((product) => (
-          <li key={product.id}>
-            <Product region={region} product={product} />
+      <ul className="grid grid-cols-2 gap-x-6 gap-y-8 small:grid-cols-3 medium:grid-cols-4">
+        {products.map((related) => (
+          <li key={related.id}>
+            <Product region={region} product={related} />
           </li>
         ))}
       </ul>
-    </div>
+    </section>
   )
 }

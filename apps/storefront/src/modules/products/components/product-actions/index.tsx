@@ -1,6 +1,8 @@
 "use client"
 
 import { addToCart } from "@lib/data/cart"
+import { availabilityLabel, getAvailability } from "@lib/util/variant-stock"
+import { useToast } from "@modules/common/components/toast"
 import { useIntersection } from "@lib/hooks/use-in-view"
 import { HttpTypes } from "@medusajs/types"
 import { Button } from "@modules/common/components/ui"
@@ -12,6 +14,8 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import ProductPrice from "../product-price"
 import MobileActions from "./mobile-actions"
 import { useRouter } from "next/navigation"
+import BuyNowButton from "./buy-now-button"
+import QuantitySelector from "./quantity-selector"
 
 type ProductActionsProps = {
   product: HttpTypes.StoreProduct
@@ -38,6 +42,9 @@ export default function ProductActions({
 
   const [options, setOptions] = useState<Record<string, string | undefined>>({})
   const [isAdding, setIsAdding] = useState(false)
+  const [buyNowPending, setBuyNowPending] = useState(false)
+  const [quantity, setQuantity] = useState(1)
+  const { toast } = useToast()
   const countryCode = useParams().countryCode as string
 
   // If there is only 1 variant, preselect the options
@@ -92,29 +99,14 @@ export default function ProductActions({
     router.replace(pathname + "?" + params.toString())
   }, [selectedVariant, isValidVariant])
 
-  // check if the selected variant is in stock
-  const inStock = useMemo(() => {
-    // If we don't manage inventory, we can always add to cart
-    if (selectedVariant && !selectedVariant.manage_inventory) {
-      return true
-    }
+  const availability = getAvailability(selectedVariant)
+  const inStock = availability.state !== "out_of_stock"
 
-    // If we allow back orders on the variant, we can add to cart
-    if (selectedVariant?.allow_backorder) {
-      return true
-    }
-
-    // If there is inventory available, we can add to cart
-    if (
-      selectedVariant?.manage_inventory &&
-      (selectedVariant?.inventory_quantity || 0) > 0
-    ) {
-      return true
-    }
-
-    // Otherwise, we can't add to cart
-    return false
-  }, [selectedVariant])
+  // keep the chosen quantity within the new variant's limit
+  useEffect(() => {
+    const limit = Math.min(10, availability.max ?? 10)
+    setQuantity((q) => Math.min(Math.max(1, q), Math.max(1, limit)))
+  }, [availability.max])
 
   const actionsRef = useRef<HTMLDivElement>(null)
 
@@ -126,13 +118,18 @@ export default function ProductActions({
 
     setIsAdding(true)
 
-    await addToCart({
-      variantId: selectedVariant.id,
-      quantity: 1,
-      countryCode,
-    })
-
-    setIsAdding(false)
+    try {
+      await addToCart({
+        variantId: selectedVariant.id,
+        quantity,
+        countryCode,
+      })
+    } catch {
+      // Server actions hide thrown messages in production, so the text is fixed.
+      toast({ title: "Couldn't add to cart", tone: "error" })
+    } finally {
+      setIsAdding(false)
+    }
   }
 
   return (
@@ -162,6 +159,23 @@ export default function ProductActions({
 
         <ProductPrice product={product} variant={selectedVariant} />
 
+        {selectedVariant && (
+          <div className="flex flex-col gap-y-1 text-sm text-charcoal">
+            <p data-testid="availability">{availabilityLabel(availability)}</p>
+            {selectedVariant.sku && (
+              <p className="text-warm-grey" data-testid="product-sku">
+                SKU: {selectedVariant.sku}
+              </p>
+            )}
+          </div>
+        )}
+
+        <QuantitySelector
+          value={quantity}
+          onChange={setQuantity}
+          max={availability.max}
+        />
+
         <Button
           onClick={handleAddToCart}
           disabled={
@@ -169,6 +183,7 @@ export default function ProductActions({
             !selectedVariant ||
             !!disabled ||
             isAdding ||
+            buyNowPending ||
             !isValidVariant
           }
           variant="primary"
@@ -182,6 +197,14 @@ export default function ProductActions({
             ? "Out of stock"
             : "Add to cart"}
         </Button>
+        <BuyNowButton
+          variantId={selectedVariant?.id}
+          quantity={quantity}
+          onPendingChange={setBuyNowPending}
+          disabled={
+            !inStock || !selectedVariant || !!disabled || isAdding || !isValidVariant
+          }
+        />
         <MobileActions
           product={product}
           variant={selectedVariant}
