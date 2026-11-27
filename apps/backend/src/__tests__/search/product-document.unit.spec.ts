@@ -1,4 +1,4 @@
-import { toDocument } from "../../search/product";
+import productIndex, { toDocument } from "../../search/product";
 
 // Registering the index needs a booted Medusa module loader; only the
 // document mapping is under test here.
@@ -99,6 +99,53 @@ describe("toDocument", () => {
         in_stock: false,
         single_variant_id: null,
       }),
+    );
+  });
+
+  it("indexes the variant skus", () => {
+    const document = toDocument(
+      {
+        ...fixture,
+        variants: [
+          { id: "variant_1", sku: " AI0079777 " },
+          { id: "variant_2", sku: "AI0079778" },
+        ],
+      },
+      undefined,
+    );
+
+    expect(document.sku).toEqual(["AI0079777", "AI0079778"]);
+  });
+
+  it("indexes no skus for a product without variants", () => {
+    expect(toDocument({ id: "prod_bare" }, undefined).sku).toEqual([]);
+  });
+});
+
+describe("product index definition", () => {
+  const definition = productIndex as unknown as {
+    provider?: string;
+    fields: {
+      toFields(): Record<
+        string,
+        { retrievable?: boolean; searchable?: unknown; array?: boolean }
+      >;
+    };
+    settings?: { typo_tolerance?: { disabled_on_attributes?: string[] } };
+  };
+
+  it("is served by meilisearch", () => {
+    expect(definition.provider).toBe("meilisearch");
+  });
+
+  it("returns a searchable sku and keeps it out of typo tolerance", () => {
+    const sku = definition.fields.toFields().sku;
+
+    expect(sku.retrievable).toBe(true);
+    expect(sku.array).toBe(true);
+    expect(sku.searchable).toEqual({ weight: 2 });
+    expect(definition.settings?.typo_tolerance?.disabled_on_attributes).toEqual(
+      ["sku"],
     );
   });
 });

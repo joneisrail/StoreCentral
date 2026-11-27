@@ -13,6 +13,7 @@ import {
   toBrands,
   toCategoryNames,
   toMetadataValues,
+  toSkus,
   toStock,
 } from "./helpers/fragrance";
 import { ProductOptionRow, toOptionValues } from "./helpers/option-values";
@@ -37,6 +38,7 @@ const PRODUCT_GRAPH_FIELDS = [
   "options.values.value",
   // Stock quantities are not graph fields: `loadAvailability` reads them.
   "variants.id",
+  "variants.sku",
   "variants.manage_inventory",
   "variants.allow_backorder",
 ];
@@ -71,6 +73,10 @@ const productFields = search.define({
   created_at: search.date().sortable().retrievable(),
   category: search.keyword().array().filterable().facetable().retrievable(),
   labels: search.keyword().array().filterable().facetable().retrievable(),
+  // Codes matched whole or by prefix, never fuzzily (typo tolerance is off on
+  // it). Weight 2 ranks it below title (3) and level with option values, above
+  // description (1) and notes (not searchable).
+  sku: search.keyword().array().searchable({ weight: 2 }).retrievable(),
   option_values: search
     .keyword()
     .array()
@@ -151,6 +157,7 @@ export function toDocument(
     created_at: product.created_at ?? null,
     category,
     labels,
+    sku: toSkus(product.variants),
     option_values: toOptionValues(product.options),
     brand: toBrands(product.categories),
     gender: toMetadataValues(product.metadata, "gender"),
@@ -234,9 +241,10 @@ export default defineSearchIndex({
   name: "product",
   entity: "product",
   primary_key: "id",
+  provider: "meilisearch",
   fields: productFields,
   settings: {
-    typo_tolerance: { enabled: true },
+    typo_tolerance: { enabled: true, disabled_on_attributes: ["sku"] },
   },
   events: PRODUCT_EVENTS,
   consume: graphConsume<typeof productFields, ProductRow>({

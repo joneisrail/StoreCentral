@@ -8,6 +8,7 @@ export type BrandCategoryRow = {
 
 export type StockVariantRow = {
   id?: string | null;
+  sku?: string | null;
   manage_inventory?: boolean | null;
   allow_backorder?: boolean | null;
   inventory_quantity?: number | null;
@@ -113,4 +114,18 @@ export function toStock(variants: StockVariantRow[] | null | undefined): {
     rows.length === 1 && withId.length === 1 ? (withId[0].id as string) : null;
 
   return { in_stock, single_variant_id };
+}
+
+/**
+ * Variant SKUs: trimmed, de-duplicated (exact match, codes are case-significant
+ * to the seller) and in variant order.
+ */
+export function toSkus(
+  variants: StockVariantRow[] | null | undefined,
+): string[] {
+  const skus = (variants ?? [])
+    .map((variant) => variant?.sku?.trim())
+    .filter((sku): sku is string => Boolean(sku));
+
+  return [...new Set(skus)];
 }
