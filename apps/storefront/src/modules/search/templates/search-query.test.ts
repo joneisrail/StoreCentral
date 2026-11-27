@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
   createSearchStateMapping,
+  isUnrefinedState,
   MAX_QUERY_LENGTH,
   normalizeQuery,
 } from "./search-query"
@@ -33,5 +34,28 @@ describe("createSearchStateMapping", () => {
     expect(
       m.routeToState({ q: "rose", page: 2, view: "list" } as never)
     ).toEqual({ product: { query: "rose", page: 2 } })
+  })
+})
+
+describe("isUnrefinedState", () => {
+  it("is true for empty and missing refinement keys", () => {
+    expect(isUnrefinedState({})).toBe(true)
+    expect(isUnrefinedState({ facetsRefinements: { brand: [] } })).toBe(true)
+    expect(isUnrefinedState({ numericRefinements: { p: {} }, tagRefinements: [] })).toBe(true)
+  })
+
+  it("is false when any refinement is present", () => {
+    expect(isUnrefinedState({ facetsRefinements: { brand: ["Dior"] } })).toBe(false)
+    expect(isUnrefinedState({ facetsExcludes: { brand: ["Dior"] } })).toBe(false)
+    expect(isUnrefinedState({ disjunctiveFacetsRefinements: { g: ["m"] } })).toBe(false)
+    expect(isUnrefinedState({ hierarchicalFacetsRefinements: { c: ["a"] } })).toBe(false)
+    expect(
+      isUnrefinedState({ numericRefinements: { min_price_usd: { ">=": [10] } } })
+    ).toBe(false)
+    expect(isUnrefinedState({ tagRefinements: ["x"] })).toBe(false)
+  })
+
+  it("is false when the state is absent", () => {
+    expect(isUnrefinedState(undefined)).toBe(false)
   })
 })

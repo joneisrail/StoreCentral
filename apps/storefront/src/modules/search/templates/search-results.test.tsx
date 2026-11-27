@@ -37,7 +37,7 @@ vi.mock("@modules/common/components/localized-client-link", () => ({
 
 const settled = (query: string, nbHits: number, extra = {}) => ({
   status: "idle",
-  results: { query, nbHits, ...extra },
+  results: { query, nbHits, _state: {}, ...extra },
 })
 
 const ui = (q: string, popular: string[] | null = null) => (
@@ -155,5 +155,22 @@ describe("SearchResults", () => {
     expect(container.textContent).toContain("Try removing a filter.")
     expect(container.textContent).not.toContain("No fragrances found")
     expect(container.querySelector("[data-testid=search-popular]")).toBeNull()
+  })
+
+  it("waits for results whose own state is unrefined, even if the UI already is", () => {
+    state.current = settled("rose", 2, { _state: { facetsRefinements: { brand: ["Dior"] } } })
+    const view = render(ui("rose"))
+    expect(trackSearch).not.toHaveBeenCalled()
+
+    state.current = settled("rose", 9)
+    view.rerender(ui("rose"))
+    expect(trackSearch).toHaveBeenCalledTimes(1)
+    expect(trackSearch).toHaveBeenCalledWith("rose", 9)
+  })
+
+  it("does not track a stale result set from another query", () => {
+    state.current = settled("oud", 5)
+    render(ui("rose"))
+    expect(trackSearch).not.toHaveBeenCalled()
   })
 })

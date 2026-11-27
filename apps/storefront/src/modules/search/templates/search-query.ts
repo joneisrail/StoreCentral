@@ -42,3 +42,38 @@ export const createSearchStateMapping = (
     },
   }
 }
+
+const REFINEMENT_KEYS = [
+  "facetsRefinements",
+  "facetsExcludes",
+  "disjunctiveFacetsRefinements",
+  "hierarchicalFacetsRefinements",
+  "numericRefinements",
+  "tagRefinements",
+] as const
+
+const isEmptyEntry = (value: unknown): boolean => {
+  if (value == null) {
+    return true
+  }
+  if (Array.isArray(value)) {
+    return value.every(isEmptyEntry)
+  }
+  if (typeof value === "object") {
+    return Object.values(value).every(isEmptyEntry)
+  }
+  return false
+}
+
+/**
+ * Whether a result set's own helper state (`results._state`) carried no
+ * refinements, i.e. its hit count is the query's unfiltered count. An absent
+ * state is not provably unrefined, so it is false.
+ */
+export const isUnrefinedState = (state: unknown): boolean => {
+  if (!state || typeof state !== "object") {
+    return false
+  }
+  const record = state as Record<string, unknown>
+  return REFINEMENT_KEYS.every((key) => isEmptyEntry(record[key]))
+}

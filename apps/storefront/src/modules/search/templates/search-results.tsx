@@ -26,7 +26,11 @@ import FilterDrawer from "@modules/store/components/store-refinements/filter-dra
 import StoreRefinements from "@modules/store/components/store-refinements"
 import SortSelect from "@modules/store/components/store-refinements/sort-select"
 import ViewToggle from "@modules/store/components/view-toggle"
-import { createSearchStateMapping, MIN_TRACKED_LENGTH } from "./search-query"
+import {
+  createSearchStateMapping,
+  isUnrefinedState,
+  MIN_TRACKED_LENGTH,
+} from "./search-query"
 
 const PRODUCT_LIMIT = 12
 
@@ -38,15 +42,23 @@ const isArtificial = (results: unknown): boolean =>
  * the results belong to, so filters, paging and re-renders never re-track and
  * a different query does.
  */
-const SearchTracker = () => {
+const SearchTracker = ({ query }: { query: string }) => {
   const { status, results } = useInstantSearch()
   const { items } = useCurrentRefinements()
   const refined = items.length > 0
   const tracked = useRef<string | null>(null)
-  // A refined count is not the query's count: record only unfiltered sets.
+  // A refined count is not the query's count: record only result sets whose
+  // own helper state is unrefined (the UI state can run ahead of `results`),
+  // and only for this page's query (not a stale set from another one).
+  const resultQuery = (results?.query ?? "").trim()
   const settledQuery =
-    status === "idle" && !refined && results && !isArtificial(results)
-      ? (results.query ?? "").trim()
+    status === "idle" &&
+    !refined &&
+    results &&
+    !isArtificial(results) &&
+    isUnrefinedState((results as unknown as { _state?: unknown })._state) &&
+    resultQuery === query.trim()
+      ? resultQuery
       : null
   const nbHits = results?.nbHits
 
@@ -242,7 +254,7 @@ const SearchResults = ({
         future={{ preserveSharedStateOnUnmount: true }}
       >
         <Configure hitsPerPage={PRODUCT_LIMIT} />
-        <SearchTracker />
+        <SearchTracker query={query} />
         <FilterDrawer currencyCode={currencyCode} />
         <div className="flex flex-col small:flex-row small:items-start small:gap-x-8">
           <aside
