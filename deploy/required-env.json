@@ -9,7 +9,8 @@
       "AUTH_CORS",
       "SELLER_HUB_INTERNAL_URL",
       "SELLER_HUB_WEBHOOK_URL",
-      "SELLER_HUB_INTERNAL_SECRET"
+      "SELLER_HUB_INTERNAL_SECRET",
+      "MEILISEARCH_API_KEY"
     ],
     "requiredWhen": [
       { "name": "REDIS_URL", "when": { "BACKEND_REDIS_MODULES": "true" } }
@@ -18,7 +19,8 @@
       "JWT_SECRET",
       "COOKIE_SECRET",
       "AUTH_MFA_ENCRYPTION_KEY",
-      "SELLER_HUB_INTERNAL_SECRET"
+      "SELLER_HUB_INTERNAL_SECRET",
+      "MEILISEARCH_API_KEY"
     ]
   },
   "seller-hub": {
