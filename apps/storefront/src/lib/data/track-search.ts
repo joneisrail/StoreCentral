@@ -7,6 +7,10 @@ const MAX = 60
  * Fire-and-forget search analytics, run in the browser. It goes through the
  * shared sdk, as the search client does: the publishable key is public by
  * design in Medusa storefronts. Never throws.
+ *
+ * `results` is still sent for backward compatibility, but the backend ignores
+ * it: it counts the matching products itself and records each client + query
+ * at most once per hour, so the value here does not affect popular searches.
  */
 export function trackSearch(query: string, results: number): void {
   try {

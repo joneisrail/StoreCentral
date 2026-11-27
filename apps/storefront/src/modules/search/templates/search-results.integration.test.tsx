@@ -18,7 +18,40 @@ vi.mock("next/navigation", () => ({
   useParams: () => ({ countryCode: "us" }),
   useSearchParams: () => new URLSearchParams(),
 }))
-vi.mock("@lib/data/track-search", () => ({ trackSearch: () => {} }))
+const { trackSearch } = vi.hoisted(() => ({ trackSearch: vi.fn() }))
+vi.mock("@lib/data/track-search", () => ({ trackSearch }))
+
+// "lattafa" has 44 hits, 40 of them Lattafa; with a brand filter applied the
+// main query answers 40. Every other query has none.
+const LATTAFA_HITS = 44
+const LATTAFA_BRAND_HITS = 40
+const hasFacetFilter = (params?: Record<string, unknown>) => {
+  const filters = params?.facetFilters
+  return Array.isArray(filters) && filters.flat().length > 0
+}
+const answer = (params?: Record<string, unknown>) => {
+  const query = typeof params?.query === "string" ? params.query : ""
+  const nbHits =
+    query === "lattafa"
+      ? hasFacetFilter(params)
+        ? LATTAFA_BRAND_HITS
+        : LATTAFA_HITS
+      : 0
+  return {
+    hits: [],
+    nbHits,
+    page: 0,
+    nbPages: nbHits ? 1 : 0,
+    hitsPerPage: 12,
+    processingTimeMS: 1,
+    exhaustiveNbHits: true,
+    query,
+    params: "",
+    facets: nbHits
+      ? { brand: { Lattafa: LATTAFA_BRAND_HITS, Dior: LATTAFA_HITS - LATTAFA_BRAND_HITS } }
+      : {},
+  }
+}
 vi.mock("@lib/search-client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@lib/search-client")>()),
   searchClient: {
@@ -27,19 +60,7 @@ vi.mock("@lib/search-client", async (importOriginal) => ({
     ) => {
       requests.push(...queries)
       await new Promise((r) => setTimeout(r, 300))
-      return {
-        results: queries.map(() => ({
-          hits: [],
-          nbHits: 0,
-          page: 0,
-          nbPages: 0,
-          hitsPerPage: 12,
-          processingTimeMS: 1,
-          exhaustiveNbHits: true,
-          query: "",
-          params: "",
-        })),
-      }
+      return { results: queries.map((q) => answer(q.params)) }
     },
   },
 }))
@@ -60,7 +81,20 @@ vi.mock("@modules/store/components/store-refinements", () => ({
   ),
 }))
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  trackSearch.mockClear()
+})
+
+// Polls (no fixed sleep) until the assertion holds, flushing React updates.
+const eventually = (assertion: () => void) =>
+  vi.waitFor(
+    async () => {
+      await act(async () => {})
+      assertion()
+    },
+    { timeout: 3000, interval: 20 }
+  )
 
 describe("SearchResults with a real InstantSearch", () => {
   it("sends the page query to the search client", async () => {
@@ -105,5 +139,40 @@ describe("SearchResults with a real InstantSearch", () => {
     expect(text).toContain("No fragrances match these filters.")
     expect(text).toContain("Try removing a filter.")
     expect(text).not.toContain("No products matched these filters")
+  })
+  it("tracks the unfiltered hit count once, and not again after a refinement", async () => {
+    window.history.replaceState(null, "", "/us/search?q=lattafa")
+    const { container } = render(
+      <SearchResults query="lattafa" currencyCode="usd" />
+    )
+
+    await eventually(() => expect(trackSearch).toHaveBeenCalledTimes(1))
+    expect(trackSearch).toHaveBeenCalledWith("lattafa", LATTAFA_HITS)
+
+    const lattafa = await (async () => {
+      let box: HTMLInputElement | null = null
+      await eventually(() => {
+        box = container.querySelector<HTMLInputElement>(
+          'input[type="checkbox"][value="Lattafa"]'
+        )
+        expect(box).not.toBeNull()
+      })
+      return box as unknown as HTMLInputElement
+    })()
+    await act(async () => {
+      lattafa.click()
+    })
+
+    await eventually(() =>
+      expect(
+        container.querySelector('[data-testid="result-count"]')?.textContent
+      ).toBe(`${LATTAFA_BRAND_HITS} products`)
+    )
+    expect(
+      requests.some(
+        (r) => r.params?.query === "lattafa" && hasFacetFilter(r.params)
+      )
+    ).toBe(true)
+    expect(trackSearch).toHaveBeenCalledTimes(1)
   })
 })
