@@ -32,10 +32,10 @@ Text comes from two environment variables, read on the server:
 
 | Variable | Used for |
 | --- | --- |
-| `NEXT_PUBLIC_SHIPPING_NOTE` | Shipping paragraph |
-| `NEXT_PUBLIC_RETURNS_NOTE` | Returns paragraph |
+| `SHIPPING_NOTE` | Shipping paragraph |
+| `RETURNS_NOTE` | Returns paragraph |
 
-Either, both or neither may be set. Blank values count as unset. Line breaks are kept. When neither is set the "Shipping and returns" item is not shown. They are read at request time on the server and passed down, so changing them needs a restart or redeploy, not a rebuild of client code.
+Either, both or neither may be set. Blank values count as unset. Line breaks are kept. When neither is set the "Shipping and returns" item is not shown. They are server-only variables (no `NEXT_PUBLIC_` prefix), read at runtime by the product page on the server and passed down as props, so changing them needs a restart of the storefront, not a rebuild. Do not rename them to `NEXT_PUBLIC_*`: those are inlined at build time.
 
 ## Owner setup
 
@@ -45,14 +45,14 @@ Set these keys in each product's `metadata` in Medusa Admin. All are optional.
 
 | Key | Accepted shapes | Example |
 | --- | --- | --- |
-| `gender` | non-empty string | `"Women"` |
-| `fragrance_family` | non-empty string | `"Woody"` |
-| `concentration` | non-empty string | `"Eau de Parfum"` |
+| `gender` | string, comma-separated string, or array of strings | `"Women"`, `["Men","Women"]` |
+| `fragrance_family` | same as `gender` | `"Woody"` |
+| `concentration` | same as `gender` | `"Eau de Parfum"` |
 | `top_notes` | string, comma-separated string, or array of strings | `"bergamot, pink pepper"`, `["bergamot","pink pepper"]` |
 | `middle_notes` | same | `"rose, jasmine"` |
 | `base_notes` | same | `"oud, amber"` |
 
-`gender`, `fragrance_family` and `concentration` are read as a single trimmed string. Anything that is not a string (an array, for example) is ignored on this page. This differs from the catalog, which also accepts arrays for these three keys. If you want both pages to show a value, use a single string.
+`gender`, `fragrance_family` and `concentration` are read the same way as the notes below, as the catalog does. Several values are shown joined with ", " (for example `["Men","Women"]` shows as "Men, Women").
 
 Notes are trimmed, inner whitespace is collapsed, blanks are dropped, duplicates are removed ignoring case (first spelling kept), non-string array items are ignored, and at most 30 are kept per key.
 
@@ -140,7 +140,9 @@ The storefront fetches the first 10 on the server for the rating summary and str
 - A signed-in customer sees a form: rating 1 to 5, title (up to 100 characters), comment (up to 2000). All three are required and are checked in the browser before sending.
 - A guest sees a "Sign in to write a review" link to the account page instead of a form.
 - On success the form clears and shows "Thanks, your review is awaiting approval". The review does not appear until approved.
-- Server-action errors are masked in production, so the action never throws. It returns fixed texts: "Sign in to write a review" when there is no signed-in session, and "Couldn't submit your review. Please try again." for any other failure. Double submits are ignored while one is in flight.
+- Only customers who have bought the product can review it (verified purchase: a non-canceled, non-draft order containing the product). Anyone else is refused by the backend.
+- Submitting again replaces the customer's earlier review of that product and resets it to pending. An approved review therefore disappears from the page until it is approved again (see `apps/backend/src/workflows/upsert-review.ts`).
+- Server-action errors are masked in production, so the action never throws. It returns fixed texts: "Sign in to write a review" when there is no signed-in session, "Sign in again to write a review" when the backend answers 401, "Only customers who bought this product can review it" when the purchase check fails, and "Couldn't submit your review. Please try again." for any other failure. Double submits are ignored while one is in flight.
 
 ## Related products
 
@@ -193,7 +195,7 @@ Details to know:
 ## Failure behaviour
 
 - Unknown handle, or an unknown country code: not-found page.
-- Reviews route fails or is unreachable: the rating summary and review stars are left out, the reviews section shows "Reviews are unavailable right now" with no form, and the structured data omits rating and reviews. The rest of the page renders.
+- Reviews route fails, is unreachable or does not answer within 2.5 seconds: the rating summary and review stars are left out, the reviews section shows "Reviews are unavailable right now" with no form, and the structured data omits rating and reviews. The rest of the page renders.
 - The reviews section throws while rendering: an error boundary replaces it with the same "Reviews are unavailable right now" message.
 - Related products fails: section hidden.
 - Recently viewed fails: section hidden.
