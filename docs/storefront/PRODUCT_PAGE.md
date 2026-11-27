@@ -179,16 +179,16 @@ A server-rendered `application/ld+json` script with a schema.org `Product`. Fiel
 | Field | Source |
 | --- | --- |
 | `name`, `url`, `image`, `description` | Title, canonical page URL, image URLs, the same description as the metadata |
-| `sku` | SKU of the cheapest priced variant, when it has one |
+| `sku` | SKU of the offer variant, when it has one |
 | `brand` | `Brand` with the brand name, when there is one |
-| `offers` | One `Offer`: price and currency of the cheapest priced variant, page URL, availability. Omitted when no variant has a calculated price |
+| `offers` | One `Offer`: price and currency of the offer variant, page URL, availability. Omitted when no variant has a calculated price |
 | `aggregateRating` | Average and count of approved reviews. Omitted when there are none |
 | `review` | Up to 5 of the newest approved reviews: author, date, title, body and rating. Omitted when there are none |
 
 Details to know:
 
-- The offer price and SKU come from the cheapest priced variant. They do not follow the variant the visitor selected.
-- Availability is `InStock` when any variant can be bought, otherwise `OutOfStock`. Backorder counts as `InStock`.
+- The offer variant is the cheapest variant that is not out of stock, falling back to the overall cheapest variant if all are out of stock. Price, currency, SKU and availability all come from that one variant. They do not follow the variant the visitor selected.
+- Availability is `InStock`, `OutOfStock` or `BackOrder` (`https://schema.org/BackOrder`), taken from the offer variant.
 - Currency is the variant price's currency, falling back to the region's.
 - The script text escapes `<` so a review cannot break out of it.
 
@@ -217,8 +217,15 @@ Details to know:
 
 - The reviews route against a running backend. Its behaviour is described from the code and unit tests.
 - The page in a browser. Layout, the bottom purchase controls and the toasts were not seen on a real screen.
-- JSON-LD marks backorder as `InStock`, and takes offer price and SKU from the cheapest priced variant. Check that this suits the catalogue.
+- JSON-LD describes one offer, from the cheapest variant that is not out of stock. A product with several sizes advertises only that variant's price, SKU and availability, not a price range. Check that this suits the catalogue.
 
 ## Verification results
 
-Filled in during phase verification.
+Verified 2026-11-27.
+
+- Storefront: vitest 64 files / 370 tests pass; `tsc --noEmit` clean; `next lint` 0 `Error:` lines (existing hook warnings only).
+- Backend: jest `src/api/store/products` 2 suites / 20 tests pass; `tsc` no errors outside integration-tests.
+- Production build: `next build` of a sibling copy of apps/storefront at the branch head exited 0; `/[countryCode]/products/[handle]` is server-rendered on demand (dynamic), so `SHIPPING_NOTE` and `RETURNS_NOTE` are read at runtime.
+- Secret scan of the branch diff: nothing found.
+- NOT verified: `GET /store/products/:id/reviews` against a running backend (whether `pagination.order` on `query.graph` works on real Medusa is unproven; the backend running locally is on older code); the product page in a browser (layout, sticky panel, mobile bar); the reviews error boundary with the route down; `POST /store/reviews` end to end.
+- Next step after deploy: restart the backend, then `curl` the reviews route for a real product id and open a product page.
