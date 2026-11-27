@@ -114,8 +114,8 @@ export default async function ProductPage(props: Props) {
       images={images ?? []}
       brand={toBrandName(product)}
       brandHref={getBrandHref(product)}
-      shippingNote={process.env.NEXT_PUBLIC_SHIPPING_NOTE}
-      returnsNote={process.env.NEXT_PUBLIC_RETURNS_NOTE}
+      shippingNote={process.env.SHIPPING_NOTE}
+      returnsNote={process.env.RETURNS_NOTE}
       reviews={reviews}
     />
   )
