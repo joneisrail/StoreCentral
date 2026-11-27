@@ -80,9 +80,11 @@ const SearchTracker = ({ query }: { query: string }) => {
 
 const ResultCount = () => {
   const { results } = useInstantSearch()
+  const { items } = useCurrentRefinements()
   const total = results?.nbHits
 
-  if (typeof total !== "number") {
+  // The empty state below already says there are none.
+  if (typeof total !== "number" || (total === 0 && items.length === 0)) {
     return null
   }
 
@@ -123,7 +125,9 @@ const SearchBody = ({
     )
   }
 
-  if (status === "idle" && !isArtificial(results) && results?.nbHits === 0) {
+  // Decided on the result set alone: whatever the loading status, a settled
+  // zero-hit set must not fall through to the store grid's own empty state.
+  if (!isArtificial(results) && results?.nbHits === 0) {
     if (items.length > 0) {
       return (
         <div
