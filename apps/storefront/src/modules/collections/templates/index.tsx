@@ -3,6 +3,8 @@ import { Suspense } from "react"
 import SkeletonProductGrid from "@modules/skeletons/templates/skeleton-product-grid"
 import RefinementList from "@modules/store/components/refinement-list"
 import { SortOptions } from "@modules/store/components/refinement-list/sort-products"
+import ViewToggleLinks from "@modules/store/components/view-toggle/view-toggle-links"
+import type { CatalogView } from "@modules/store/components/store-hits/view-state"
 import PaginatedProducts from "@modules/store/templates/paginated-products"
 import { HttpTypes } from "@medusajs/types"
 import { OptionValueIds } from "@lib/util/product-option-filters"
@@ -13,12 +15,16 @@ export default function CollectionTemplate({
   page,
   countryCode,
   optionValueIds,
+  view = "grid",
+  viewHrefs,
 }: {
   sortBy?: SortOptions
   collection: HttpTypes.StoreCollection
   page?: string
   countryCode: string
   optionValueIds?: OptionValueIds
+  view?: CatalogView
+  viewHrefs: Record<CatalogView, string>
 }) {
   const pageNumber = page ? parseInt(page) : 1
   const sort = sortBy || "created_at"
@@ -29,6 +35,9 @@ export default function CollectionTemplate({
       <div className="w-full">
         <div className="mb-8 text-2xl-semi">
           <h1>{collection.title}</h1>
+        </div>
+        <div className="mb-6 flex justify-end">
+          <ViewToggleLinks view={view} hrefs={viewHrefs} />
         </div>
         <Suspense
           fallback={
@@ -43,6 +52,7 @@ export default function CollectionTemplate({
             collectionId={collection.id}
             countryCode={countryCode}
             optionValueIds={optionValueIds}
+            view={view}
           />
         </Suspense>
       </div>

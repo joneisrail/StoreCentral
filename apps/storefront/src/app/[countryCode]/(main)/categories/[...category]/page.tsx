@@ -5,6 +5,8 @@ import { getCategoryByHandle } from "@lib/data/categories"
 import CategoryTemplate from "@modules/categories/templates"
 import { SortOptions } from "@modules/store/components/refinement-list/sort-products"
 import { getStoreName } from "@lib/util/store-name"
+import { parseView } from "@modules/store/components/store-hits/view-state"
+import { viewHrefs } from "@modules/store/templates/view-links"
 import { parseOptionValueIds } from "@lib/util/product-option-filters"
 
 type Props = {
@@ -44,6 +46,7 @@ export default async function CategoryPage(props: Props) {
   const params = await props.params
   const { sortBy, page } = searchParams
   const optionValueIds = parseOptionValueIds(searchParams)
+  const view = parseView(searchParams.view)
 
   const productCategory = await getCategoryByHandle(params.category)
 
@@ -58,6 +61,11 @@ export default async function CategoryPage(props: Props) {
       page={page}
       countryCode={params.countryCode}
       optionValueIds={optionValueIds}
+      view={view}
+      viewHrefs={viewHrefs(
+        `/categories/${params.category.join("/")}`,
+        searchParams
+      )}
     />
   )
 }

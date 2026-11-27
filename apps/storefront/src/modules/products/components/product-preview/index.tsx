@@ -110,9 +110,11 @@ export function ProductCardView({
 export default async function ProductPreview({
   product,
   region: _region,
+  layout,
 }: {
   product: HttpTypes.StoreProduct
   region: HttpTypes.StoreRegion
+  layout?: "grid" | "list"
 }) {
   const { cheapestPrice } = getProductPrice({
     product,
@@ -121,6 +123,7 @@ export default async function ProductPreview({
   return (
     <ProductCardView
       title={product.title ?? ""}
+      layout={layout}
       href={`/products/${product.handle}`}
       thumbnail={product.thumbnail || product.images?.[0]?.url}
       priceLabel={cheapestPrice?.calculated_price}
