@@ -16,6 +16,7 @@ export type ReviewsPage = {
 }
 
 export const REVIEWS_PAGE_SIZE = 10
+const REVIEWS_TIMEOUT_MS = 2500
 
 /** Fetches one page of approved reviews. Returns null on any failure. */
 export async function listReviews(
@@ -30,6 +31,9 @@ export async function listReviews(
     }>(`/store/products/${encodeURIComponent(productId)}/reviews`, {
       method: "GET",
       query: { limit: REVIEWS_PAGE_SIZE, offset },
+      // A slow reviews route degrades to "unavailable" instead of blocking
+      // the product page.
+      signal: AbortSignal.timeout(REVIEWS_TIMEOUT_MS),
     })
     if (!res || !Array.isArray(res.reviews)) {
       return null

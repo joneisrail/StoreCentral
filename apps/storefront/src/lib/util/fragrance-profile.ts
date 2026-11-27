@@ -56,8 +56,11 @@ export const toBrandName = (product: {
   return brand?.name?.trim() || null
 }
 
-const toText = (value: unknown): string | null =>
-  typeof value === "string" && value.trim() ? value.trim() : null
+// Strings, comma-separated strings and arrays all read as a ", " joined text.
+const toText = (value: unknown): string | null => {
+  const items = toNoteList(value)
+  return items.length > 0 ? items.join(", ") : null
+}
 
 export const toFragranceProfile = (product: {
   metadata?: Record<string, unknown> | null

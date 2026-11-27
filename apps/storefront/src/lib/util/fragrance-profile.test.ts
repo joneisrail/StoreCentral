@@ -79,3 +79,27 @@ describe("toFragranceProfile", () => {
     })
   })
 })
+
+describe("toFragranceProfile single-value keys", () => {
+  const read = (value: unknown) =>
+    toFragranceProfile({ metadata: { gender: value } }).gender
+
+  it("reads a string", () => expect(read(" Women ")).toBe("Women"))
+  it("joins an array", () => expect(read(["Men", "Women"])).toBe("Men, Women"))
+  it("normalises a comma string", () =>
+    expect(read("Men,  Women")).toBe("Men, Women"))
+  it("returns null for blanks and unsupported values", () => {
+    expect(read("  ")).toBeNull()
+    expect(read([])).toBeNull()
+    expect(read(5)).toBeNull()
+  })
+
+  it("applies to family and concentration and counts toward isEmpty", () => {
+    const profile = toFragranceProfile({
+      metadata: { fragrance_family: ["Woody", "Spicy"], concentration: ["EDP"] },
+    })
+    expect(profile.family).toBe("Woody, Spicy")
+    expect(profile.concentration).toBe("EDP")
+    expect(profile.isEmpty).toBe(false)
+  })
+})
