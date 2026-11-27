@@ -15,6 +15,8 @@ type DrawerProps = {
   title: string
   side?: "left" | "right"
   children?: ReactNode
+  /** Pinned below the scrolling content, e.g. primary actions. */
+  footer?: ReactNode
   className?: string
   backdropTestId?: string
   panelTestId?: string
@@ -27,6 +29,7 @@ const Drawer = ({
   title,
   side = "right",
   children,
+  footer,
   className,
   backdropTestId,
   panelTestId,
@@ -81,6 +84,14 @@ const Drawer = ({
             </button>
           </div>
           <div className="mt-4 min-h-0 flex-1 overflow-y-auto">{children}</div>
+          {footer && (
+            <div
+              data-testid="drawer-footer"
+              className="shrink-0 border-t border-line bg-paper pt-4 pb-[env(safe-area-inset-bottom)]"
+            >
+              {footer}
+            </div>
+          )}
         </DialogPanel>
       </div>
     </Dialog>

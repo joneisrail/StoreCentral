@@ -6,6 +6,15 @@ import {
   search,
 } from "@medusajs/framework/utils";
 
+import { loadAvailability, VariantAvailability } from "./helpers/availability";
+import {
+  BrandCategoryRow,
+  StockVariantRow,
+  toBrands,
+  toCategoryNames,
+  toMetadataValues,
+  toStock,
+} from "./helpers/fragrance";
 import { ProductOptionRow, toOptionValues } from "./helpers/option-values";
 import { loadPricing, priceFields, toProductPricing } from "./helpers/pricing";
 import { resolveProductIds } from "./helpers/resolve-product-ids";
@@ -18,11 +27,18 @@ const PRODUCT_GRAPH_FIELDS = [
   "thumbnail",
   "status",
   "created_at",
+  "metadata",
   "sales_channels.id",
   "categories.name",
+  "categories.handle",
+  "categories.parent_category.handle",
   "tags.value",
   "options.title",
   "options.values.value",
+  // Stock quantities are not graph fields: `loadAvailability` reads them.
+  "variants.id",
+  "variants.manage_inventory",
+  "variants.allow_backorder",
 ];
 
 type ProductRow = {
@@ -34,10 +50,12 @@ type ProductRow = {
   status?: string | null;
   created_at?: string | Date | null;
   deleted_at?: string | Date | null;
+  metadata?: Record<string, unknown> | null;
   sales_channels?: ({ id?: string | null } | null)[] | null;
-  categories?: ({ name?: string | null } | null)[] | null;
+  categories?: BrandCategoryRow[] | null;
   tags?: ({ value?: string | null } | null)[] | null;
   options?: ProductOptionRow[] | null;
+  variants?: StockVariantRow[] | null;
 };
 
 const productFields = search.define({
@@ -60,6 +78,23 @@ const productFields = search.define({
     .filterable()
     .facetable()
     .retrievable(),
+  brand: search.keyword().array().filterable().facetable().retrievable(),
+  gender: search.keyword().array().filterable().facetable().retrievable(),
+  fragrance_family: search
+    .keyword()
+    .array()
+    .filterable()
+    .facetable()
+    .retrievable(),
+  notes: search.keyword().array().filterable().facetable().retrievable(),
+  concentration: search
+    .keyword()
+    .array()
+    .filterable()
+    .facetable()
+    .retrievable(),
+  in_stock: search.boolean().filterable().facetable().retrievable(),
+  single_variant_id: search.keyword().retrievable(),
   ...priceFields,
 });
 
@@ -67,13 +102,37 @@ type ProductDocument = SearchTypes.InferSearchDocumentType<
   typeof productFields
 >;
 
-function toDocument(
+/**
+ * Variant ids of a page of products, to read their availability in one pass.
+ */
+function variantIds(rows: ProductRow[]): string[] {
+  return rows
+    .flatMap((row) => row.variants ?? [])
+    .map((variant) => variant?.id)
+    .filter((id): id is string => Boolean(id));
+}
+
+/**
+ * The product's variants with the read availability as their quantity. A
+ * variant missing from `availability` keeps whatever the row carried.
+ */
+function withAvailability(
+  variants: StockVariantRow[] | null | undefined,
+  availability: VariantAvailability | undefined,
+): StockVariantRow[] {
+  return (variants ?? []).map((variant) =>
+    variant?.id && availability && variant.id in availability
+      ? { ...variant, inventory_quantity: availability[variant.id] }
+      : variant,
+  );
+}
+
+export function toDocument(
   product: ProductRow,
   pricing: Parameters<typeof toProductPricing>[0],
+  availability?: VariantAvailability,
 ): ProductDocument {
-  const category = (product.categories ?? [])
-    .map((productCategory) => productCategory?.name?.trim())
-    .filter((name): name is string => Boolean(name));
+  const category = toCategoryNames(product.categories);
   const labels = (product.tags ?? [])
     .map((tag) => tag?.value?.trim())
     .filter((value): value is string => Boolean(value));
@@ -93,6 +152,12 @@ function toDocument(
     category,
     labels,
     option_values: toOptionValues(product.options),
+    brand: toBrands(product.categories),
+    gender: toMetadataValues(product.metadata, "gender"),
+    fragrance_family: toMetadataValues(product.metadata, "fragrance_family"),
+    notes: toMetadataValues(product.metadata, "notes"),
+    concentration: toMetadataValues(product.metadata, "concentration"),
+    ...toStock(withAvailability(product.variants, availability)),
     ...toProductPricing(pricing),
   };
 }
@@ -108,12 +173,17 @@ const source = {
     rows: ProductRow[],
     context: SearchTypes.SearchIngestionContext,
   ) => {
-    const pricing = await loadPricing(
-      rows.map((row) => row.id),
-      context,
-    );
+    const [pricing, availability] = await Promise.all([
+      loadPricing(
+        rows.map((row) => row.id),
+        context,
+      ),
+      loadAvailability(variantIds(rows), context),
+    ]);
 
-    return rows.map((row) => toDocument(row, pricing.get(row.id)));
+    return rows.map((row) =>
+      toDocument(row, pricing.get(row.id), availability),
+    );
   },
 };
 
@@ -127,6 +197,12 @@ const source = {
  * TODO: linkProductsToSalesChannelWorkflow emits nothing.
  * TODO: batchLinkProductsToCategoryWorkflow emits nothing.
  * TODO: upsertVariantPricesWorkflow emits nothing when called directly.
+ * TODO: linking or unlinking an inventory item to a variant emits nothing.
+ * TODO: deleting an inventory item drops its variant link, so its products
+ *   cannot be found from `inventory-item.deleted`.
+ * TODO: adjusting inventory through the Inventory Module directly (not a
+ *   workflow) emits only the module's own `inventory.inventory-level.*`
+ *   events, which are not consumed here.
  */
 const PRODUCT_EVENTS = [
   "product.created",
@@ -145,6 +221,13 @@ const PRODUCT_EVENTS = [
   "product-category.updated",
   "product-category.deleted",
   "sales-channel.deleted",
+  // Stock: available quantity is stocked minus reserved, so both move it.
+  "inventory-level.created",
+  "inventory-level.updated",
+  "inventory-level.deleted",
+  "reservation-item.created",
+  "reservation-item.updated",
+  "reservation-item.deleted",
 ];
 
 export default defineSearchIndex({

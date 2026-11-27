@@ -6,8 +6,13 @@ import { useClearRefinements, useCurrentRefinements } from "react-instantsearch"
 import { indexedCurrency, priceAttribute } from "@lib/search-client"
 import { convertToLocale } from "@lib/util/money"
 import {
+  BRAND_ATTRIBUTE,
   CATEGORY_ATTRIBUTE,
+  FAMILY_ATTRIBUTE,
+  GENDER_ATTRIBUTE,
+  IN_STOCK_ATTRIBUTE,
   LABELS_ATTRIBUTE,
+  NOTES_ATTRIBUTE,
   OPTION_VALUES_ATTRIBUTE,
 } from "./attributes"
 
@@ -57,6 +62,26 @@ function refinementLabel(refinement: Refinement, currencyCode: string) {
     return `Label: ${label}`
   }
 
+  if (attribute === BRAND_ATTRIBUTE) {
+    return `Brand: ${label}`
+  }
+
+  if (attribute === GENDER_ATTRIBUTE) {
+    return `Gender: ${label}`
+  }
+
+  if (attribute === FAMILY_ATTRIBUTE) {
+    return `Fragrance family: ${label}`
+  }
+
+  if (attribute === NOTES_ATTRIBUTE) {
+    return `Note: ${label}`
+  }
+
+  if (attribute === IN_STOCK_ATTRIBUTE) {
+    return "In stock"
+  }
+
   return label
 }
 
@@ -76,15 +101,15 @@ const CurrentRefinements = ({ currencyCode }: { currencyCode: string }) => {
   }
 
   return (
-    <div className="flex flex-col gap-y-3" data-testid="current-refinements">
-      <div className="flex items-center justify-between gap-x-2 pr-6">
-        <span className="txt-compact-small-plus text-ui-fg-subtle">
+    <div className="mb-4 flex flex-col gap-y-3" data-testid="current-refinements">
+      <div className="flex items-center justify-between gap-x-2">
+        <span className="text-sm text-warm-grey">
           Applied filters
         </span>
         {canClearAll && (
           <button
             onClick={clearAll}
-            className="txt-compact-small-plus text-ui-fg-interactive hover:text-ui-fg-interactive-hover"
+            className="inline-flex min-h-[44px] items-center text-sm font-medium text-charcoal underline underline-offset-2 lg:min-h-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-deep focus-visible:ring-offset-2 focus-visible:ring-offset-ivory"
             data-testid="clear-refinements"
           >
             Clear all
@@ -92,7 +117,7 @@ const CurrentRefinements = ({ currencyCode }: { currencyCode: string }) => {
         )}
       </div>
 
-      <ul className="flex flex-wrap gap-2 pr-6">
+      <ul className="flex flex-wrap gap-2">
         {refinements.map((refinement) => {
           const label = refinementLabel(refinement, currencyCode)
 
@@ -105,11 +130,11 @@ const CurrentRefinements = ({ currencyCode }: { currencyCode: string }) => {
               <button
                 onClick={() => refine(refinement)}
                 aria-label={`Remove filter ${label}`}
-                className="border-ui-border-interactive text-ui-fg-base border text-small-regular h-8 rounded-rounded px-3 flex items-center gap-x-1.5 transition-colors duration-150 hover:bg-ui-bg-base-hover"
+                className="border border-line-strong bg-paper text-charcoal text-sm min-h-[44px] lg:min-h-0 lg:h-8 rounded-soft px-3 flex items-center gap-x-1.5 transition-colors motion-reduce:transition-none hover:bg-ivory focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-deep focus-visible:ring-offset-2 focus-visible:ring-offset-ivory"
                 data-testid="remove-refinement"
               >
                 {label}
-                <XMarkMini className="text-ui-fg-muted" />
+                <XMarkMini className="text-warm-grey" />
               </button>
             </li>
           )

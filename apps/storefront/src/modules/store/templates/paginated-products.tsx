@@ -3,6 +3,8 @@ import { getRegion } from "@lib/data/regions"
 import { OptionValueIds } from "@lib/util/product-option-filters"
 import ProductPreview from "@modules/products/components/product-preview"
 import { Pagination } from "@modules/store/components/pagination"
+import type { CatalogView } from "@modules/store/components/store-hits/view-state"
+import { gridClasses } from "@modules/store/templates/view-links"
 import { SortOptions } from "@modules/store/components/refinement-list/sort-products"
 
 const PRODUCT_LIMIT = 12
@@ -23,6 +25,7 @@ export default async function PaginatedProducts({
   productsIds,
   countryCode,
   optionValueIds,
+  view = "grid",
 }: {
   sortBy?: SortOptions
   page: number
@@ -31,6 +34,7 @@ export default async function PaginatedProducts({
   productsIds?: string[]
   countryCode: string
   optionValueIds?: OptionValueIds
+  view?: CatalogView
 }) {
   const queryParams: PaginatedProductsParams = {
     limit: 12,
@@ -73,13 +77,13 @@ export default async function PaginatedProducts({
   return (
     <>
       <ul
-        className="grid grid-cols-2 w-full small:grid-cols-3 medium:grid-cols-4 gap-x-6 gap-y-8"
+        className={gridClasses(view)}
         data-testid="products-list"
       >
         {products.map((p) => {
           return (
             <li key={p.id}>
-              <ProductPreview product={p} region={region} />
+              <ProductPreview product={p} region={region} layout={view} />
             </li>
           )
         })}

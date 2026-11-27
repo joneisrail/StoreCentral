@@ -5,6 +5,8 @@ import InteractiveLink from "@modules/common/components/interactive-link"
 import SkeletonProductGrid from "@modules/skeletons/templates/skeleton-product-grid"
 import RefinementList from "@modules/store/components/refinement-list"
 import { SortOptions } from "@modules/store/components/refinement-list/sort-products"
+import ViewToggleLinks from "@modules/store/components/view-toggle/view-toggle-links"
+import type { CatalogView } from "@modules/store/components/store-hits/view-state"
 import PaginatedProducts from "@modules/store/templates/paginated-products"
 import LocalizedClientLink from "@modules/common/components/localized-client-link"
 import { HttpTypes } from "@medusajs/types"
@@ -16,12 +18,16 @@ export default function CategoryTemplate({
   page,
   countryCode,
   optionValueIds,
+  view = "grid",
+  viewHrefs,
 }: {
   category: HttpTypes.StoreProductCategory
   sortBy?: SortOptions
   page?: string
   countryCode: string
   optionValueIds?: OptionValueIds
+  view?: CatalogView
+  viewHrefs: Record<CatalogView, string>
 }) {
   const pageNumber = page ? parseInt(page) : 1
   const sort = sortBy || "created_at"
@@ -84,6 +90,9 @@ export default function CategoryTemplate({
             </ul>
           </div>
         )}
+        <div className="mb-6 flex justify-end">
+          <ViewToggleLinks view={view} hrefs={viewHrefs} />
+        </div>
         <Suspense
           fallback={
             <SkeletonProductGrid
@@ -97,6 +106,7 @@ export default function CategoryTemplate({
             categoryId={category.id}
             countryCode={countryCode}
             optionValueIds={optionValueIds}
+            view={view}
           />
         </Suspense>
       </div>

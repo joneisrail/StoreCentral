@@ -1,32 +1,29 @@
 "use client"
 
-import type { Hit } from "instantsearch.js"
 import { useEffect, useRef } from "react"
 import { useHits, useInstantSearch } from "react-instantsearch"
 
 import useSearchSettled from "@lib/hooks/use-search-settled"
 import { Text } from "@modules/common/components/ui"
-import { ProductCardView } from "@modules/products/components/product-preview"
 import SkeletonProductGrid from "@modules/skeletons/templates/skeleton-product-grid"
+import type { CatalogHit } from "../../types"
+import CatalogCard from "./catalog-card"
 import SearchPagination from "./pagination"
-import { hitPriceLabels, HitPricing } from "./price"
-
-type ProductHit = Hit<
-  {
-    title: string | null
-    handle: string | null
-    thumbnail: string | null
-  } & HitPricing
->
+import type { CatalogView } from "./view-state"
 
 type StoreHitsProps = {
   hitsPerPage: number
   currencyCode: string
+  view?: CatalogView
 }
 
-const StoreHits = ({ hitsPerPage, currencyCode }: StoreHitsProps) => {
-  const { items } = useHits<ProductHit>()
-  const { status, error, indexUiState } = useInstantSearch()
+const StoreHits = ({
+  hitsPerPage,
+  currencyCode,
+  view = "grid",
+}: StoreHitsProps) => {
+  const { items } = useHits<CatalogHit>()
+  const { status, error, indexUiState, setIndexUiState } = useInstantSearch()
   const { isSearching, hasNoResultsYet } = useSearchSettled()
 
   const { page, ...refinements } = indexUiState
@@ -47,10 +44,20 @@ const StoreHits = ({ hitsPerPage, currencyCode }: StoreHitsProps) => {
 
   const showSkeleton = hasNoResultsYet || (isSearching && isPagingOnly)
 
+  // Drops every refinement, the text query and the page, keeping the sort
+  // and the page's own configure. useClearRefinements leaves the query and a
+  // bare out-of-range page untouched, so the state is rebuilt directly.
+  const resetFilters = () => {
+    setIndexUiState((prev) => ({
+      ...(prev.sortBy ? { sortBy: prev.sortBy } : {}),
+      ...(prev.configure ? { configure: prev.configure } : {}),
+    }))
+  }
+
   if (status === "error") {
     return (
       <Text
-        className="py-16 text-center text-ui-fg-error"
+        className="py-16 text-center text-charcoal"
         data-testid="products-error"
       >
         Couldn&apos;t load products
@@ -64,25 +71,35 @@ const StoreHits = ({ hitsPerPage, currencyCode }: StoreHitsProps) => {
       {showSkeleton ? (
         <SkeletonProductGrid numberOfProducts={hitsPerPage} />
       ) : !items.length ? (
-        <Text
-          className="py-16 text-center text-ui-fg-subtle"
-          data-testid="no-products"
-        >
-          No products matched these filters.
-        </Text>
+        <div className="flex flex-col items-center gap-4 py-16 text-center">
+          <Text className="text-warm-grey" data-testid="no-products">
+            No products matched these filters.
+          </Text>
+          <button
+            type="button"
+            onClick={resetFilters}
+            className="inline-flex min-h-[44px] items-center rounded-soft border border-line-strong bg-paper px-4 text-sm font-medium text-charcoal hover:bg-ivory focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-deep focus-visible:ring-offset-2 focus-visible:ring-offset-ivory lg:min-h-0 lg:h-9"
+            data-testid="no-products-clear"
+          >
+            Clear all
+          </button>
+        </div>
       ) : (
         <ul
-          className="grid grid-cols-2 w-full small:grid-cols-3 medium:grid-cols-4 gap-x-6 gap-y-8"
+          className={
+            view === "list"
+              ? "grid w-full grid-cols-1 gap-x-6 gap-y-8"
+              : "grid w-full grid-cols-2 gap-x-6 gap-y-8 small:grid-cols-3 medium:grid-cols-4"
+          }
           data-testid="products-list"
         >
           {items.map((hit) =>
             hit.handle ? (
               <li key={hit.objectID}>
-                <ProductCardView
-                  title={hit.title ?? ""}
-                  href={`/products/${hit.handle}`}
-                  thumbnail={hit.thumbnail}
-                  {...hitPriceLabels(hit, currencyCode)}
+                <CatalogCard
+                  hit={hit}
+                  currencyCode={currencyCode}
+                  view={view}
                 />
               </li>
             ) : null
