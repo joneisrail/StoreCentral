@@ -146,7 +146,20 @@ A change to the field definitions in `src/search/product.ts` changes the schema 
 npx medusa db:migrate --execute-safe-search
 ```
 
-Then start the backend: the module creates the new physical index version and reseeds it from the catalogue. Migrating from the old Postgres index created `product_v3` and reseeded 3,431 documents in 1 min 5 s; a later schema change built `product_v4` in 22 s (both recorded in the ledger). Searches keep using the previous version until the new one is active. Do not remove the Postgres provider from `medusa-config.ts` (see above).
+Then start the backend: the module creates the new physical index version and reseeds it from the catalogue.
+
+Physical index names (`product_v1`, `product_v2`, ...) come from a version counter stored in the backend's own database, not in Meilisearch. A second database (a fresh dev database, a test database) pointed at the same Meilisearch starts again at `product_v1` and can reuse an index another database already filled, so it sees ghost documents from the other catalogue. Give each database its own Meilisearch (or its own data directory), or set an `index_prefix` on the provider for one of them. Migrating from the old Postgres index created `product_v3` and reseeded 3,431 documents in 1 min 5 s; a later schema change built `product_v4` in 22 s (both recorded in the ledger). Searches keep using the previous version until the new one is active. Do not remove the Postgres provider from `medusa-config.ts` (see above).
+
+## After merging Phase 6
+
+Phase 6 was built and its live Meilisearch data lives in the worktree. Before the main checkout's backend can start after the merge:
+
+- [ ] Add `MEILISEARCH_API_KEY` (random, 16+ characters; `openssl rand -hex 24`) to the main checkout's `apps/backend/.env`. `MEILISEARCH_HOST` defaults to `http://127.0.0.1:7700`. The backend refuses to start without the key.
+- [ ] Start Meilisearch: `powershell -File scripts/dev/meilisearch.ps1`. The binary and data live under `.meilisearch/` of whichever checkout runs it (or of `-Root <path>`). The data built during Phase 6 is in the worktree's `.meilisearch/data` and is deleted with the worktree, so the main checkout starts with an empty Meilisearch.
+- [ ] From `apps/backend`, run `npx medusa db:migrate`. It creates the new `search_query` table (search insights). If it reports a changed search index schema, run `npx medusa db:migrate --execute-safe-search`.
+- [ ] Start the backend and expect the product index to reseed on first boot (about a minute for ~3,400 products). Until it finishes, search answers `Search is temporarily unavailable.` / `The search index is not available.`; the rest of the store works.
+- [ ] CI: the backend integration job already has a `meilisearch` service and the env it needs; confirm the first run passes.
+- [ ] Compose deploys: set `MEILISEARCH_API_KEY` in `deploy/.env` (it is required and checked as a secret by `deploy/check-env.mjs`). `migrate` and `backend` wait for Meilisearch to be healthy.
 
 ## Storefront pieces
 
@@ -169,7 +182,11 @@ Overlay behaviour:
 
 ### Where searches are recorded
 
-The `/search` page is the single place that records searches. It knows the true result count, and every entry path (Enter in the overlay, a recent search, a popular search, a brand link) lands there. The overlay never calls `trackSearch`; it only keeps the recent-searches list.
+The `/search` page is the single place that records searches. Only searches that land there are recorded: Enter in the overlay, a recent search and a popular search do. The overlay's other rows do not: a brand or category row goes to `/store` filtered by it, and a product row goes to the product page, so neither is recorded. The overlay never calls `trackSearch`; it only keeps the recent-searches list.
+
+A popular-search link lands on `/search`, so following it records that query again. That is by design (a shopper who clicks it did search for it), and it means the popular list feeds itself a little; the per-client dedupe below limits it to once per hour per client.
+
+The count the page sends is ignored: the events route counts the matching published products itself (see below).
 
 The page records a query only when the results have settled and no refinements are active (the gate reads the settled results' own helper state, not only the UI state), once per query per page mount, so the recorded count is the unfiltered hit count. A refined first load is recorded later if the visitor clears the refinements. `SearchResults` is keyed by the query so a client-side query change resets the tracker.
 
@@ -177,13 +194,13 @@ The page records a query only when the results have settled and no refinements a
 
 | Route | Returns | Rules |
 | --- | --- | --- |
-| `POST /store/search/events` | `{ ok: true }` always | Records a search in `search_query` (upsert on the normalised query: count, last seen, last result count). Query 3 to 60 characters after normalising and containing a letter or digit; body `query` max 200, `results` an integer 0 to 100000. Invalid bodies, rate-limited clients and failures are swallowed (failures logged) so clients never retry-loop |
+| `POST /store/search/events` | `{ ok: true }` always | Records a search in `search_query` (upsert on the normalised query: count, last seen, last result count). Query 3 to 60 characters after normalising and containing a letter or digit; body `query` max 200. The body's `results` (an integer 0 to 100000) is still validated for older storefront builds but ignored: the route counts the published products matching the query through the Search Module (scoped to the publishable key's sales channels, `match_strategy: "last"` like the storefront, no hits fetched) and stores that. If the count fails the event is not recorded (a warning is logged). Each (client IP, normalised query) pair is recorded at most once per hour. Invalid bodies, rate-limited or repeated events and failures are swallowed (failures logged) so clients never retry-loop |
 | `GET /store/search/popular` | `{ queries: [{ query, count }] }` | Last 30 days, seen at least 2 times, last result count above 0, highest count first, capped at 8 |
 | `GET /store/search/trending?limit=` | `{ products: [{ id, title, handle, thumbnail }] }` | Units sold in the last 14 days from non-cancelled, non-draft orders, restricted to published products in the request's sales channels; filled up with the newest products. `limit` defaults to 8 and is clamped to 12 |
 
 Details a maintainer needs:
 
-- Trending scans at most 20 pages of 1000 orders and keeps a 5-minute in-process cache keyed by the sorted channel ids and limit. With no sales-channel context (no publishable key) it returns an empty list.
+- Trending scans at most 20 pages of 1000 orders, newest first (so a capped scan keeps the most recent orders of the window), and keeps a 5-minute in-process cache keyed by the sorted channel ids and limit. With no sales-channel context (no publishable key) it returns an empty list.
 - Both read routes catch failures, log them and return an empty list. A degraded response is sent with `Cache-Control: no-store`; a good one with `Cache-Control: public, max-age=300`.
 - The storefront fetches popular and trending server-side with a 2.5 s timeout and a 300 s revalidate; any failure hides the section.
 - `Vary` note for a future CDN: the trending response depends on the publishable key's sales channels but is sent `public`. The storefront uses one key, so this is fine today. If a shared CDN is put in front of the backend, add `Vary: x-publishable-api-key` (Phase 13).
@@ -200,9 +217,9 @@ Details a maintainer needs:
 
 - The master key is backend-only. A scan of `.next/static` in the production build found no secret.
 - Highlights are rendered as React elements, never `dangerouslySetInnerHTML`. `/store/search` lets a caller choose the highlight tags, so `renderHighlight` recognises only the exact `<mark>` tag the storefront requests and treats everything else as text.
-- The rate limiter on `POST /store/search/events` is a fixed window of 30 events per minute per key, held in process memory. With several backend instances each enforces its own budget.
+- The rate limiter on `POST /store/search/events` is a fixed window of 30 events per minute per key, held in process memory. Next to it a dedupe map records each (key, normalised query) pair at most once per hour (pruned of expired entries when it reaches 50,000 pairs, cleared if pruning is not enough). With several backend instances each enforces its own budget.
 - The key is `req.ip`. Medusa sets Express `trust proxy` to 1, so only the last proxy hop is believed. Behind two proxy hops (for example a CDN in front of a load balancer) every shopper could share one bucket. Confirm the deploy topology before Phase 13.
-- The events route is public by design. Its writes are bounded by the limiter, the length caps and the normalisation rules; a determined client can still add low-count noise, which the "seen at least 2 times and has results" popular rule limits but does not eliminate.
+- The events route is public by design. Its writes are bounded by the limiter, the per-hour (IP, query) dedupe, the length caps and the normalisation rules, and the result count is computed on the server, so a client cannot record a fake count or push one query up by repeating it. Many clients (or one client rotating IPs) can still add noise, which the "seen at least 2 times and has results" popular rule limits but does not eliminate.
 
 ## Maintainer rulings
 

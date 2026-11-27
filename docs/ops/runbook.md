@@ -81,6 +81,7 @@ Every `docker compose` command below uses `-f deploy/docker-compose.yml`. Compos
 | pos | `https://<POS_HOST>/` | 200 |
 | postgres | `docker compose -f deploy/docker-compose.yml exec postgres pg_isready` | accepting connections |
 | redis | `ps` health column | healthy |
+| meilisearch | `ps` health column (it has no published port; its check is `/health` inside the container) | healthy |
 | caddy | `ps` health column; `logs caddy` | healthy |
 
 ## When a health check fails
@@ -97,6 +98,8 @@ Start with `docker compose -f deploy/docker-compose.yml ps` and `logs --tail 100
 | pos unhealthy | Container failed to start | `logs pos`; rebuild |
 | postgres unhealthy | Disk full, damaged volume, memory limit | `logs postgres`; `df -h`; restore from backup if the volume is damaged |
 | redis unhealthy | Wrong password, memory limit | `logs redis`; confirm `REDIS_PASSWORD` |
+| meilisearch unhealthy (`migrate` and backend wait on it) | Missing or short `MEILISEARCH_API_KEY` (production mode needs 16+ bytes), memory limit, damaged `meilisearch-data` volume | `logs meilisearch`; confirm the key in `deploy/.env`; recreate with `docker compose -f deploy/docker-compose.yml up -d meilisearch backend` |
+| Search says "Search is temporarily unavailable." but the store works | Meilisearch down, key mismatch between backend and meilisearch, or the product index still seeding after a fresh start or reindex (about a minute) | Check meilisearch health and `logs backend` for `[Search]` lines; wait for the seed to finish; see `docs/storefront/SEARCH_ARCHITECTURE.md` (Reindexing) |
 | HTTPS fails but containers are healthy | DNS or certificate issuance | `logs caddy`; confirm DNS and ports 80 and 443 |
 | Admin sign-in loops | `COOKIE_SECRET` or the CORS hosts changed | Confirm `STORE_HOST` and `ADMIN_HOST`, then recreate backend with `docker compose -f deploy/docker-compose.yml up -d backend` (a plain restart does not re-read `.env`) |
 
@@ -137,7 +140,8 @@ createdb -h localhost -U <user> hub_test
 | Suite | Variable | Value |
 | --- | --- | --- |
 | seller-hub (vitest) | `TEST_DATABASE_URL` | `postgres://<user>:<password>@localhost:5432/hub_test`. The name must end in `_test`; otherwise the suite refuses to start. The suite copies it into `DATABASE_URL` for the run and never reads your real `DATABASE_URL` |
-| backend integration | `DB_HOST`, `DB_USERNAME`, `DB_PASSWORD` | A local or CI Postgres. Medusa creates and drops its own `medusa-<id>-integration-<n>` databases on it, so give it a role that may create databases. Optional `DB_TEMP_NAME` must start with `medusa-` or end in `_test` |
+| backend integration | `DB_HOST`, `DB_USERNAME`, `DB_PASSWORD` | A local or CI Postgres. Medusa creates and drops its own `medusa-<id>-integration-<n>` databases on it, so give it a role that may create databases. Optional `DB_TEMP_NAME` must start with `medusa-` or end in `_test`. The backend boots with the Search Module, so `MEILISEARCH_API_KEY` must be set too (and `MEILISEARCH_HOST` unless Meilisearch is on `127.0.0.1:7700`); a running Meilisearch is needed for any test that searches |
+| backend Meilisearch provider spec | `MEILISEARCH_HOST`, `MEILISEARCH_API_KEY` | A throwaway local or CI Meilisearch (for example `http://127.0.0.1:7700` and its master key). `service.integration.spec.ts` is skipped unless both are set. Never point it at a Meilisearch that serves a real store |
 | backend Redis lock spec | `REDIS_TEST_URL` | For example `redis://localhost:6379/15`; the spec is skipped when unset |
 
 CI sets all of these on throwaway service containers (see `.github/workflows/ci.yml`). Tests that still need CI verification are listed in `deploy/ci-watchlist.md`.
