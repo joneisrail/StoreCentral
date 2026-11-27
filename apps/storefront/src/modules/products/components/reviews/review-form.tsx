@@ -79,7 +79,11 @@ const ReviewForm = ({
 
   return (
     <form onSubmit={onSubmit} noValidate className="flex flex-col gap-4">
-      <fieldset className="flex flex-col gap-1">
+      <fieldset
+        className="flex flex-col gap-1"
+        aria-invalid={errors.rating ? true : undefined}
+        aria-describedby={errors.rating ? "review-rating-error" : undefined}
+      >
         <legend className="text-sm font-medium text-charcoal">Rating</legend>
         <div className="flex gap-2">
           {[1, 2, 3, 4, 5].map((n) => (
@@ -101,7 +105,9 @@ const ReviewForm = ({
           ))}
         </div>
         {errors.rating && (
-          <p className="text-sm text-charcoal">{errors.rating}</p>
+          <p id="review-rating-error" role="alert" className="text-sm text-charcoal">
+            {errors.rating}
+          </p>
         )}
       </fieldset>
       <div className="flex flex-col gap-1">
@@ -116,9 +122,14 @@ const ReviewForm = ({
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           aria-invalid={errors.title ? true : undefined}
+          aria-describedby={errors.title ? "review-title-error" : undefined}
           className={fieldClass}
         />
-        {errors.title && <p className="text-sm text-charcoal">{errors.title}</p>}
+        {errors.title && (
+          <p id="review-title-error" role="alert" className="text-sm text-charcoal">
+            {errors.title}
+          </p>
+        )}
       </div>
       <div className="flex flex-col gap-1">
         <label htmlFor="review-comment" className="text-sm font-medium text-charcoal">
@@ -132,10 +143,13 @@ const ReviewForm = ({
           value={comment}
           onChange={(e) => setComment(e.target.value)}
           aria-invalid={errors.comment ? true : undefined}
+          aria-describedby={errors.comment ? "review-comment-error" : undefined}
           className={fieldClass}
         />
         {errors.comment && (
-          <p className="text-sm text-charcoal">{errors.comment}</p>
+          <p id="review-comment-error" role="alert" className="text-sm text-charcoal">
+            {errors.comment}
+          </p>
         )}
       </div>
       {serverError && (

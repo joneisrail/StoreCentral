@@ -53,6 +53,31 @@ describe("ReviewForm", () => {
     expect(document.body.textContent).toContain("Choose a rating")
   })
 
+  it("exposes validation errors accessibly", async () => {
+    render(<ReviewForm productId="p1" signedIn />)
+    await act(async () => {
+      await userEvent.click(submitBtn())
+    })
+    const alerts = Array.from(document.querySelectorAll("[role=alert]"))
+    expect(alerts.map((a) => a.textContent)).toEqual([
+      "Choose a rating",
+      "Add a title",
+      "Add a comment",
+    ])
+    expect(title().getAttribute("aria-invalid")).toBe("true")
+    expect(title().getAttribute("aria-describedby")).toBe("review-title-error")
+    expect(comment().getAttribute("aria-describedby")).toBe("review-comment-error")
+    const fieldset = document.querySelector("fieldset")!
+    expect(fieldset.getAttribute("aria-invalid")).toBe("true")
+    expect(fieldset.getAttribute("aria-describedby")).toBe("review-rating-error")
+  })
+
+  it("has no invalid markers before submit", () => {
+    render(<ReviewForm productId="p1" signedIn />)
+    expect(document.querySelector("[aria-invalid]")).toBeNull()
+    expect(document.querySelector("[aria-describedby]")).toBeNull()
+  })
+
   it("blocks submit without title or comment", async () => {
     render(<ReviewForm productId="p1" signedIn />)
     await act(async () => {
