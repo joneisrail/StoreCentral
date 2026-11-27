@@ -101,6 +101,58 @@ describe("ProductJsonLd", () => {
     })
   })
 
+  it("takes price, sku and availability from the cheapest purchasable variant", () => {
+    const product = {
+      ...priced,
+      variants: [
+        {
+          ...priced.variants![1],
+          id: "v3",
+          sku: "CHEAP-OOS",
+          inventory_quantity: 0,
+          calculated_price: { calculated_amount: 10, currency_code: "usd" },
+        },
+        priced.variants![1],
+      ],
+    } as unknown as HttpTypes.StoreProduct
+    const { container } = render(
+      <ProductJsonLd
+        product={product}
+        url="u"
+        brand={null}
+        description="d"
+        reviews={null}
+        currencyCode="usd"
+      />
+    )
+    const data = read(container)
+    expect(data.sku).toBe("KH-50")
+    expect(data.offers).toMatchObject({
+      price: 40,
+      availability: "https://schema.org/InStock",
+    })
+  })
+
+  it("maps a backorderable variant to BackOrder", () => {
+    const product = {
+      ...priced,
+      variants: [{ ...priced.variants![0], allow_backorder: true }],
+    } as unknown as HttpTypes.StoreProduct
+    const { container } = render(
+      <ProductJsonLd
+        product={product}
+        url="u"
+        brand={null}
+        description="d"
+        reviews={null}
+        currencyCode="usd"
+      />
+    )
+    expect(read(container).offers).toMatchObject({
+      availability: "https://schema.org/BackOrder",
+    })
+  })
+
   it("adds rating and at most 5 reviews when approved reviews exist", () => {
     const reviews = Array.from({ length: 7 }, (_, i) => ({
       id: `r${i}`,

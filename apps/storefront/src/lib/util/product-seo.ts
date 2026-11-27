@@ -1,6 +1,12 @@
 const MAX_DESCRIPTION = 160
 const MAX_REVIEWS = 5
 
+const AVAILABILITY_URL = {
+  in_stock: "https://schema.org/InStock",
+  backorder: "https://schema.org/BackOrder",
+  out_of_stock: "https://schema.org/OutOfStock",
+} as const
+
 const clip = (text: string): string =>
   text.length <= MAX_DESCRIPTION
     ? text
@@ -39,7 +45,7 @@ export const buildProductJsonLd = (input: {
   brand: string | null
   price: number | null
   currency: string | null
-  inStock: boolean
+  availability: "in_stock" | "backorder" | "out_of_stock"
   rating: { average: number; count: number } | null
   reviews: JsonLdReview[]
 }): Record<string, unknown> => {
@@ -64,9 +70,7 @@ export const buildProductJsonLd = (input: {
       url: input.url,
       price: input.price,
       priceCurrency: input.currency.toUpperCase(),
-      availability: input.inStock
-        ? "https://schema.org/InStock"
-        : "https://schema.org/OutOfStock",
+      availability: AVAILABILITY_URL[input.availability],
     }
   }
   if (input.rating) {

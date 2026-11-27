@@ -37,7 +37,7 @@ const base = {
   brand: "Lattafa",
   price: 29.99,
   currency: "usd",
-  inStock: true,
+  availability: "in_stock" as const,
   rating: null,
   reviews: [],
 }

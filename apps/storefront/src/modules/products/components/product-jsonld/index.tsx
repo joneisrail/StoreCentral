@@ -17,22 +17,36 @@ type ProductJsonLdProps = {
   currencyCode: string | null
 }
 
-const cheapestVariant = (
+const priceOf = (variant: HttpTypes.StoreProductVariant): number | null => {
+  const amount = variant.calculated_price?.calculated_amount
+  return typeof amount === "number" ? amount : null
+}
+
+const cheapestOf = (
   variants: HttpTypes.StoreProductVariant[]
 ): HttpTypes.StoreProductVariant | null => {
   let best: HttpTypes.StoreProductVariant | null = null
+  let bestAmount = Infinity
   for (const variant of variants) {
-    const amount = variant.calculated_price?.calculated_amount
-    if (typeof amount !== "number") {
-      continue
-    }
-    const bestAmount = best?.calculated_price?.calculated_amount
-    if (typeof bestAmount !== "number" || amount < bestAmount) {
+    const amount = priceOf(variant)
+    if (amount !== null && amount < bestAmount) {
       best = variant
+      bestAmount = amount
     }
   }
   return best
 }
+
+/**
+ * The variant that supplies price, sku and availability: the cheapest one that
+ * is not out of stock, else the overall cheapest.
+ */
+const offerVariant = (
+  variants: HttpTypes.StoreProductVariant[]
+): HttpTypes.StoreProductVariant | null =>
+  cheapestOf(
+    variants.filter((v) => getAvailability(v).state !== "out_of_stock")
+  ) ?? cheapestOf(variants)
 
 /** Server-rendered schema.org Product block for the product page. */
 const ProductJsonLd = ({
@@ -44,14 +58,14 @@ const ProductJsonLd = ({
   currencyCode,
 }: ProductJsonLdProps) => {
   const variants = product.variants ?? []
-  const cheapest = cheapestVariant(variants)
+  const cheapest = offerVariant(variants)
   const price = cheapest?.calculated_price ?? null
 
   const images = getProductImageUrls(product)
 
-  const inStock = variants.some(
-    (variant) => getAvailability(variant).state !== "out_of_stock"
-  )
+  const availability = cheapest
+    ? getAvailability(cheapest).state
+    : "out_of_stock"
 
   const rating =
     reviews && reviews.count > 0 && reviews.average !== null
@@ -67,7 +81,7 @@ const ProductJsonLd = ({
     brand,
     price: price?.calculated_amount ?? null,
     currency: price?.currency_code || currencyCode,
-    inStock,
+    availability,
     rating,
     reviews: rating ? reviews?.reviews ?? [] : [],
   })
