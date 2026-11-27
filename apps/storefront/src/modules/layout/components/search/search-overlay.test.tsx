@@ -267,14 +267,13 @@ describe("Search overlay", () => {
     expect(active(input)?.textContent).toContain("See all results for “rose”")
   })
 
-  it("Enter on the input records the search once and goes to /search", async () => {
+  it("Enter on the input records a recent search and goes to /search, without tracking", async () => {
     settledOn("rose oud", [hit("p1", "Rose One")], 12)
     const { input } = await openSearch()
     await userEvent.keyboard("{Enter}")
     expect(addRecentSearch).toHaveBeenCalledTimes(1)
     expect(addRecentSearch).toHaveBeenCalledWith("rose oud")
-    expect(is.track).toHaveBeenCalledTimes(1)
-    expect(is.track).toHaveBeenCalledWith("rose oud", 12)
+    expect(is.track).not.toHaveBeenCalled()
     expect(is.push).toHaveBeenCalledWith("/search?q=rose%20oud")
     await wait()
     expect(document.querySelector('[role="combobox"]')).toBeNull()
@@ -286,7 +285,7 @@ describe("Search overlay", () => {
     await openSearch()
     await userEvent.keyboard("{ArrowDown}{Enter}")
     expect(is.push).toHaveBeenCalledWith("/products/p1")
-    expect(is.track).toHaveBeenCalledTimes(1)
+    expect(is.track).not.toHaveBeenCalled()
   })
 
   it("Escape closes and returns focus to the trigger", async () => {

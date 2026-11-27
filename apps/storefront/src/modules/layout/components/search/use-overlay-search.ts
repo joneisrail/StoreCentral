@@ -12,7 +12,6 @@ export type Mode = "suggest" | "loading" | "error" | "empty" | "results"
 type OverlayResults = {
   _state?: { query?: string }
   hits?: ProductHit[]
-  nbHits?: number
   facets?: { name: string; data?: Record<string, number> }[]
 }
 
@@ -51,8 +50,6 @@ export function useOverlaySearch() {
             ? "results"
             : "empty"
 
-  const settled = mode === "results" || mode === "empty"
-
   return {
     value,
     typed,
@@ -63,7 +60,5 @@ export function useOverlaySearch() {
     },
     hits: results?.hits,
     facets: results?.facets,
-    /** The result count for `typed`, or null while it isn't known. */
-    count: settled ? results?.nbHits ?? results?.hits?.length ?? 0 : null,
   }
 }

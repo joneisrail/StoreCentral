@@ -13,7 +13,6 @@ import {
   type RefObject,
 } from "react"
 
-import { trackSearch } from "@lib/data/track-search"
 import { navReducer } from "@lib/util/combobox-nav"
 import {
   addRecentSearch,
@@ -54,8 +53,7 @@ const SearchOverlay = ({
   const prefix = useId()
   const listboxId = `${prefix}-listbox`
   const done = useRef(false)
-  const { value, typed, mode, onChange, hits, facets, count } =
-    useOverlaySearch()
+  const { value, typed, mode, onChange, hits, facets } = useOverlaySearch()
   const [recent, setRecent] = useState<string[]>(getRecentSearches)
 
   const sections = useMemo(() => {
@@ -87,8 +85,8 @@ const SearchOverlay = ({
   }, [activeId])
 
   /**
-   * Records a chosen query once: a recent search always, analytics only when
-   * the overlay holds that query's result count (results or no results).
+   * Records a chosen query once as a recent search. Analytics are left to the
+   * /search page, the one place that knows every search's true result count.
    */
   const finish = (q: string | undefined, href: string, navigate: boolean) => {
     if (done.current) {
@@ -97,9 +95,6 @@ const SearchOverlay = ({
     done.current = true
     if (q) {
       addRecentSearch(q)
-      if (q === typed && count !== null) {
-        trackSearch(q, count)
-      }
     }
     onClose()
     if (navigate) {

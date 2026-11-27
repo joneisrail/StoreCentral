@@ -14,8 +14,7 @@ export type ProductHit = Hit<
 
 /**
  * One selectable row of the listbox. Every row is a link; `record` is the
- * query a selection records as a recent search (and reports to analytics when
- * the overlay knows its result count).
+ * query a selection records as a recent search.
  */
 type RowBase = { id: string; href: string; record?: string }
 
