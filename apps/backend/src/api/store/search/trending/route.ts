@@ -46,7 +46,9 @@ async function loadTrending(
         status: { $ne: "canceled" },
         is_draft_order: false,
       },
-      pagination: { skip, take: ORDER_PAGE, order: { created_at: "ASC" } },
+      // Newest first, so when the scan hits MAX_ORDER_PAGES it keeps the most
+      // recent orders of the window rather than the oldest.
+      pagination: { skip, take: ORDER_PAGE, order: { created_at: "DESC" } },
     })
     for (const o of orders as any[]) {
       for (const i of o.items ?? []) if (i) items.push(i)

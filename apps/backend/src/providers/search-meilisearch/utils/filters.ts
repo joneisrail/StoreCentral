@@ -150,6 +150,22 @@ function group(clauses: string[]): string | undefined {
   return clauses.length > 1 ? `(${clauses.join(" AND ")})` : clauses[0];
 }
 
+function isFilterObject(value: unknown): value is SearchFilters {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * The branches of `$or` / `$and`, which must be an array of filter objects.
+ * Anything else is a client error, not a crash.
+ */
+function filterList(operator: string, value: unknown): SearchFilters[] {
+  if (!Array.isArray(value) || !value.every(isFilterObject)) {
+    invalid(`The ${operator} operator takes an array of filter objects.`);
+  }
+
+  return value as SearchFilters[];
+}
+
 function compile(filters: SearchFilters): string[] {
   const clauses: string[] = [];
 
@@ -159,7 +175,7 @@ function compile(filters: SearchFilters): string[] {
     }
 
     if (key === "$or") {
-      const branches = value as SearchFilters[];
+      const branches = filterList("$or", value);
 
       if (!branches.length) {
         invalid("The $or operator needs at least one filter.");
@@ -175,7 +191,7 @@ function compile(filters: SearchFilters): string[] {
       const joined = children.join(" OR ");
       clauses.push(children.length > 1 ? `(${joined})` : joined);
     } else if (key === "$and") {
-      const children = (value as SearchFilters[])
+      const children = filterList("$and", value)
         .map((child) => group(compile(child)))
         .filter((child): child is string => !!child);
 
@@ -186,6 +202,10 @@ function compile(filters: SearchFilters): string[] {
       const joined = children.join(" AND ");
       clauses.push(children.length > 1 ? `(${joined})` : joined);
     } else if (key === "$not") {
+      if (!isFilterObject(value)) {
+        invalid("The $not operator takes a filter object.");
+      }
+
       const inner = compile(value as SearchFilters);
 
       if (!inner.length) {

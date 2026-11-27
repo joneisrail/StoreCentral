@@ -126,6 +126,30 @@ describe("toMeiliFilter", () => {
     ).toThrow(MedusaError);
   });
 
+  it.each([
+    ["$or", { $or: "x" }],
+    ["$or", { $or: 5 }],
+    ["$or", { $or: { a: 1 } }],
+    ["$or", { $or: ["x"] }],
+    ["$or", { $or: [null] }],
+    ["$and", { $and: "x" }],
+    ["$and", { $and: null }],
+    ["$and", { $and: [[{ a: 1 }]] }],
+    ["$not", { $not: "x" }],
+    ["$not", { $not: [{ a: 1 }] }],
+    ["$not", { $not: null }],
+  ])("rejects a malformed %s as INVALID_DATA, not a TypeError (%j)", (op, filters) => {
+    let thrown: unknown;
+    try {
+      toMeiliFilter(filters as any);
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(MedusaError);
+    expect((thrown as MedusaError).type).toBe(MedusaError.Types.INVALID_DATA);
+    expect((thrown as Error).message).toContain(op);
+  });
+
   it("treats an $or with an unconstrained branch as unconstrained", () => {
     expect(
       toMeiliFilter({ $or: [{ status: "published" }, {}] }),
