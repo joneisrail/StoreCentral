@@ -14,7 +14,9 @@ import RelatedProducts from "@modules/products/components/related-products"
 import ProductReviews from "@modules/products/components/reviews"
 import ReviewSummary from "@modules/products/components/reviews/review-summary"
 import ReviewsBoundary from "@modules/products/components/reviews/reviews-boundary"
-import ProductInfo from "@modules/products/templates/product-info"
+import ProductInfo, {
+  ProductDescription,
+} from "@modules/products/templates/product-info"
 import SkeletonRelatedProducts from "@modules/skeletons/templates/skeleton-related-products"
 import { notFound } from "next/navigation"
 import { HttpTypes } from "@medusajs/types"
@@ -86,6 +88,7 @@ const ProductTemplate: React.FC<ProductTemplateProps> = ({
               product={product}
               brand={brand}
               brandHref={brandHref}
+              showDescription={false}
               summary={
                 reviews ? (
                   <ReviewSummary
@@ -106,6 +109,7 @@ const ProductTemplate: React.FC<ProductTemplateProps> = ({
             >
               <ProductActionsWrapper id={product.id} region={region} />
             </Suspense>
+            <ProductDescription product={product} />
           </div>
         </div>
 

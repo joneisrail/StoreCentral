@@ -1,5 +1,9 @@
 import type { ReviewsPage } from "@lib/data/reviews"
-import { buildProductJsonLd, serializeJsonLd } from "@lib/util/product-seo"
+import {
+  buildProductJsonLd,
+  getProductImageUrls,
+  serializeJsonLd,
+} from "@lib/util/product-seo"
 import { getAvailability } from "@lib/util/variant-stock"
 import { HttpTypes } from "@medusajs/types"
 
@@ -43,15 +47,7 @@ const ProductJsonLd = ({
   const cheapest = cheapestVariant(variants)
   const price = cheapest?.calculated_price ?? null
 
-  const imageUrls = (product.images ?? [])
-    .map((image) => image.url)
-    .filter((imageUrl): imageUrl is string => Boolean(imageUrl))
-  const images =
-    imageUrls.length > 0
-      ? imageUrls
-      : product.thumbnail
-        ? [product.thumbnail]
-        : []
+  const images = getProductImageUrls(product)
 
   const inStock = variants.some(
     (variant) => getAvailability(variant).state !== "out_of_stock"

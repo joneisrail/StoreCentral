@@ -4,7 +4,7 @@ import { listProducts } from "@lib/data/products"
 import { getRegion } from "@lib/data/regions"
 import { listReviews } from "@lib/data/reviews"
 import { toBrandName, toFragranceProfile } from "@lib/util/fragrance-profile"
-import { buildDescription } from "@lib/util/product-seo"
+import { buildDescription, getProductImageUrls } from "@lib/util/product-seo"
 import ProductTemplate from "@modules/products/templates"
 import { HttpTypes } from "@medusajs/types"
 import { getStoreName } from "@lib/util/store-name"
@@ -39,16 +39,6 @@ function getBrandHref(product: HttpTypes.StoreProduct): string | null {
   return category?.handle ? `/categories/${category.handle}` : null
 }
 
-function getImageUrls(product: HttpTypes.StoreProduct): string[] {
-  const urls = (product.images ?? [])
-    .map((image) => image.url)
-    .filter((url): url is string => Boolean(url))
-  if (urls.length > 0) {
-    return urls
-  }
-  return product.thumbnail ? [product.thumbnail] : []
-}
-
 async function getProduct(countryCode: string, handle: string) {
   const region = await getRegion(countryCode)
 
@@ -79,7 +69,7 @@ export async function generateMetadata(props: Props): Promise<Metadata> {
     description: product.description,
     title: product.title ?? "",
   })
-  const images = getImageUrls(product)
+  const images = getProductImageUrls(product)
 
   return {
     title,

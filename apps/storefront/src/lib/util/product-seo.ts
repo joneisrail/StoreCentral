@@ -88,5 +88,19 @@ export const buildProductJsonLd = (input: {
   return data
 }
 
-export const serializeJsonLd = (data: Record<string, unknown>): string =>
+/** All product image URLs, falling back to the thumbnail, else empty. */
+export const getProductImageUrls = (product: {
+  images?: Array<{ url?: string | null } | null> | null
+  thumbnail?: string | null
+}): string[] => {
+  const urls = (product.images ?? [])
+    .map((image) => image?.url)
+    .filter((url): url is string => Boolean(url))
+  if (urls.length > 0) {
+    return urls
+  }
+  return product.thumbnail ? [product.thumbnail] : []
+}
+
+export const serializeJsonLd =(data: Record<string, unknown>): string =>
   JSON.stringify(data).replace(/</g, "\\u003c")

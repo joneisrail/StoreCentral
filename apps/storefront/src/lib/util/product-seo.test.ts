@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   buildDescription,
   buildProductJsonLd,
+  getProductImageUrls,
   serializeJsonLd,
 } from "./product-seo"
 
@@ -82,5 +83,23 @@ describe("serializeJsonLd", () => {
     const out = serializeJsonLd({ name: "</script><b>" })
     expect(out).not.toContain("<")
     expect(JSON.parse(out)).toEqual({ name: "</script><b>" })
+  })
+})
+
+describe("getProductImageUrls", () => {
+  it("returns image urls, skipping blanks", () => {
+    expect(
+      getProductImageUrls({
+        images: [{ url: "a.jpg" }, { url: "" }, null, { url: "b.jpg" }],
+        thumbnail: "t.jpg",
+      })
+    ).toEqual(["a.jpg", "b.jpg"])
+  })
+
+  it("falls back to the thumbnail, then to empty", () => {
+    expect(getProductImageUrls({ images: [], thumbnail: "t.jpg" })).toEqual([
+      "t.jpg",
+    ])
+    expect(getProductImageUrls({})).toEqual([])
   })
 })

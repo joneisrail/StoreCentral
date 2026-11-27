@@ -8,13 +8,30 @@ type ProductInfoProps = {
   brand: string | null
   brandHref: string | null
   summary?: ReactNode
+  /** When false the description is left for the caller to place. */
+  showDescription?: boolean
 }
+
+export const ProductDescription = ({
+  product,
+}: {
+  product: HttpTypes.StoreProduct
+}) =>
+  product.description ? (
+    <Text
+      className="text-base text-charcoal whitespace-pre-line"
+      data-testid="product-description"
+    >
+      {product.description}
+    </Text>
+  ) : null
 
 const ProductInfo = ({
   product,
   brand,
   brandHref,
   summary,
+  showDescription = true,
 }: ProductInfoProps) => {
   return (
     <div id="product-info">
@@ -46,14 +63,7 @@ const ProductInfo = ({
 
         {summary}
 
-        {product.description && (
-          <Text
-            className="text-base text-charcoal whitespace-pre-line"
-            data-testid="product-description"
-          >
-            {product.description}
-          </Text>
-        )}
+        {showDescription && <ProductDescription product={product} />}
       </div>
     </div>
   )

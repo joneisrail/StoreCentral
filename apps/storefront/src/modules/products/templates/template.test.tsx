@@ -5,7 +5,11 @@ import { cleanup, render } from "../../../test/render"
 import ProductTemplate from "./index"
 
 vi.mock("./product-actions-wrapper", () => ({
-  default: () => <div data-testid="actions-wrapper" />,
+  default: () => (
+    <div data-testid="actions-wrapper">
+      <button data-testid="add-product-button">Add to cart</button>
+    </div>
+  ),
 }))
 vi.mock("@modules/products/components/product-actions", () => ({
   default: () => <div data-testid="actions-fallback" />,
@@ -20,9 +24,12 @@ vi.mock("@modules/products/components/recently-viewed", () => ({
   default: () => <div data-testid="recent" />,
 }))
 vi.mock("@modules/common/components/localized-client-link", () => ({
-  default: ({ href, children }: { href: string; children: React.ReactNode }) => (
-    <a href={href}>{children}</a>
-  ),
+  default: ({
+    children,
+    ...rest
+  }: React.AnchorHTMLAttributes<HTMLAnchorElement> & {
+    "data-testid"?: string
+  }) => <a {...rest}>{children}</a>,
 }))
 vi.mock("next/navigation", () => ({
   notFound: () => {
@@ -78,12 +85,49 @@ describe("ProductTemplate", () => {
         reviews={{ reviews: [], count: 3, average: 4.5 }}
       />
     )
-    expect(container.querySelector("a")?.getAttribute("href")).toBe(
-      "/categories/lattafa"
-    )
+    expect(
+      container
+        .querySelector('[data-testid="product-brand"]')
+        ?.getAttribute("href")
+    ).toBe("/categories/lattafa")
     expect(container.textContent).toContain("4.5 out of 5, 3 reviews")
     expect(container.textContent).toContain("Fragrance profile")
     expect(container.textContent).toContain("Shipping and returns")
+    expect(container.querySelectorAll("h1")).toHaveLength(1)
+  })
+
+  it("places the description after the purchase panel, with one h1", () => {
+    const product = {
+      id: "p3",
+      title: "Long",
+      handle: "long",
+      description: "A long description",
+    } as HttpTypes.StoreProduct
+    const { container } = render(
+      <ProductTemplate
+        product={product}
+        region={region}
+        countryCode="us"
+        images={[]}
+        brand={null}
+        brandHref={null}
+        reviews={null}
+      />
+    )
+    const descriptions = container.querySelectorAll(
+      '[data-testid="product-description"]'
+    )
+    expect(descriptions).toHaveLength(1)
+    const button = container.querySelector('[data-testid="add-product-button"]')
+    const title = container.querySelector("h1")
+    expect(button).not.toBeNull()
+    expect(
+      title!.compareDocumentPosition(button!) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+    expect(
+      button!.compareDocumentPosition(descriptions[0]) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
     expect(container.querySelectorAll("h1")).toHaveLength(1)
   })
 })
