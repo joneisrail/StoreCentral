@@ -1,120 +1,62 @@
 "use client"
 
 import { MagnifyingGlass } from "@medusajs/icons"
-import { useCallback, useEffect, useRef, useState } from "react"
 import type { SearchClient } from "instantsearch.js"
-import {
-  Configure,
-  InstantSearch,
-  useHits,
-  useInstantSearch,
-  useSearchBox,
-} from "react-instantsearch"
+import { useCallback, useEffect, useRef, useState, type MouseEvent } from "react"
+import { Configure, InstantSearch } from "react-instantsearch"
 
-import useSearchSettled from "@lib/hooks/use-search-settled"
-import useToggleState from "@lib/hooks/use-toggle-state"
-import { PRODUCT_INDEX_NAME, searchClient } from "@lib/search-client"
-import { Text } from "@modules/common/components/ui"
+import { HIGHLIGHT_POST, HIGHLIGHT_PRE } from "@lib/util/highlight"
+import { PRODUCT_INDEX_NAME } from "@lib/search-client"
 import SearchDrawer from "./drawer"
-import SearchHit, { ProductHit } from "./hit"
+import SearchOverlay from "./overlay"
+import { overlaySearchClient } from "./overlay-client"
+import type { SearchInsights } from "./rows"
 
-const HITS_PER_PAGE = 12
-const DEBOUNCE_MS = 250
+export type { SearchInsights } from "./rows"
 
-const SearchPanel = ({ onNavigate }: { onNavigate: () => void }) => {
-  const timer = useRef<number | undefined>(undefined)
+const HITS_PER_PAGE = 8
+// Facet values fetched per attribute; the overlay shows the best three.
+const FACET_VALUES = 10
+const FACETS = ["brand", "category"]
+const HIGHLIGHT = ["title"]
 
-  const queryHook = useCallback(
-    (nextQuery: string, search: (value: string) => void) => {
-      window.clearTimeout(timer.current)
-      timer.current = window.setTimeout(() => search(nextQuery), DEBOUNCE_MS)
-    },
-    []
-  )
-
-  const { query, refine } = useSearchBox({ queryHook })
-  const { items } = useHits<ProductHit>()
-  const { status, error } = useInstantSearch()
-  const { isSettled } = useSearchSettled()
-
-  const [inputValue, setInputValue] = useState(query)
-
-  useEffect(() => () => window.clearTimeout(timer.current), [])
-
-  const hasInput = Boolean(inputValue.trim())
-  const isPending = inputValue.trim() !== query.trim()
-  const hasResults = Boolean(query.trim()) && items.length > 0
-
-  return (
-    <>
-      <div className="flex items-center gap-x-3 border-b border-ui-border-base px-4">
-        <MagnifyingGlass className="shrink-0 text-ui-fg-muted" />
-        <input
-          type="search"
-          value={inputValue}
-          onChange={(event) => {
-            setInputValue(event.target.value)
-            refine(event.target.value)
-          }}
-          placeholder="Search products"
-          aria-label="Search products"
-          autoFocus
-          className="txt-medium w-full bg-transparent py-4 text-ui-fg-base outline-none placeholder:text-ui-fg-muted"
-          data-testid="search-input"
-        />
-      </div>
-
-      <div className="flex-1 overflow-y-auto">
-        {!hasInput ? (
-          <Text
-            className="px-4 py-6 text-center text-ui-fg-muted"
-            data-testid="search-empty"
-          >
-            Start typing to search for products.
-          </Text>
-        ) : status === "error" ? (
-          <Text
-            className="px-4 py-6 text-center text-ui-fg-error"
-            data-testid="search-error"
-          >
-            Couldn&apos;t search products
-            {error?.message ? `: ${error.message}` : "."}
-          </Text>
-        ) : !isSettled ? (
-          <Text
-            className="px-4 py-6 text-center text-ui-fg-muted"
-            data-testid="search-loading"
-          >
-            Searching&hellip;
-          </Text>
-        ) : hasResults ? (
-          <ul className="py-2" data-testid="search-results">
-            {items.map((hit) => (
-              <SearchHit key={hit.objectID} hit={hit} onNavigate={onNavigate} />
-            ))}
-          </ul>
-        ) : isPending || !query.trim() ? (
-          <Text
-            className="px-4 py-6 text-center text-ui-fg-muted"
-            data-testid="search-loading"
-          >
-            Searching&hellip;
-          </Text>
-        ) : (
-          <Text
-            className="px-4 py-6 text-center text-ui-fg-subtle"
-            data-testid="search-no-results"
-          >
-            No products found for &quot;{query}&quot;
-          </Text>
-        )}
-      </div>
-    </>
-  )
+/**
+ * Popular and trending data arrive as a promise from the server so the navbar
+ * never waits on them; their sections appear when it settles.
+ */
+function useInsights(source: Promise<SearchInsights> | undefined) {
+  const [insights, setInsights] = useState<SearchInsights | null>(null)
+  useEffect(() => {
+    let live = true
+    source?.then(
+      (value) => live && setInsights(value),
+      () => {}
+    )
+    return () => {
+      live = false
+    }
+  }, [source])
+  return insights
 }
 
-const Search = () => {
-  const { state: isOpen, open, close } = useToggleState()
+type SearchProps = {
+  /** The region's currency, for product prices in the results. */
+  currencyCode: string
+  insights?: Promise<SearchInsights>
+}
+
+const Search = ({ currencyCode, insights }: SearchProps) => {
+  const [isOpen, setOpen] = useState(false)
+  const opener = useRef<HTMLElement | null>(null)
+  const inputRef = useRef<HTMLInputElement | null>(null)
+  const resolved = useInsights(insights)
+
+  const open = (event: MouseEvent<HTMLElement>) => {
+    opener.current = event.currentTarget
+    setOpen(true)
+  }
+  const close = useCallback(() => setOpen(false), [])
+  const restoreFocus = useCallback(() => opener.current?.focus(), [])
 
   return (
     <>
@@ -122,7 +64,8 @@ const Search = () => {
         type="button"
         onClick={open}
         aria-label="Search products"
-        className="flex min-h-[44px] min-w-[44px] items-center justify-center hover:text-ui-fg-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-deep focus-visible:ring-offset-2 small:hidden"
+        aria-haspopup="dialog"
+        className="flex min-h-[44px] min-w-[44px] items-center justify-center hover:text-gold-deep focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-deep focus-visible:ring-offset-2 small:hidden"
         data-testid="nav-search-button"
       >
         <MagnifyingGlass />
@@ -130,6 +73,7 @@ const Search = () => {
       <button
         type="button"
         onClick={open}
+        aria-haspopup="dialog"
         className="hidden h-11 min-w-[10rem] items-center gap-x-2 rounded-soft border border-line bg-paper px-3 font-sans text-charcoal hover:text-gold-deep focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-deep focus-visible:ring-offset-2 small:flex medium:min-w-[14rem]"
         data-testid="nav-search-field"
       >
@@ -137,14 +81,31 @@ const Search = () => {
         <span>Search products</span>
       </button>
 
-      <SearchDrawer isOpen={isOpen} close={close}>
+      <SearchDrawer
+        isOpen={isOpen}
+        close={close}
+        afterLeave={restoreFocus}
+        initialFocus={inputRef}
+      >
         <InstantSearch
           indexName={PRODUCT_INDEX_NAME}
-          searchClient={searchClient as unknown as SearchClient}
+          searchClient={overlaySearchClient as unknown as SearchClient}
           future={{ preserveSharedStateOnUnmount: true }}
         >
-          <Configure hitsPerPage={HITS_PER_PAGE} />
-          <SearchPanel onNavigate={close} />
+          <Configure
+            hitsPerPage={HITS_PER_PAGE}
+            facets={FACETS}
+            maxValuesPerFacet={FACET_VALUES}
+            attributesToHighlight={HIGHLIGHT}
+            highlightPreTag={HIGHLIGHT_PRE}
+            highlightPostTag={HIGHLIGHT_POST}
+          />
+          <SearchOverlay
+            currencyCode={currencyCode}
+            insights={resolved}
+            inputRef={inputRef}
+            onClose={close}
+          />
         </InstantSearch>
       </SearchDrawer>
     </>
