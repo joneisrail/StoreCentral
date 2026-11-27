@@ -1,3 +1,4 @@
+import { MedusaError } from "@medusajs/framework/utils";
 import type { SearchTypes } from "@medusajs/framework/types";
 import { buildSettings } from "../../../providers/search-meilisearch/utils/settings";
 import { SYNONYMS } from "../../../providers/search-meilisearch/utils/synonyms";
@@ -119,10 +120,45 @@ describe("buildSettings", () => {
     const result = buildSettings(
       productIndex({
         primary_key: "sku",
-        fields: { sku: { type: "keyword", retrievable: false } },
+        fields: {
+          sku: { type: "keyword", retrievable: false },
+          title: { type: "text", searchable: true },
+        },
       }),
     );
-    expect(result.displayedAttributes).toEqual(["sku"]);
+    expect(result.displayedAttributes).toEqual(["sku", "title"]);
+  });
+
+  it("rejects an index with no searchable fields", () => {
+    const build = () =>
+      buildSettings(
+        productIndex({
+          fields: { id: { type: "keyword", filterable: true } },
+        }),
+      );
+    expect(build).toThrow(MedusaError);
+    expect(build).toThrow(/products.*no searchable fields/);
+  });
+
+  it("hides every child of a non-retrievable object container", () => {
+    const result = buildSettings(
+      productIndex({
+        fields: {
+          id: { type: "keyword" },
+          title: { type: "text", searchable: true },
+          internal: {
+            type: "object",
+            retrievable: false,
+            fields: {
+              note: { type: "keyword", filterable: true },
+              own: { type: "keyword", retrievable: true },
+            },
+          },
+        },
+      }),
+    );
+    expect(result.displayedAttributes).toEqual(["id", "title"]);
+    expect(result.filterableAttributes).toEqual(["internal.note"]);
   });
 
   it("sets faceting and pagination limits", () => {

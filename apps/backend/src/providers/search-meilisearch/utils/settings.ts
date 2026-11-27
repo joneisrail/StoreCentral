@@ -1,4 +1,5 @@
 import type { SearchTypes } from "@medusajs/framework/types";
+import { MedusaError } from "@medusajs/framework/utils";
 
 /** The subset of Meilisearch index settings this provider manages. */
 export interface MeiliSettings {
@@ -29,13 +30,20 @@ interface FlatField {
  * Leaf fields by dotted path, in declared order. Object containers are not
  * attributes themselves; their children are.
  */
-function flatten(fields: Record<string, Field>, prefix = ""): FlatField[] {
+function flatten(
+  fields: Record<string, Field>,
+  prefix = "",
+  hidden = false,
+): FlatField[] {
   return Object.entries(fields).flatMap(([name, field]) => {
     const path = `${prefix}${name}`;
+    const hide = hidden || field.retrievable === false;
     if (field.type === "object") {
-      return flatten(field.fields ?? {}, `${path}.`);
+      return flatten(field.fields ?? {}, `${path}.`, hide);
     }
-    return [{ path, field }];
+    // A non-retrievable container hides its children; every other flag is the
+    // leaf's own.
+    return [{ path, field: hide ? { ...field, retrievable: false } : field }];
   });
 }
 
@@ -72,6 +80,15 @@ export function buildSettings(
     .filter(({ field }) => weightOf(field) !== undefined)
     .sort((a, b) => weightOf(b.field)! - weightOf(a.field)!)
     .map(({ path }) => path);
+
+  if (searchableAttributes.length === 0) {
+    // An empty list would reset to Meilisearch's default of `["*"]`, making
+    // every attribute searchable, including the hidden ones.
+    throw new MedusaError(
+      MedusaError.Types.INVALID_DATA,
+      `Search index "${index.physical_name}" has no searchable fields.`,
+    );
+  }
 
   const displayedAttributes = flat
     .filter(({ field }) => isRetrievable(field))
