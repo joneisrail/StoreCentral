@@ -51,13 +51,12 @@ export const Option = ({
 
 type GroupProps = {
   section: Section
-  action?: ReactNode
   testId?: string
   children: ReactNode
 }
 
 /** A titled group of options; the title labels the group. */
-export const Group = ({ section, action, testId, children }: GroupProps) => {
+export const Group = ({ section, testId, children }: GroupProps) => {
   const labelId = section.title ? `${section.rows[0]?.id}-label` : undefined
   return (
     <div
@@ -67,14 +66,13 @@ export const Group = ({ section, action, testId, children }: GroupProps) => {
       data-testid={testId}
     >
       {section.title && (
-        <div className="flex items-center justify-between px-4 pb-1 pt-2">
+        <div className="flex h-11 items-center justify-between px-4">
           <span
             id={labelId}
             className="font-serif text-sm uppercase tracking-wider text-warm-grey"
           >
             {section.title}
           </span>
-          {action}
         </div>
       )}
       {children}

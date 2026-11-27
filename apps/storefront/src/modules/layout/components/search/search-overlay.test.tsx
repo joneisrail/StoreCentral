@@ -341,6 +341,56 @@ describe("Search overlay", () => {
     expect(recent()).toBeNull()
   })
 
+  it("keeps every button outside the listbox in the empty-input state", async () => {
+    window.localStorage.setItem(
+      RECENT_SEARCHES_KEY,
+      JSON.stringify(["vanilla musk", "oud"])
+    )
+    await openSearch(
+      Promise.resolve({
+        popular: ["amber"],
+        trending: [
+          { id: "t1", title: "Trend One", handle: "trend-one", thumbnail: null },
+        ],
+      })
+    )
+    const listbox = document.querySelector('[role="listbox"]') as HTMLElement
+    expect(listbox.querySelectorAll('[role="option"]').length).toBe(4)
+    expect(listbox.querySelector("button")).toBeNull()
+    expect(
+      listbox.querySelector('[data-kind="recent"]')?.textContent
+    ).toBe("vanilla musk")
+    expect(
+      document.querySelector('[aria-label="Clear recent searches"]')
+    ).not.toBeNull()
+    expect(
+      document.querySelectorAll('[aria-label$="from recent searches"]').length
+    ).toBe(2)
+  })
+
+  it("Delete or Backspace on an active recent row removes it", async () => {
+    window.localStorage.setItem(
+      RECENT_SEARCHES_KEY,
+      JSON.stringify(["vanilla musk", "oud"])
+    )
+    const { input } = await openSearch()
+    await userEvent.keyboard("{ArrowDown}{Delete}")
+    const stored = () =>
+      JSON.parse(window.localStorage.getItem(RECENT_SEARCHES_KEY) ?? "[]")
+    expect(stored()).toEqual(["oud"])
+    expect(
+      document.querySelector('[data-testid="search-recent"]')?.textContent
+    ).not.toContain("vanilla musk")
+    expect(
+      document.querySelector('[aria-label="Remove vanilla musk from recent searches"]')
+    ).toBeNull()
+    expect(active(input)?.textContent).toBe("oud")
+    await userEvent.keyboard("{Backspace}")
+    expect(stored()).toEqual([])
+    expect(document.querySelector('[data-testid="search-recent"]')).toBeNull()
+    expect(is.push).not.toHaveBeenCalled()
+  })
+
   it("renders popular searches when the fetch returned a list", async () => {
     await openSearch(
       Promise.resolve({ popular: ["amber", "lattafa"], trending: [] })

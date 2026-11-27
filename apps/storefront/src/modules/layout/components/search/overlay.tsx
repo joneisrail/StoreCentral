@@ -28,7 +28,7 @@ import {
   type Row,
   type SearchInsights,
 } from "./rows"
-import Suggestions from "./suggestions"
+import Suggestions, { RecentControls } from "./suggestions"
 import { useOverlaySearch } from "./use-overlay-search"
 
 export { DEBOUNCE_MS } from "./use-overlay-search"
@@ -104,6 +104,17 @@ const SearchOverlay = ({
 
   const onSelect = (row: Row) => finish(row.record, row.href, false)
 
+  const keepFocus = () => inputRef.current?.focus()
+  const removeRecent = (q: string) => {
+    setRecent(removeRecentSearch(q))
+    keepFocus()
+  }
+  const clearRecent = () => {
+    clearRecentSearches()
+    setRecent([])
+    keepFocus()
+  }
+
   const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     // Keys pressed while an IME composes text belong to the composition.
     if (event.nativeEvent.isComposing) {
@@ -130,10 +141,16 @@ const SearchOverlay = ({
         event.preventDefault()
         onClose()
         break
+      case "Delete":
+      case "Backspace":
+        // With nothing typed, these remove the highlighted recent search.
+        if (!value && activeRow?.kind === "recent") {
+          event.preventDefault()
+          removeRecent(activeRow.query)
+        }
+        break
     }
   }
-
-  const keepFocus = () => inputRef.current?.focus()
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -198,28 +215,28 @@ const SearchOverlay = ({
             No results for “{typed}”. Try another spelling or a brand name.
           </p>
         )}
-        <div role="listbox" id={listboxId} aria-label="Search suggestions">
-          {mode === "suggest" ? (
-            <Suggestions
-              sections={sections}
-              activeId={activeId}
-              onSelect={onSelect}
-              onRemoveRecent={(q) => {
-                setRecent(removeRecentSearch(q))
-                keepFocus()
-              }}
-              onClearRecent={() => {
-                clearRecentSearches()
-                setRecent([])
-                keepFocus()
-              }}
-            />
-          ) : (
-            <ResultsList
-              sections={sections}
-              activeId={activeId}
-              onSelect={onSelect}
-              currencyCode={currencyCode}
+        <div className="relative">
+          <div role="listbox" id={listboxId} aria-label="Search suggestions">
+            {mode === "suggest" ? (
+              <Suggestions
+                sections={sections}
+                activeId={activeId}
+                onSelect={onSelect}
+              />
+            ) : (
+              <ResultsList
+                sections={sections}
+                activeId={activeId}
+                onSelect={onSelect}
+                currencyCode={currencyCode}
+              />
+            )}
+          </div>
+          {mode === "suggest" && recent.length > 0 && (
+            <RecentControls
+              queries={recent}
+              onRemove={removeRecent}
+              onClear={clearRecent}
             />
           )}
         </div>
