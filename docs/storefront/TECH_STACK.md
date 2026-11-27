@@ -11,8 +11,8 @@ Date: 2026-11-25. Versions read from `apps/storefront/package.json` and the shel
 | Motion | none | Framer Motion or CSS | CSS transitions first |
 | Commerce | `@medusajs/js-sdk` 2.21.2, backend = vendored fork | Medusa Store API | Pin storefront SDK to the fork's version |
 | Payments | `@stripe/react-stripe-js` ^5.3, `@stripe/stripe-js` ^8.2 | provider integration | Server-side keys stay in backend |
-| Search UI | `react-instantsearch` ^7.46, `instantsearch.js` 4.113, `@medusajs/instantsearch-adapter` 2.21.2 | Meilisearch + autocomplete | Meilisearch not present (S1) |
-| Search engine | Medusa built-in search framework | Meilisearch | Decision needed |
+| Search UI | `react-instantsearch` ^7.46, `instantsearch.js` 4.113, `@medusajs/instantsearch-adapter` 2.21.2 | Meilisearch + autocomplete | Adapter talks to the backend `/store/search`, never to Meilisearch directly |
+| Search engine | Meilisearch v1.58.0 via a custom Medusa search provider; `meilisearch` npm client 0.63.0 (backend) | Meilisearch | See `SEARCH_ARCHITECTURE.md` |
 | Images | `next/image`, `unoptimized: true` | CDN, AVIF/WebP | Not configured |
 | Tests | none | Lighthouse, unit, e2e | To add |
 | Runtime | Node v24.18.0, Yarn 3.2.1, Turbo | Node | Docker image per `deploy/storefront.Dockerfile` |
@@ -23,4 +23,4 @@ Date: 2026-11-25. Versions read from `apps/storefront/package.json` and the shel
 - `next/font` (built in) for the serif and sans pair.
 - Vitest + Testing Library; Playwright for checkout and search.
 - A CDN in front of the image host (Cloudflare per the brief).
-- Meilisearch client and server only if the search decision says so.
+- Meilisearch: added in Phase 6 (see above).
