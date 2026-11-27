@@ -65,17 +65,26 @@ const productFields = search.define({
   // Read by `/store/search` to scope the index; never returned to hits.
   status: search.keyword().filterable().retrievable(false),
   sales_channel_ids: search.keyword().array().filterable().retrievable(false),
-  title: search.text().searchable({ weight: 3 }).sortable().retrievable(),
-  description: search.text().searchable({ weight: 1 }),
   handle: search.keyword().retrievable(),
   // Returned on hits only: never filtered, sorted or faceted on.
   thumbnail: search.keyword().retrievable(),
   created_at: search.date().sortable().retrievable(),
-  category: search.keyword().array().filterable().facetable().retrievable(),
   labels: search.keyword().array().filterable().facetable().retrievable(),
+  // Searchable fields. Meilisearch ranks attributes by their order, which
+  // buildSettings derives from weight (descending), then declaration order, so
+  // keep this block in the intended order: title, brand (3), sku, option_values
+  // (2), category, fragrance_family, notes, gender, concentration, description
+  // (1).
+  title: search.text().searchable({ weight: 3 }).sortable().retrievable(),
+  brand: search
+    .keyword()
+    .array()
+    .searchable({ weight: 3 })
+    .filterable()
+    .facetable()
+    .retrievable(),
   // Codes matched whole or by prefix, never fuzzily (typo tolerance is off on
-  // it). Weight 2 ranks it below title (3) and level with option values, above
-  // description (1) and notes (not searchable).
+  // it).
   sku: search.keyword().array().searchable({ weight: 2 }).retrievable(),
   option_values: search
     .keyword()
@@ -84,21 +93,42 @@ const productFields = search.define({
     .filterable()
     .facetable()
     .retrievable(),
-  brand: search.keyword().array().filterable().facetable().retrievable(),
-  gender: search.keyword().array().filterable().facetable().retrievable(),
+  category: search
+    .keyword()
+    .array()
+    .searchable({ weight: 1 })
+    .filterable()
+    .facetable()
+    .retrievable(),
   fragrance_family: search
     .keyword()
     .array()
+    .searchable({ weight: 1 })
     .filterable()
     .facetable()
     .retrievable(),
-  notes: search.keyword().array().filterable().facetable().retrievable(),
+  notes: search
+    .keyword()
+    .array()
+    .searchable({ weight: 1 })
+    .filterable()
+    .facetable()
+    .retrievable(),
+  gender: search
+    .keyword()
+    .array()
+    .searchable({ weight: 1 })
+    .filterable()
+    .facetable()
+    .retrievable(),
   concentration: search
     .keyword()
     .array()
+    .searchable({ weight: 1 })
     .filterable()
     .facetable()
     .retrievable(),
+  description: search.text().searchable({ weight: 1 }),
   in_stock: search.boolean().filterable().facetable().retrievable(),
   single_variant_id: search.keyword().retrievable(),
   ...priceFields,

@@ -1,3 +1,4 @@
+import { buildSettings } from "../../providers/search-meilisearch/utils/settings";
 import productIndex, { toDocument } from "../../search/product";
 
 // Registering the index needs a booted Medusa module loader; only the
@@ -147,5 +148,40 @@ describe("product index definition", () => {
     expect(definition.settings?.typo_tolerance?.disabled_on_attributes).toEqual(
       ["sku"],
     );
+  });
+
+  it("searches brand, name, sku, options, category, family, notes, gender, concentration and description, in that rank order", () => {
+    const fields = definition.fields.toFields();
+    const settings = buildSettings({
+      name: "product",
+      entity: "product",
+      primary_key: "id",
+      physical_name: "product_v1",
+      provider: "meilisearch",
+      fields,
+    } as never);
+
+    expect(settings.searchableAttributes).toEqual([
+      "title",
+      "brand",
+      "sku",
+      "option_values",
+      "category",
+      "fragrance_family",
+      "notes",
+      "gender",
+      "concentration",
+      "description",
+    ]);
+
+    for (const name of [
+      "labels",
+      "handle",
+      "thumbnail",
+      "status",
+      "sales_channel_ids",
+    ]) {
+      expect(settings.searchableAttributes).not.toContain(name);
+    }
   });
 });
