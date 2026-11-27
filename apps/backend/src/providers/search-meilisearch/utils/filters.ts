@@ -158,7 +158,23 @@ function compile(filters: SearchFilters): string[] {
       continue;
     }
 
-    if (key === "$and" || key === "$or") {
+    if (key === "$or") {
+      const branches = value as SearchFilters[];
+
+      if (!branches.length) {
+        invalid("The $or operator needs at least one filter.");
+      }
+
+      const children = branches.map((child) => group(compile(child)));
+
+      // A branch with no constraint matches everything, so the whole $or does.
+      if (children.some((child) => !child)) {
+        continue;
+      }
+
+      const joined = children.join(" OR ");
+      clauses.push(children.length > 1 ? `(${joined})` : joined);
+    } else if (key === "$and") {
       const children = (value as SearchFilters[])
         .map((child) => group(compile(child)))
         .filter((child): child is string => !!child);
@@ -167,13 +183,13 @@ function compile(filters: SearchFilters): string[] {
         continue;
       }
 
-      const joined = children.join(key === "$and" ? " AND " : " OR ");
+      const joined = children.join(" AND ");
       clauses.push(children.length > 1 ? `(${joined})` : joined);
     } else if (key === "$not") {
       const inner = compile(value as SearchFilters);
 
       if (!inner.length) {
-        continue;
+        invalid("The $not operator needs a filter that constrains something.");
       }
 
       // A lone group is already parenthesised; a group's text starts with `(`

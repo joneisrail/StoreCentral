@@ -113,6 +113,36 @@ describe("toMeiliFilter", () => {
     );
   });
 
+  it("fails closed on an empty $or or $not", () => {
+    expect(() => toMeiliFilter({ $or: [] })).toThrow(MedusaError);
+    expect(() => toMeiliFilter({ $or: [] })).toThrow(/\$or/);
+    expect(() => toMeiliFilter({ $not: {} })).toThrow(MedusaError);
+    expect(() => toMeiliFilter({ $not: {} })).toThrow(/\$not/);
+    expect(() => toMeiliFilter({ $not: { q: "x", a: undefined } })).toThrow(
+      /\$not/,
+    );
+    expect(() =>
+      toMeiliFilter({ status: "published", $or: [] }),
+    ).toThrow(MedusaError);
+  });
+
+  it("treats an $or with an unconstrained branch as unconstrained", () => {
+    expect(
+      toMeiliFilter({ $or: [{ status: "published" }, {}] }),
+    ).toBeUndefined();
+    expect(
+      toMeiliFilter({ in_stock: true, $or: [{ status: "published" }, {}] }),
+    ).toBe("in_stock = true");
+    expect(toMeiliFilter({ $or: [{}] })).toBeUndefined();
+  });
+
+  it("drops undefined values and empty operator maps as no constraint", () => {
+    expect(toMeiliFilter({ brand: undefined })).toBeUndefined();
+    expect(toMeiliFilter({ brand: {} })).toBeUndefined();
+    expect(toMeiliFilter({ brand: { $eq: undefined } })).toBeUndefined();
+    expect(toMeiliFilter({ brand: {}, in_stock: true })).toBe("in_stock = true");
+  });
+
   it("keeps a hostile value inside one quoted literal", () => {
     const hostile = 'x" OR id != "';
     const result = toMeiliFilter({ brand: hostile });
