@@ -50,10 +50,12 @@ export function clampLimit(raw: unknown): number {
   return Math.min(50, Math.max(1, n))
 }
 
+const MAX_OFFSET = 10000
+
 export function clampOffset(raw: unknown): number {
   const n = toInt(raw)
   if (n === null) {
     return 0
   }
-  return Math.max(0, n)
+  return Math.min(MAX_OFFSET, Math.max(0, n))
 }

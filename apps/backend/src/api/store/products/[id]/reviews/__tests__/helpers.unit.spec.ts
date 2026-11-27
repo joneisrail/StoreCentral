@@ -55,4 +55,5 @@ describe("clampOffset", () => {
   it("negative to 0", () => expect(clampOffset("-3")).toBe(0))
   it("non-numeric to 0", () => expect(clampOffset("abc")).toBe(0))
   it("passes valid", () => expect(clampOffset("20")).toBe(20))
+  it("caps at 10000", () => expect(clampOffset("99999999")).toBe(10000))
 })
