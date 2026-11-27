@@ -1,4 +1,4 @@
-import { loadAvailability } from "../availability";
+import { loadAvailability } from "../../../search/helpers/availability";
 
 describe("loadAvailability", () => {
   it("returns the summed available quantity per variant across locations", async () => {

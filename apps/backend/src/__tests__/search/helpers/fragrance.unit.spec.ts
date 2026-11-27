@@ -3,7 +3,7 @@ import {
   toCategoryNames,
   toMetadataValues,
   toStock,
-} from "../fragrance";
+} from "../../../search/helpers/fragrance";
 
 describe("toCategoryNames", () => {
   it("drops brand categories and keeps department categories", () => {

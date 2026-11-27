@@ -7,7 +7,10 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
   const productId = req.params.id
   const limit = clampLimit(req.query.limit)
   const offset = clampOffset(req.query.offset)
-  const filters = { product_id: productId, status: "approved" }
+  const filters: Record<string, unknown> = {
+    product_id: productId,
+    status: "approved",
+  }
 
   const { data: page } = await query.graph({
     entity: "review",

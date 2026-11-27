@@ -1,4 +1,4 @@
-import { resolveProductIds } from "../resolve-product-ids";
+import { resolveProductIds } from "../../../search/helpers/resolve-product-ids";
 
 type GraphCall = {
   entity: string;

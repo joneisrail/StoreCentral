@@ -1,4 +1,4 @@
-import { toDocument } from "../product";
+import { toDocument } from "../../search/product";
 
 // Registering the index needs a booted Medusa module loader; only the
 // document mapping is under test here.
