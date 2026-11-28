@@ -215,6 +215,7 @@ services:
         NEXT_PUBLIC_STRIPE_KEY: "${NEXT_PUBLIC_STRIPE_KEY:-}"
         NEXT_PUBLIC_STORE_NAME: "${NEXT_PUBLIC_STORE_NAME:-}"
         NEXT_PUBLIC_NEWSLETTER_ACTION_URL: "${NEXT_PUBLIC_NEWSLETTER_ACTION_URL:-}"
+        NEXT_PUBLIC_IMAGE_ORIGIN: "${NEXT_PUBLIC_IMAGE_ORIGIN:-}"
     image: storecentral/storefront:local
     restart: unless-stopped
     # floor value; dev measurement is a lower bound, revisit after the first compose run (docs/ops/memory.md)
@@ -232,6 +233,7 @@ services:
       NEXT_PUBLIC_STRIPE_KEY: "${NEXT_PUBLIC_STRIPE_KEY:-}"
       NEXT_PUBLIC_STORE_NAME: "${NEXT_PUBLIC_STORE_NAME:-}"
       NEXT_PUBLIC_NEWSLETTER_ACTION_URL: "${NEXT_PUBLIC_NEWSLETTER_ACTION_URL:-}"
+      NEXT_PUBLIC_IMAGE_ORIGIN: "${NEXT_PUBLIC_IMAGE_ORIGIN:-}"
     depends_on:
       backend:
         condition: service_healthy

@@ -237,6 +237,17 @@ test("storefront public URL is a build arg and a runtime env", () => {
   assert.ok("NEXT_PUBLIC_MEDUSA_BACKEND_URL" in env)
 })
 
+test("storefront image origin is an optional build arg and runtime env", () => {
+  const args = Object.fromEntries(toList(services.storefront.build.args))
+  const env = Object.fromEntries(toList(services.storefront.environment))
+  for (const [where, map] of [["build arg", args], ["environment", env]]) {
+    assert.equal(map.NEXT_PUBLIC_IMAGE_ORIGIN, "${NEXT_PUBLIC_IMAGE_ORIGIN:-}", `${where} must use the :- form`)
+  }
+  const dockerfile = read("./storefront.Dockerfile")
+  assert.match(dockerfile, /^ARG NEXT_PUBLIC_IMAGE_ORIGIN$/m)
+  assert.match(dockerfile, /NEXT_PUBLIC_IMAGE_ORIGIN=\$NEXT_PUBLIC_IMAGE_ORIGIN/)
+})
+
 test("services build from the repo root with their own Dockerfile", () => {
   for (const [name, file] of [
     ["backend", "backend"],

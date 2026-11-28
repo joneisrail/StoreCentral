@@ -68,7 +68,7 @@ const ImageOrPlaceholder = ({
       alt={alt}
       className="absolute inset-0 object-cover object-center"
       draggable={false}
-      quality={50}
+      quality={60}
       sizes={sizes}
       fill
     />
