@@ -41,7 +41,7 @@ The handles must match exactly (lowercase, as listed).
 1. Collections: create seven collections with handles `best-sellers`, `trending`, `mens`, `womens`, `unisex`, `arabic`, `niche`. Add products to each. `new-arrivals` needs no collection.
 2. Brands: create a top-level product category with handle `brands`. Create one child category per brand under it. Each child becomes a brand tile. The strip shows at most the first 12 brands (`MAX_BRAND_TILES` in `src/lib/data/homepage.ts`).
 3. Shop categories: any other top-level category (no parent) becomes a "Shop by category" tile. The `brands` category is excluded from that grid.
-4. Tile images (optional): on a category, set `metadata.image_url` to an `https://` URL. Values that are not strings or do not start with `https://` are ignored and the tile shows its name only. Tiles render this with a plain `<img>` (lazy loaded, empty alt text because the name is shown beside it).
+4. Tile images (optional): on a category, set `metadata.image_url` to an `https://` URL. Values that are not strings or do not start with `https://` are ignored and the tile shows its name only. Tiles render this with `SafeImage` (`next/image` through the optimiser, lazy loaded, empty alt text because the name is shown beside it); a failing image shows the placeholder in the same box. An image on a host the optimiser does not serve (anything outside `images.remotePatterns`) loads directly from that host, unoptimised. To get it optimised, set `NEXT_PUBLIC_IMAGE_ORIGIN` to that host (one image origin only) or upload the image to the backend file store and use its URL. See `docs/storefront/IMAGES.md`.
 
 Tile link shape: both category tiles and brand tiles link to `/categories/<handle>` (through the localized link, so the country code is prefixed). Brand tiles do not link to a `/brands` page.
 
@@ -51,11 +51,11 @@ Tile link shape: both category tiles and brand tiles link to `/categories/<handl
 
 - `description`: page meta description.
 - `announcement`: `null` for none, or `{ text, href? }`. With `href` the whole text is a link (localized path such as `/store`).
-- `hero`: `{ headline, eyebrow?, subheadline?, cta?: { label, href }, image?: { src, alt } }`. `headline` is required. The image is rendered with `next/image` (fill, priority) under a flat 0.65 charcoal overlay with light text. If the image fails to load, the hero falls back to the gradient with dark text. The image host must be allowed by `images.remotePatterns` in `next.config.js` (or be a local file under `public/`).
+- `hero`: `{ headline, eyebrow?, subheadline?, cta?: { label, href }, image?: { src, alt } }`. `headline` is required. The image is rendered with `next/image` (fill, priority) under a flat 0.65 charcoal overlay with light text. If the image fails to load, the hero falls back to the gradient with dark text. A local file under `public/` or an image on a host in `images.remotePatterns` is served through the optimiser; any other host loads directly, unoptimised (see `docs/storefront/IMAGES.md`).
 - `promos`: array of `{ id, title, href, ctaLabel, text?, image?: { src, alt } }`. Shown as a two-column grid from `small`. `id` must be unique.
 - `editorial`: array of `{ id, title, text, href?, linkLabel?, image?: { src, alt } }`. The link label defaults to "Read more". `id` must be unique.
 
-Promo and editorial images use a plain lazy-loaded `<img>`.
+Promo and editorial images use `SafeImage` (lazy, through the optimiser, placeholder on error). The same host rule as the tiles applies: images from hosts the optimiser does not serve load directly and unoptimised; set `NEXT_PUBLIC_IMAGE_ORIGIN` or import them into the backend file store to optimise them.
 
 Example (promo and announcement):
 
@@ -99,7 +99,7 @@ Then create a collection with that handle in Medusa Admin. `kind: "latest"` is o
 - Search system changes: the nav search field only opens the existing drawer.
 - `/brands` pages: brand tiles link to the category page.
 - Ranking best sellers from orders: "Best sellers" is whatever the owner puts in the `best-sellers` collection.
-- Image optimisation or a CDN: `images.unoptimized` is true; tile, promo and editorial images are plain `<img>` elements.
+- A CDN: none is configured. Image optimisation was added in storefront Phase 7 (`docs/storefront/IMAGES.md`).
 - A newsletter provider integration: only the form POST to a URL the owner supplies.
 
 ## Verification results
