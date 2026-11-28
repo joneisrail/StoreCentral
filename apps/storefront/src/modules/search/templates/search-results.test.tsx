@@ -52,6 +52,17 @@ beforeEach(() => {
 afterEach(cleanup)
 
 describe("SearchResults", () => {
+  it("wraps the results in the space reserver until settled", () => {
+    state.current = { status: "loading", results: { __isArtificial: true } }
+    const { container, rerender } = render(ui("rose"))
+    const col = () =>
+      container.querySelector("[data-testid=results-column]") as HTMLElement
+    expect(col().className).toContain("min-h-[")
+    state.current = settled("rose", 0)
+    rerender(ui("rose"))
+    expect(col().className).not.toContain("min-h-")
+  })
+
   it("renders the query as text, not markup", () => {
     const { container } = render(ui("<b>x</b>"))
     const h1 = container.querySelector("h1")!

@@ -13,6 +13,7 @@ import {
 import { trackSearch } from "@lib/data/track-search"
 import { PRODUCT_INDEX_NAME, searchClient } from "@lib/search-client"
 import LocalizedClientLink from "@modules/common/components/localized-client-link"
+import ReserveResultsSpace from "@modules/store/components/reserve-results-space"
 import StoreHits from "@modules/store/components/store-hits"
 import {
   applyViewToUrl,
@@ -268,7 +269,7 @@ const SearchResults = ({
           >
             <StoreRefinements currencyCode={currencyCode} />
           </aside>
-          <div className="w-full min-w-0">
+          <ReserveResultsSpace view={view}>
             <CurrentRefinements currencyCode={currencyCode} />
             <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
               <ResultCount />
@@ -283,7 +284,7 @@ const SearchResults = ({
               currencyCode={currencyCode}
               view={view}
             />
-          </div>
+          </ReserveResultsSpace>
         </div>
       </InstantSearch>
     </div>

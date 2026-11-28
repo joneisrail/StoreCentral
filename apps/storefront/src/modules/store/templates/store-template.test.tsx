@@ -35,6 +35,12 @@ const toggle = (label: string) =>
   document.querySelector(`[aria-label="${label}"]`) as HTMLElement
 
 describe("StoreTemplate view wiring", () => {
+  it("renders the hits inside the space-reserving results column", () => {
+    render(<StoreTemplate currencyCode="usd" />)
+    const col = document.querySelector("[data-testid=results-column]")
+    expect(col?.querySelector("[data-testid=hits]")).not.toBeNull()
+  })
+
   it("writes and removes view in the URL when toggled", async () => {
     const spy = vi.spyOn(window.history, "replaceState")
     render(<StoreTemplate currencyCode="usd" />)

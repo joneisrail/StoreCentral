@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Configure, InstantSearch, useInstantSearch } from "react-instantsearch"
 
 import { PRODUCT_INDEX_NAME, searchClient } from "@lib/search-client"
+import ReserveResultsSpace from "@modules/store/components/reserve-results-space"
 import StoreHits from "@modules/store/components/store-hits"
 import {
   applyViewToUrl,
@@ -120,7 +121,7 @@ const StoreTemplate = ({
           >
             <StoreRefinements currencyCode={currencyCode} />
           </aside>
-          <div className="w-full min-w-0">
+          <ReserveResultsSpace view={view}>
             <StoreSearchBox />
             <CurrentRefinements currencyCode={currencyCode} />
             <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
@@ -135,7 +136,7 @@ const StoreTemplate = ({
               currencyCode={currencyCode}
               view={view}
             />
-          </div>
+          </ReserveResultsSpace>
         </div>
       </InstantSearch>
     </div>
