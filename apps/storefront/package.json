@@ -37,6 +37,7 @@
     "react-dom": "19.0.5",
     "react-instantsearch": "^7.46.0",
     "server-only": "^0.0.1",
+    "sharp": "0.35.5",
     "tailwindcss-radix": "^2.8.0"
   },
   "devDependencies": {

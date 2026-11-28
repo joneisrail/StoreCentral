@@ -1,0 +1,75 @@
+import { describe, expect, it } from "vitest"
+import { buildRemotePatterns, resolveImageOrigin } from "./image-origin"
+
+describe("resolveImageOrigin", () => {
+  it("prefers the image origin over the backend url", () => {
+    expect(
+      resolveImageOrigin({
+        NEXT_PUBLIC_IMAGE_ORIGIN: "https://img.example.com",
+        NEXT_PUBLIC_MEDUSA_BACKEND_URL: "https://admin.example.com",
+      })
+    ).toBe("https://img.example.com")
+  })
+
+  it("falls back to the backend url", () => {
+    expect(
+      resolveImageOrigin({
+        NEXT_PUBLIC_MEDUSA_BACKEND_URL: "https://admin.example.com",
+      })
+    ).toBe("https://admin.example.com")
+  })
+
+  it("returns the bare origin without path or trailing slash", () => {
+    expect(
+      resolveImageOrigin({ NEXT_PUBLIC_IMAGE_ORIGIN: " https://img.example.com/x " })
+    ).toBe("https://img.example.com")
+    expect(
+      resolveImageOrigin({ NEXT_PUBLIC_IMAGE_ORIGIN: "http://localhost:9000/" })
+    ).toBe("http://localhost:9000")
+  })
+
+  it("returns null for invalid or missing values", () => {
+    expect(resolveImageOrigin({ NEXT_PUBLIC_IMAGE_ORIGIN: "ftp://x" })).toBeNull()
+    expect(resolveImageOrigin({ NEXT_PUBLIC_IMAGE_ORIGIN: "" })).toBeNull()
+    expect(resolveImageOrigin({ NEXT_PUBLIC_IMAGE_ORIGIN: "not a url" })).toBeNull()
+    expect(resolveImageOrigin({})).toBeNull()
+  })
+})
+
+describe("buildRemotePatterns", () => {
+  it("includes the image origin, localhost and both S3 patterns", () => {
+    const patterns = buildRemotePatterns({
+      NEXT_PUBLIC_IMAGE_ORIGIN: "https://img.example.com",
+    })
+    expect(patterns).toEqual([
+      { protocol: "https", hostname: "img.example.com" },
+      { protocol: "http", hostname: "localhost" },
+      { protocol: "https", hostname: "*.s3.*.amazonaws.com" },
+      { protocol: "https", hostname: "*.s3.amazonaws.com" },
+    ])
+  })
+
+  it("keeps the port of the origin", () => {
+    const patterns = buildRemotePatterns({
+      NEXT_PUBLIC_IMAGE_ORIGIN: "http://localhost:9000",
+    })
+    expect(patterns).toContainEqual({
+      protocol: "http",
+      hostname: "localhost",
+      port: "9000",
+    })
+  })
+
+  it("has no duplicates and no wildcard-all hostname", () => {
+    const patterns = buildRemotePatterns({
+      NEXT_PUBLIC_IMAGE_ORIGIN: "http://localhost",
+    })
+    const keys = patterns.map((p) => `${p.protocol}|${p.hostname}|${p.port ?? ""}`)
+    expect(new Set(keys).size).toBe(keys.length)
+    expect(patterns.some((p) => p.hostname === "**")).toBe(false)
+  })
+
+  it("works without any origin", () => {
+    expect(buildRemotePatterns({})).toHaveLength(3)
+  })
+})
