@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import imageLoader, { rewriteImageSrc } from "./image-loader"
 
 describe("rewriteImageSrc", () => {
@@ -41,7 +41,86 @@ describe("rewriteImageSrc", () => {
   })
 })
 
+describe("rewriteImageSrc host restriction", () => {
+  const origin = "https://admin.example.com"
+
+  it("leaves unknown hosts with a /static/ path unchanged", () => {
+    expect(rewriteImageSrc("https://evil.example/static/a.jpg", origin)).toBe(
+      "https://evil.example/static/a.jpg"
+    )
+    expect(
+      rewriteImageSrc("https://bucket.s3.amazonaws.com/static/a.jpg", origin)
+    ).toBe("https://bucket.s3.amazonaws.com/static/a.jpg")
+  })
+
+  it("re-hosts localhost, loopback, origin host and known hosts", () => {
+    const want = "https://admin.example.com/static/a.jpg"
+    expect(rewriteImageSrc("http://localhost:9000/static/a.jpg", origin)).toBe(want)
+    expect(rewriteImageSrc("http://127.0.0.1:9000/static/a.jpg", origin)).toBe(want)
+    expect(rewriteImageSrc("http://[::1]:9000/static/a.jpg", origin)).toBe(want)
+    expect(rewriteImageSrc("http://admin.example.com/static/a.jpg", origin)).toBe(want)
+    expect(
+      rewriteImageSrc("https://api.shop.com/static/a.jpg", origin, ["api.shop.com"])
+    ).toBe(want)
+  })
+
+  it("drops credentials", () => {
+    expect(
+      rewriteImageSrc("http://u:p@localhost:9000/static/a.jpg", origin)
+    ).toBe("https://admin.example.com/static/a.jpg")
+  })
+})
+
 describe("imageLoader", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  it("never emits NaN sizes", () => {
+    const w = (width: unknown) =>
+      imageLoader({ src: "/a.jpg", width: width as number })
+    expect(w(NaN)).toContain("&w=16&")
+    expect(w("abc")).toContain("&w=16&")
+    expect(w(Infinity)).toContain("&w=16&")
+    expect(w(-Infinity)).toContain("&w=16&")
+    expect(w("384")).toContain("&w=384&")
+    const q = (quality: unknown) =>
+      imageLoader({ src: "/a.jpg", width: 64, quality: quality as number })
+    expect(q(NaN)).toMatch(/&q=75$/)
+    expect(q("abc")).toMatch(/&q=75$/)
+    expect(q(Infinity)).toMatch(/&q=75$/)
+    expect(q(-Infinity)).toMatch(/&q=75$/)
+    expect(q("60")).toMatch(/&q=60$/)
+  })
+
+  it("does not treat slash-backslash or backslashes as root-relative", () => {
+    for (const s of ["/\\evil.com", "\\\\evil.com"]) {
+      expect(imageLoader({ src: s, width: 64 })).toBe(s)
+    }
+  })
+
+  it("re-hosts using the image origin env", () => {
+    vi.stubEnv("NEXT_PUBLIC_IMAGE_ORIGIN", "https://img.example.com")
+    const out = imageLoader({
+      src: "http://localhost:9000/static/a b.jpg",
+      width: 640,
+      quality: 80,
+    })
+    expect(out.startsWith("/_next/image?url=")).toBe(true)
+    const params = new URLSearchParams(out.split("?")[1])
+    expect(params.get("url")).toBe("https://img.example.com/static/a%20b.jpg")
+    expect(params.get("w")).toBe("640")
+    expect(params.get("q")).toBe("80")
+  })
+
+  it("wraps the src unchanged without any origin env", () => {
+    vi.stubEnv("NEXT_PUBLIC_IMAGE_ORIGIN", "")
+    vi.stubEnv("NEXT_PUBLIC_MEDUSA_BACKEND_URL", "")
+    expect(
+      imageLoader({ src: "http://localhost:9000/static/a.jpg", width: 64 })
+    ).toBe("/_next/image?url=http%3A%2F%2Flocalhost%3A9000%2Fstatic%2Fa.jpg&w=64&q=75")
+  })
+
   it("builds the optimizer url", () => {
     expect(imageLoader({ src: "/a.jpg", width: 640, quality: 80 })).toBe(
       "/_next/image?url=%2Fa.jpg&w=640&q=80"

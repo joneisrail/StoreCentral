@@ -1,3 +1,4 @@
+// RemotePattern has no public export from next, hence the dist path.
 import type { RemotePattern } from "next/dist/shared/lib/image-config"
 
 type Env = Record<string, string | undefined>
