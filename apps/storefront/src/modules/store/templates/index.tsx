@@ -6,9 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Configure, InstantSearch, useInstantSearch } from "react-instantsearch"
 
 import { PRODUCT_INDEX_NAME, searchClient } from "@lib/search-client"
-import ReserveResultsSpace, {
-  SettledReporter,
-} from "@modules/store/components/reserve-results-space"
+import ReserveResultsSpace from "@modules/store/components/reserve-results-space"
 import StoreHits from "@modules/store/components/store-hits"
 import {
   applyViewToUrl,
@@ -113,7 +111,7 @@ const StoreTemplate = ({
         <h1 data-testid="store-page-title">All products</h1>
       </div>
 
-      <ReserveResultsSpace view={view}>
+      <ReserveResultsSpace>
         <InstantSearch
           indexName={PRODUCT_INDEX_NAME}
           searchClient={searchClient as unknown as SearchClient}
@@ -121,7 +119,6 @@ const StoreTemplate = ({
           future={{ preserveSharedStateOnUnmount: true }}
         >
           <Configure hitsPerPage={PRODUCT_LIMIT} />
-          <SettledReporter />
           <FilterDrawer currencyCode={currencyCode} />
           <div className="flex flex-col small:flex-row small:items-start small:gap-x-8">
             <aside

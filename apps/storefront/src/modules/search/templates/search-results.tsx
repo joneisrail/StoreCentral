@@ -13,9 +13,7 @@ import {
 import { trackSearch } from "@lib/data/track-search"
 import { PRODUCT_INDEX_NAME, searchClient } from "@lib/search-client"
 import LocalizedClientLink from "@modules/common/components/localized-client-link"
-import ReserveResultsSpace, {
-  SettledReporter,
-} from "@modules/store/components/reserve-results-space"
+import ReserveResultsSpace from "@modules/store/components/reserve-results-space"
 import StoreHits from "@modules/store/components/store-hits"
 import {
   applyViewToUrl,
@@ -257,7 +255,7 @@ const SearchResults = ({
         </h1>
       </div>
 
-      <ReserveResultsSpace view={view}>
+      <ReserveResultsSpace>
         <InstantSearch
           indexName={PRODUCT_INDEX_NAME}
           searchClient={searchClient as unknown as SearchClient}
@@ -265,7 +263,6 @@ const SearchResults = ({
           future={{ preserveSharedStateOnUnmount: true }}
         >
           <Configure hitsPerPage={PRODUCT_LIMIT} query={query} />
-          <SettledReporter />
           <SearchTracker query={query} />
           <FilterDrawer currencyCode={currencyCode} />
           <div className="flex flex-col small:flex-row small:items-start small:gap-x-8">

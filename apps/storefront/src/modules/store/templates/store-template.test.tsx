@@ -42,16 +42,17 @@ describe("StoreTemplate server render", () => {
     searchRendersChildren.value = false
     const html = renderToString(<StoreTemplate currencyCode="usd" />)
     searchRendersChildren.value = true
-    expect(html).toContain("min-h-[2000px]")
+    expect(html).toContain("min-h-[100svh]")
     expect(html).not.toContain('data-testid="hits"')
   })
 })
 
 describe("StoreTemplate view wiring", () => {
-  it("renders the hits inside the reserve wrapper", () => {
+  it("keeps the viewport-high minimum once results have settled", () => {
     render(<StoreTemplate currencyCode="usd" />)
     const col = document.querySelector("[data-testid=results-reserve]")
     expect(col?.querySelector("[data-testid=hits]")).not.toBeNull()
+    expect(col?.className).toContain("min-h-[100svh]")
   })
 
   it("writes and removes view in the URL when toggled", async () => {

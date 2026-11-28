@@ -52,16 +52,12 @@ beforeEach(() => {
 afterEach(cleanup)
 
 describe("SearchResults", () => {
-  it("wraps the provider in the reserve until the first results settle", () => {
-    state.current = { status: "loading", results: { __isArtificial: true } }
-    const { container, rerender } = render(ui("rose"))
-    const col = () =>
-      container.querySelector("[data-testid=results-reserve]") as HTMLElement
-    expect(col().className).toContain("min-h-[")
-    expect(col().querySelector("[data-testid=search-container] h1")).toBeNull()
+  it("keeps the viewport-high minimum after results settle, even with zero hits", () => {
     state.current = settled("rose", 0)
-    rerender(ui("rose"))
-    expect(col().className).not.toContain("min-h-")
+    const { container } = render(ui("rose"))
+    expect(
+      container.querySelector("[data-testid=results-reserve]")?.className
+    ).toContain("min-h-[100svh]")
   })
 
   it("renders the query as text, not markup", () => {
