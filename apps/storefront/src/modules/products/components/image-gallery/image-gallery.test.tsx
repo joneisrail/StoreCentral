@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from "vitest"
-import { cleanup, render } from "../../../../test/render"
+import { act, cleanup, render } from "../../../../test/render"
 
 import ImageGallery from "./index"
 
@@ -53,5 +53,25 @@ describe("ImageGallery", () => {
       expect(img.getAttribute("loading")).toBe("lazy")
     }
     expect(imgs[1].getAttribute("alt")).toBe("Oud image 2")
+  })
+
+  it("shows the placeholder in the slot of a failing image", () => {
+    const { container } = render(
+      <ImageGallery
+        title="Oud"
+        images={[
+          { id: "a", url: "/a.jpg" },
+          { id: "b", url: "/broken.jpg" },
+        ] as never}
+      />
+    )
+    const imgs = container.querySelectorAll("img")
+    act(() => {
+      imgs[1].dispatchEvent(new Event("error"))
+    })
+    expect(container.querySelectorAll("img")).toHaveLength(1)
+    const slot = container.querySelector("#b") as HTMLElement
+    expect(slot.querySelector("svg")).not.toBeNull()
+    expect(slot.className).toContain("aspect-[29/34]")
   })
 })

@@ -13,6 +13,9 @@ type SafeImageProps = {
   priority?: boolean
   /** Only the qualities the optimiser allows (next.config images.qualities). */
   quality?: 60 | 75
+  draggable?: boolean
+  /** Icon size of the error placeholder (default 24). */
+  placeholderSize?: number
 }
 
 /**
@@ -26,6 +29,8 @@ const SafeImageInner = ({
   className,
   priority = false,
   quality = 75,
+  draggable,
+  placeholderSize = 24,
 }: SafeImageProps) => {
   const [error, setError] = useState(false)
 
@@ -33,7 +38,7 @@ const SafeImageInner = ({
     return (
       <div className="absolute inset-0 flex h-full w-full items-center justify-center">
         <span className="text-warm-grey">
-          <PlaceholderImage size={24} />
+          <PlaceholderImage size={placeholderSize} />
         </span>
       </div>
     )
@@ -49,6 +54,7 @@ const SafeImageInner = ({
       priority={priority}
       loading={priority ? undefined : "lazy"}
       className={className ?? "object-cover"}
+      draggable={draggable}
       onError={() => setError(true)}
     />
   )

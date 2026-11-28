@@ -1,5 +1,5 @@
 import { Container, clx } from "@modules/common/components/ui"
-import Image from "next/image"
+import SafeImage from "@modules/common/components/safe-image"
 import React from "react"
 
 import PlaceholderImage from "@modules/common/icons/placeholder-image"
@@ -63,14 +63,14 @@ const ImageOrPlaceholder = ({
   alt = "Thumbnail",
 }: Pick<ThumbnailProps, "size" | "sizes" | "alt"> & { image?: string }) => {
   return image ? (
-    <Image
+    <SafeImage
       src={image}
       alt={alt}
       className="absolute inset-0 object-cover object-center"
       draggable={false}
       quality={60}
       sizes={sizes}
-      fill
+      placeholderSize={size === "small" ? 16 : 24}
     />
   ) : (
     <div className="w-full h-full absolute inset-0 flex items-center justify-center">
