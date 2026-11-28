@@ -333,18 +333,24 @@ test("env example has names and non-secret defaults only", () => {
 test("storefront mounts a persistent optimiser cache volume", () => {
   assert.ok(Object.hasOwn(compose.volumes ?? {}, "storefront-image-cache"))
   assert.ok(
-    services.storefront.volumes.includes("storefront-image-cache:/app/apps/storefront/.next/cache"),
+    services.storefront.volumes.includes("storefront-image-cache:/app/apps/storefront/.next/cache/images"),
+  )
+  // Never the whole .next/cache: it also holds Next's data (fetch) cache.
+  assert.ok(
+    !services.storefront.volumes.some((v) => /:\/app\/apps\/storefront\/\.next\/cache\/?$/.test(v)),
+    "the volume must not cover all of .next/cache",
   )
 })
 
 test("storefront image Dockerfile creates the cache dir for node before USER node", () => {
   const dockerfile = read("./storefront.Dockerfile")
-  const dir = "/app/apps/storefront/.next/cache"
+  const dir = "/app/apps/storefront/.next/cache/images"
   const user = dockerfile.indexOf("\nUSER node")
   assert.ok(user >= 0, "USER node missing")
   const before = dockerfile.slice(0, user)
   assert.ok(before.includes(`mkdir -p ${dir}`), "cache dir must be created before USER node")
   assert.ok(before.includes(`chown -R node:node ${dir}`), "cache dir must be chowned before USER node")
+  assert.doesNotMatch(before, /chown -R node:node \/app\/apps\/storefront\/\.next\/cache(\s|$)/)
 })
 
 test("caddyfile storefront host compresses and never adds a second Cache-Control", () => {
@@ -357,6 +363,14 @@ test("caddyfile admin host caches product images under /static", () => {
   const block = hostBlock("ADMIN_HOST")
   assert.match(
     block,
-    /handle \/static\/\*\s*\{\s*reverse_proxy backend:9000\s*\{\s*header_down Cache-Control "public, max-age=2678400"\s*\}\s*\}/,
+    /@productimages\s*\{\s*path \/static\/\*\s*not path \/static\/private-\* \/static\/\*\/private-\*\s*\}/,
   )
+  assert.match(
+    block,
+    /handle @productimages\s*\{\s*reverse_proxy backend:9000\s*\{\s*header_down Cache-Control "public, max-age=2678400"\s*\}\s*\}/,
+  )
+  // Private files (private-<timestamp>-<name>) fall through to the default handle.
+  assert.match(block, /\n\thandle\s*\{\s*reverse_proxy backend:9000\s*\}/)
+  assert.doesNotMatch(block, /handle \/static\/\*/)
+  assert.equal((block.match(/Cache-Control/g) ?? []).length, 1)
 })

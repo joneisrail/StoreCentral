@@ -19,7 +19,15 @@
 	# Product image file names carry a timestamp, so a URL never changes
 	# content. This deliberately overrides Express's default max-age=0;
 	# header_down with two arguments sets (replaces) the response field.
-	handle /static/* {
+	# Medusa's local file provider writes private files (product export and
+	# import CSVs) into the same folder as private-<timestamp>-<name>, at the
+	# top level or under an upload subfolder; those keep the default handle
+	# and Express's max-age=0. Path matching in Caddy is case-insensitive.
+	@productimages {
+		path /static/*
+		not path /static/private-* /static/*/private-*
+	}
+	handle @productimages {
 		reverse_proxy backend:9000 {
 			header_down Cache-Control "public, max-age=2678400"
 		}
