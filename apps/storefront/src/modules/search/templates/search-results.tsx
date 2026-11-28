@@ -13,7 +13,9 @@ import {
 import { trackSearch } from "@lib/data/track-search"
 import { PRODUCT_INDEX_NAME, searchClient } from "@lib/search-client"
 import LocalizedClientLink from "@modules/common/components/localized-client-link"
-import ReserveResultsSpace from "@modules/store/components/reserve-results-space"
+import ReserveResultsSpace, {
+  SettledReporter,
+} from "@modules/store/components/reserve-results-space"
 import StoreHits from "@modules/store/components/store-hits"
 import {
   applyViewToUrl,
@@ -232,7 +234,9 @@ const SearchResults = ({
 
   const routing = useMemo(
     () => ({
-      router: history<CatalogRoute>({ push: createPush(() => viewRef.current) }),
+      router: history<CatalogRoute>({
+        push: createPush(() => viewRef.current),
+      }),
       stateMapping: createSearchStateMapping(
         PRODUCT_INDEX_NAME,
         () => viewRef.current,
@@ -253,40 +257,43 @@ const SearchResults = ({
         </h1>
       </div>
 
-      <InstantSearch
-        indexName={PRODUCT_INDEX_NAME}
-        searchClient={searchClient as unknown as SearchClient}
-        routing={routing}
-        future={{ preserveSharedStateOnUnmount: true }}
-      >
-        <Configure hitsPerPage={PRODUCT_LIMIT} query={query} />
-        <SearchTracker query={query} />
-        <FilterDrawer currencyCode={currencyCode} />
-        <div className="flex flex-col small:flex-row small:items-start small:gap-x-8">
-          <aside
-            aria-label="Filters"
-            className="hidden small:block small:w-[250px] small:shrink-0 small:py-4"
-          >
-            <StoreRefinements currencyCode={currencyCode} />
-          </aside>
-          <ReserveResultsSpace view={view}>
-            <CurrentRefinements currencyCode={currencyCode} />
-            <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
-              <ResultCount />
-              <div className="flex items-center gap-x-4">
-                <SortSelect currencyCode={currencyCode} />
-                <ViewToggle view={view} onChange={changeView} />
+      <ReserveResultsSpace view={view}>
+        <InstantSearch
+          indexName={PRODUCT_INDEX_NAME}
+          searchClient={searchClient as unknown as SearchClient}
+          routing={routing}
+          future={{ preserveSharedStateOnUnmount: true }}
+        >
+          <Configure hitsPerPage={PRODUCT_LIMIT} query={query} />
+          <SettledReporter />
+          <SearchTracker query={query} />
+          <FilterDrawer currencyCode={currencyCode} />
+          <div className="flex flex-col small:flex-row small:items-start small:gap-x-8">
+            <aside
+              aria-label="Filters"
+              className="hidden small:block small:w-[250px] small:shrink-0 small:py-4"
+            >
+              <StoreRefinements currencyCode={currencyCode} />
+            </aside>
+            <div className="w-full min-w-0">
+              <CurrentRefinements currencyCode={currencyCode} />
+              <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
+                <ResultCount />
+                <div className="flex items-center gap-x-4">
+                  <SortSelect currencyCode={currencyCode} />
+                  <ViewToggle view={view} onChange={changeView} />
+                </div>
               </div>
+              <SearchBody
+                query={query}
+                popular={popularSearches}
+                currencyCode={currencyCode}
+                view={view}
+              />
             </div>
-            <SearchBody
-              query={query}
-              popular={popularSearches}
-              currencyCode={currencyCode}
-              view={view}
-            />
-          </ReserveResultsSpace>
-        </div>
-      </InstantSearch>
+          </div>
+        </InstantSearch>
+      </ReserveResultsSpace>
     </div>
   )
 }

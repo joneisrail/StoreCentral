@@ -6,7 +6,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Configure, InstantSearch, useInstantSearch } from "react-instantsearch"
 
 import { PRODUCT_INDEX_NAME, searchClient } from "@lib/search-client"
-import ReserveResultsSpace from "@modules/store/components/reserve-results-space"
+import ReserveResultsSpace, {
+  SettledReporter,
+} from "@modules/store/components/reserve-results-space"
 import StoreHits from "@modules/store/components/store-hits"
 import {
   applyViewToUrl,
@@ -94,8 +96,13 @@ const StoreTemplate = ({
     () => ({
       // The router writes after a 400ms debounce; `push` re-applies the view
       // at that moment so a refine-then-toggle inside the window keeps it.
-      router: history<CatalogRoute>({ push: createPush(() => viewRef.current) }),
-      stateMapping: createStateMapping(PRODUCT_INDEX_NAME, () => viewRef.current),
+      router: history<CatalogRoute>({
+        push: createPush(() => viewRef.current),
+      }),
+      stateMapping: createStateMapping(
+        PRODUCT_INDEX_NAME,
+        () => viewRef.current
+      ),
     }),
     []
   )
@@ -106,39 +113,42 @@ const StoreTemplate = ({
         <h1 data-testid="store-page-title">All products</h1>
       </div>
 
-      <InstantSearch
-        indexName={PRODUCT_INDEX_NAME}
-        searchClient={searchClient as unknown as SearchClient}
-        routing={routing}
-        future={{ preserveSharedStateOnUnmount: true }}
-      >
-        <Configure hitsPerPage={PRODUCT_LIMIT} />
-        <FilterDrawer currencyCode={currencyCode} />
-        <div className="flex flex-col small:flex-row small:items-start small:gap-x-8">
-          <aside
-            aria-label="Filters"
-            className="hidden small:block small:w-[250px] small:shrink-0 small:py-4"
-          >
-            <StoreRefinements currencyCode={currencyCode} />
-          </aside>
-          <ReserveResultsSpace view={view}>
-            <StoreSearchBox />
-            <CurrentRefinements currencyCode={currencyCode} />
-            <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
-              <ResultCount />
-              <div className="flex items-center gap-x-4">
-                <SortSelect currencyCode={currencyCode} />
-                <ViewToggle view={view} onChange={changeView} />
+      <ReserveResultsSpace view={view}>
+        <InstantSearch
+          indexName={PRODUCT_INDEX_NAME}
+          searchClient={searchClient as unknown as SearchClient}
+          routing={routing}
+          future={{ preserveSharedStateOnUnmount: true }}
+        >
+          <Configure hitsPerPage={PRODUCT_LIMIT} />
+          <SettledReporter />
+          <FilterDrawer currencyCode={currencyCode} />
+          <div className="flex flex-col small:flex-row small:items-start small:gap-x-8">
+            <aside
+              aria-label="Filters"
+              className="hidden small:block small:w-[250px] small:shrink-0 small:py-4"
+            >
+              <StoreRefinements currencyCode={currencyCode} />
+            </aside>
+            <div className="w-full min-w-0">
+              <StoreSearchBox />
+              <CurrentRefinements currencyCode={currencyCode} />
+              <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
+                <ResultCount />
+                <div className="flex items-center gap-x-4">
+                  <SortSelect currencyCode={currencyCode} />
+                  <ViewToggle view={view} onChange={changeView} />
+                </div>
               </div>
+              <StoreHits
+                hitsPerPage={PRODUCT_LIMIT}
+                currencyCode={currencyCode}
+                view={view}
+              />
             </div>
-            <StoreHits
-              hitsPerPage={PRODUCT_LIMIT}
-              currencyCode={currencyCode}
-              view={view}
-            />
-          </ReserveResultsSpace>
-        </div>
-      </InstantSearch>
+          </div>
+        </InstantSearch>
+      </ReserveResultsSpace>
     </div>
   )
 }

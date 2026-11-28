@@ -1,58 +1,75 @@
 "use client"
 
-import { useRef, type ReactNode } from "react"
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  type ReactNode,
+} from "react"
 
 import useSearchSettled from "@lib/hooks/use-search-settled"
 import type { CatalogView } from "./store-hits/view-state"
 
-// Space for a first page (12 products) before InstantSearch has any hits, so
-// the footer does not jump down when they arrive. Heights are card height
-// (4/5 image + ~100px title, price and button) per row, plus 32px row gaps.
-// Column widths assume the 1280px content container minus the 250px filter
-// aside and 32px gap where the aside shows.
-//   grid, < small (2 cols, 6 rows): ~358px wide -> 167px column ->
-//     209px image + 100 = ~309px; 6 x 309 + 5 x 32 = ~2014 -> 1900 (the
-//     reserve may undershoot a little, never overshoot into a blank gap).
-//   grid, small (3 cols, 4 rows): ~694px wide -> 215px column ->
-//     269px image + 100 = ~369px; 4 x 369 + 3 x 32 = ~1572 -> 1500.
-//   grid, medium (4 cols, 3 rows): ~940px wide -> 217px column ->
-//     271px image + 100 = ~371px; 3 x 371 + 2 x 32 = ~1177 -> 1150.
+// Space for the whole region under the page heading (toolbar plus a first page
+// of 12 products) before InstantSearch has any hits, so the footer does not
+// jump when they arrive. Card = 4/5 image + ~100px of title, price and button;
+// row gap 32px; the toolbar (search box, count, sort) adds ~70px.
+//   grid, < small (2 cols, 6 rows): ~358px wide -> 167px column -> 209px image
+//     + 100 = ~309px; 6 x 309 + 5 x 32 = ~2014, + 70 = ~2084 -> 2000.
+//   grid, small (3 cols, 4 rows): ~694px wide -> 215px column -> 269px image
+//     + 100 = ~369px; 4 x 369 + 3 x 32 = ~1572, + 70 = ~1642 -> 1550.
+//   grid, medium (4 cols, 3 rows): ~940px wide -> 217px column -> 271px image
+//     + 100 = ~371px; 3 x 371 + 2 x 32 = ~1177, + 70 = ~1247 -> 1200.
 //   list: rows vary widely with the viewport, so a smaller fixed reserve.
-const GRID_RESERVE = "min-h-[1900px] small:min-h-[1500px] medium:min-h-[1150px]"
-const LIST_RESERVE = "min-h-[1200px]"
+// Rounded down on purpose: undershooting is better than a blank gap.
+const GRID_RESERVE = "min-h-[2000px] small:min-h-[1550px] medium:min-h-[1200px]"
+const LIST_RESERVE = "min-h-[1250px]"
 
-type Props = {
-  view?: CatalogView
-  children: ReactNode
-}
+const SettledContext = createContext<(() => void) | null>(null)
 
 /**
- * The results column. Holds a min-height only until the first result set has
- * settled (any settled set, including zero hits), then lets content decide so
- * short results leave no blank space. Later refinements never bring it back.
+ * Wraps the <InstantSearch> provider. It lives OUTSIDE it on purpose: the
+ * provider renders no children on the server, so a reserve held inside would
+ * only appear after hydration, too late to stop the footer jumping. Holds a
+ * min-height until a SettledReporter inside reports the first settled result
+ * set (zero hits included); it never comes back on later refinements.
  */
-const ReserveResultsSpace = ({ view = "grid", children }: Props) => {
-  const { isSettled } = useSearchSettled()
-  const everSettled = useRef(false)
-
-  if (isSettled) {
-    everSettled.current = true
-  }
-
-  const reserve = everSettled.current
+export const ReserveResultsSpace = ({
+  view = "grid",
+  children,
+}: {
+  view?: CatalogView
+  children: ReactNode
+}) => {
+  const [settled, setSettled] = useState(false)
+  const reserve = settled
     ? ""
     : view === "list"
       ? LIST_RESERVE
       : GRID_RESERVE
 
   return (
-    <div
-      className={`w-full min-w-0 ${reserve}`.trim()}
-      data-testid="results-column"
-    >
-      {children}
-    </div>
+    <SettledContext.Provider value={() => setSettled(true)}>
+      <div className={reserve} data-testid="results-reserve">
+        {children}
+      </div>
+    </SettledContext.Provider>
   )
+}
+
+/** Render inside <InstantSearch>: tells the reserve the first results landed. */
+export const SettledReporter = () => {
+  const { isSettled } = useSearchSettled()
+  const report = useContext(SettledContext)
+
+  useEffect(() => {
+    if (isSettled) {
+      report?.()
+    }
+  }, [isSettled, report])
+
+  return null
 }
 
 export default ReserveResultsSpace
