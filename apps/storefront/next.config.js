@@ -28,20 +28,32 @@ const parseHttpOrigin = (value) => {
   }
 }
 
+const LOCAL_HOSTS = ["localhost", "127.0.0.1", "[::1]"]
+
 const buildRemotePatterns = (env) => {
   const patterns = []
+  const production = env.NODE_ENV === "production"
   const origin =
     parseHttpOrigin(env.NEXT_PUBLIC_IMAGE_ORIGIN) ||
     parseHttpOrigin(env.NEXT_PUBLIC_MEDUSA_BACKEND_URL)
   if (origin) {
+    // A local origin on the default port is pinned with port "" in
+    // production; a missing port would match every port.
+    const pinPort =
+      origin.port !== "" || (production && LOCAL_HOSTS.includes(origin.hostname))
     patterns.push({
       protocol: origin.protocol === "https:" ? "https" : "http",
       hostname: origin.hostname,
-      ...(origin.port ? { port: origin.port } : {}),
+      ...(pinPort ? { port: origin.port } : {}),
     })
   }
+  // Any-port localhost only outside production: Next has no private-address
+  // block, so in production localhost is allowed only as the origin above,
+  // pinned to its port.
+  if (!production) {
+    patterns.push({ protocol: "http", hostname: "localhost" })
+  }
   patterns.push(
-    { protocol: "http", hostname: "localhost" },
     { protocol: "https", hostname: "*.s3.*.amazonaws.com" },
     { protocol: "https", hostname: "*.s3.amazonaws.com" }
   )

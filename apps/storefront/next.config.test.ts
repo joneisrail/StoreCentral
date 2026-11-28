@@ -93,8 +93,49 @@ describe("next.config.js images", () => {
     expect(images.qualities).toEqual([60, 75])
   })
 
-  it("has no local-origin opt-in in production", () => {
-    const images = loadImagesConfig({ NODE_ENV: "production" })
+  const localhostEntries = (images: ImagesConfig) =>
+    (images.remotePatterns ?? []).filter(
+      (p) => p.hostname === "localhost" || p.hostname === "127.0.0.1"
+    )
+
+  it("has no localhost pattern in production with a public origin", () => {
+    expect(localhostEntries(loadImagesConfig({ NODE_ENV: "production" }))).toEqual([])
+    expect(
+      localhostEntries(
+        loadImagesConfig({
+          NODE_ENV: "production",
+          NEXT_PUBLIC_IMAGE_ORIGIN: "https://img.example.com",
+        })
+      )
+    ).toEqual([])
+  })
+
+  it("pins localhost to the origin port in production", () => {
+    const images = loadImagesConfig({
+      NODE_ENV: "production",
+      NEXT_PUBLIC_IMAGE_ORIGIN: "http://localhost:9000",
+    })
+    expect(localhostEntries(images)).toEqual([
+      { protocol: "http", hostname: "localhost", port: "9000" },
+    ])
+  })
+
+  it("falls back to the backend url for the localhost port in production", () => {
+    const images = loadImagesConfig({
+      NODE_ENV: "production",
+      NEXT_PUBLIC_MEDUSA_BACKEND_URL: "http://localhost:9000",
+    })
+    expect(localhostEntries(images)).toEqual([
+      { protocol: "http", hostname: "localhost", port: "9000" },
+    ])
+  })
+
+  it("allows any localhost port in development", () => {
+    const images = loadImagesConfig({ NODE_ENV: "development" })
+    expect(images.remotePatterns).toContainEqual({
+      protocol: "http",
+      hostname: "localhost",
+    })
     expect(images.dangerouslyAllowLocalIP).toBeUndefined()
   })
 
@@ -121,23 +162,34 @@ describe("next.config.js images", () => {
     })
   })
 
-  it.each<Env>([
+  const agreementInputs: Env[] = [
     {},
     { NEXT_PUBLIC_IMAGE_ORIGIN: "https://img.example.com" },
     { NEXT_PUBLIC_IMAGE_ORIGIN: " https://img.example.com/x " },
     { NEXT_PUBLIC_IMAGE_ORIGIN: "http://localhost:9000" },
     { NEXT_PUBLIC_IMAGE_ORIGIN: "http://localhost" },
+    { NEXT_PUBLIC_IMAGE_ORIGIN: "http://127.0.0.1:9000" },
     { NEXT_PUBLIC_IMAGE_ORIGIN: "ftp://x" },
     { NEXT_PUBLIC_IMAGE_ORIGIN: "not a url" },
     { NEXT_PUBLIC_MEDUSA_BACKEND_URL: "http://localhost:9000" },
     { NEXT_PUBLIC_MEDUSA_BACKEND_URL: "https://admin.example.com:8443/api" },
-    { NEXT_PUBLIC_MEDUSA_BACKEND_URL: undefined, NODE_ENV: "development" },
-  ])("builds the same remote patterns as image-origin.ts for %o", (env) => {
+  ]
+
+  it.each(
+    ["production", "development"].flatMap((NODE_ENV) =>
+      agreementInputs.map((env) => ({ ...env, NODE_ENV }))
+    )
+  )("builds the same remote patterns as image-origin.ts for %o", (env) => {
     const images = loadImagesConfig(env)
     const expected = buildRemotePatterns({
       NEXT_PUBLIC_MEDUSA_BACKEND_URL: "https://api.example.com",
       ...env,
     })
     expect(images.remotePatterns).toEqual(expected)
+  })
+
+  it("agrees with image-origin.ts in development without a backend url", () => {
+    const env = { NEXT_PUBLIC_MEDUSA_BACKEND_URL: undefined, NODE_ENV: "development" }
+    expect(loadImagesConfig(env).remotePatterns).toEqual(buildRemotePatterns(env))
   })
 })

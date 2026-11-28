@@ -72,4 +72,50 @@ describe("buildRemotePatterns", () => {
   it("works without any origin", () => {
     expect(buildRemotePatterns({})).toHaveLength(3)
   })
+
+  const localhostEntries = (env: Record<string, string | undefined>) =>
+    buildRemotePatterns(env).filter(
+      (p) => p.hostname === "localhost" || p.hostname === "127.0.0.1"
+    )
+
+  it("allows any localhost port outside production", () => {
+    expect(buildRemotePatterns({ NODE_ENV: "development" })).toContainEqual({
+      protocol: "http",
+      hostname: "localhost",
+    })
+  })
+
+  it("has no localhost pattern in production without a local origin", () => {
+    expect(localhostEntries({ NODE_ENV: "production" })).toEqual([])
+    expect(
+      localhostEntries({
+        NODE_ENV: "production",
+        NEXT_PUBLIC_IMAGE_ORIGIN: "https://img.example.com",
+      })
+    ).toEqual([])
+  })
+
+  it("pins localhost to the origin port in production", () => {
+    expect(
+      localhostEntries({
+        NODE_ENV: "production",
+        NEXT_PUBLIC_MEDUSA_BACKEND_URL: "http://localhost:9000",
+      })
+    ).toEqual([{ protocol: "http", hostname: "localhost", port: "9000" }])
+    expect(
+      localhostEntries({
+        NODE_ENV: "production",
+        NEXT_PUBLIC_IMAGE_ORIGIN: "http://127.0.0.1:9000",
+      })
+    ).toEqual([{ protocol: "http", hostname: "127.0.0.1", port: "9000" }])
+  })
+
+  it("pins a default-port local origin to the default port in production", () => {
+    expect(
+      localhostEntries({
+        NODE_ENV: "production",
+        NEXT_PUBLIC_IMAGE_ORIGIN: "http://localhost",
+      })
+    ).toEqual([{ protocol: "http", hostname: "localhost", port: "" }])
+  })
 })
