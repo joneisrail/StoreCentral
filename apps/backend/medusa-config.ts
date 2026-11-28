@@ -23,6 +23,9 @@ module.exports = defineConfig({
       resolve: './src/modules/review',
     },
     {
+      resolve: './src/modules/search-insights',
+    },
+    {
       resolve: './src/modules/order-events',
     },
     {
@@ -70,6 +73,35 @@ module.exports = defineConfig({
             },
           },
         ],
+      },
+    },
+    {
+      // Registering the Search Module explicitly replaces Medusa's default
+      // entry (Postgres provider only). Meilisearch serves every index that
+      // names no provider. The Postgres provider is re-declared on purpose:
+      // indexes built on it before this change are recorded against
+      // "search-postgres", and the module drops those old versions during
+      // `db:migrate` through that provider. Without it the drop fails, the
+      // old records are retried on every migration and their tables stay.
+      resolve: '@medusajs/medusa/search',
+      options: {
+        providers: [
+          {
+            resolve: './src/providers/search-meilisearch',
+            id: 'meilisearch',
+            options: {
+              host: process.env.MEILISEARCH_HOST || 'http://127.0.0.1:7700',
+              apiKey: process.env.MEILISEARCH_API_KEY,
+              timeout: 3000,
+            },
+          },
+          {
+            resolve: '@medusajs/medusa/search-postgres',
+            id: 'postgres',
+            options: { engine: 'native' },
+          },
+        ],
+        default_provider: 'meilisearch',
       },
     },
     ...runtime.modules,

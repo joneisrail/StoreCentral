@@ -104,10 +104,27 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+      # The product search index lives in Meilisearch; the backend refuses to
+      # start without MEILISEARCH_API_KEY. Keep the tag in step with
+      # deploy/docker-compose.yml and scripts/dev/meilisearch.ps1.
+      meilisearch:
+        image: getmeili/meilisearch:v1.58.0
+        env:
+          MEILI_MASTER_KEY: ci-ephemeral-meilisearch-key
+          MEILI_NO_ANALYTICS: "true"
+        ports:
+          - 7700:7700
+        options: >-
+          --health-cmd "wget -qO- http://localhost:7700/health"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     env:
       DB_HOST: localhost
       DB_USERNAME: ci_user
       DB_PASSWORD: ci-ephemeral-backend-db
+      MEILISEARCH_HOST: http://localhost:7700
+      MEILISEARCH_API_KEY: ci-ephemeral-meilisearch-key
       # Gates channel-offers-redis-lock.spec.ts, which runs only when set.
       REDIS_TEST_URL: redis://localhost:6379/15
     steps:

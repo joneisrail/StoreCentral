@@ -1372,6 +1372,7 @@ __metadata:
     "@types/react-dom": ^18.2.25
     jest: ^29.7.0
     jest-environment-jsdom: ^29.7.0
+    meilisearch: 0.63.0
     prop-types: ^15.8.1
     react: ^18.3.1
     react-dom: ^18.3.1
@@ -18965,6 +18966,13 @@ __metadata:
   version: 0.3.0
   resolution: "media-typer@npm:0.3.0"
   checksum: d160f31246907e79fed398470285f21bafb45a62869dc469b1c8877f3f064f5eabc4bcc122f9479b8b605bc5c76187d7871cf84c4ee3ecd3e487da1993279928
+  languageName: node
+  linkType: hard
+
+"meilisearch@npm:0.63.0":
+  version: 0.63.0
+  resolution: "meilisearch@npm:0.63.0"
+  checksum: 930fef5e5b07441ece2daf6b13f172ff3c0b9de4d4c1ead8a61e2da6571c4cde6b64ffba9f2bedc1b190eb7c798cc981d439dd08263273cebaf865b24c6f1f84
   languageName: node
   linkType: hard
 

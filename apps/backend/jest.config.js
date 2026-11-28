@@ -27,6 +27,10 @@ module.exports = {
   // Ignore the compiled copy that `medusa build` writes under .medusa. The
   // separator class keeps the pattern working on Windows paths too.
   testPathIgnorePatterns: ["/node_modules/", "[\\/]\\.medusa[\\/]"],
+  // `meilisearch` ships ESM only. Compiling it to CommonJS lets the
+  // Meilisearch integration spec load the real client; that spec runs without
+  // --experimental-vm-modules, which would otherwise refuse to require ESM.
+  transformIgnorePatterns: ["[\\/]node_modules[\\/](?!meilisearch[\\/])"],
   setupFiles: ["./integration-tests/setup.js"],
 };
 

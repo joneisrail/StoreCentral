@@ -21,6 +21,7 @@ function backendEnv(extra = {}) {
     SELLER_HUB_INTERNAL_URL: "http://localhost:3001",
     SELLER_HUB_WEBHOOK_URL: "http://localhost:3001/hook",
     SELLER_HUB_INTERNAL_SECRET: strong("internal"),
+    MEILISEARCH_API_KEY: strong("meili"),
     ...extra,
   }
 }
@@ -61,6 +62,14 @@ test("optional secret is checked only when set", () => {
   assert.equal(checkEnv("backend", backendEnv()).ok, true)
   const r = checkEnv("backend", backendEnv({ AUTH_MFA_ENCRYPTION_KEY: "short" }))
   assert.deepEqual(r.problems, ["AUTH_MFA_ENCRYPTION_KEY: shorter than 32 characters"])
+})
+
+test("MEILISEARCH_API_KEY is a required backend secret", () => {
+  const env = backendEnv()
+  delete env.MEILISEARCH_API_KEY
+  assert.deepEqual(checkEnv("backend", env).problems, ["MEILISEARCH_API_KEY: missing"])
+  const short = checkEnv("backend", backendEnv({ MEILISEARCH_API_KEY: "a".repeat(16) }))
+  assert.deepEqual(short.problems, ["MEILISEARCH_API_KEY: shorter than 32 characters"])
 })
 
 test("REDIS_URL is required only when BACKEND_REDIS_MODULES is true", () => {

@@ -90,28 +90,47 @@ cp apps/backend/.env.template apps/backend/.env
 DATABASE_URL=postgres://postgres:@localhost:5432/medusa-dtc-starter
 ```
 
-4. Run migrations:
+4. Set up Meilisearch (product search). The backend refuses to start without
+   `MEILISEARCH_API_KEY`. Put a random key of 16+ characters (for example
+   `openssl rand -hex 24`) in `apps/backend/.env`; it is the Meilisearch master
+   key and is backend-only, never put it in the storefront. Then start the
+   pinned Meilisearch on `127.0.0.1:7700` (Windows; it downloads the binary into
+   `.meilisearch/` on first run):
+
+```bash
+# apps/backend/.env
+MEILISEARCH_API_KEY=<random 16+ characters>
+MEILISEARCH_HOST=http://127.0.0.1:7700
+
+powershell -File scripts/dev/meilisearch.ps1
+```
+
+   On another OS run Meilisearch v1.58.0 with `--master-key` set to the same
+   key. The product index seeds itself on the backend's first start (about a
+   minute). See `docs/storefront/SEARCH_ARCHITECTURE.md`.
+
+5. Run migrations:
 
 ```bash
 cd apps/backend
 pnpm medusa db:migrate
 ```
 
-5. Add admin user:
+6. Add admin user:
 
 ```bash
 cd apps/backend
 pnpm medusa user -e admin@test.com -p supersecret
 ```
 
-6. Start Medusa backend:
+7. Start Medusa backend:
 
 ```bash
 cd apps/backend
 pnpm dev
 ```
 
-7. Open the admin dashboard at `localhost:9000/app` and log in. Retrieve your publishable API key at Settings > Publishable API key.
+8. Open the admin dashboard at `localhost:9000/app` and log in. Retrieve your publishable API key at Settings > Publishable API key.
 
 8. Set up environment variables for the storefront:
 

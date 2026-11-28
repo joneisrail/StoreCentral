@@ -36,6 +36,8 @@ x-backend-environment: &backend-environment
   SELLER_HUB_INTERNAL_URL: http://seller-hub:7005
   SELLER_HUB_WEBHOOK_URL: http://seller-hub:7005
   SELLER_HUB_INTERNAL_SECRET: "${SELLER_HUB_INTERNAL_SECRET:?SELLER_HUB_INTERNAL_SECRET is required}"
+  MEILISEARCH_HOST: http://meilisearch:7700
+  MEILISEARCH_API_KEY: "${MEILISEARCH_API_KEY:?MEILISEARCH_API_KEY is required}"
   EASYPOST_API_KEY: "${EASYPOST_API_KEY:-}"
   EASYPOST_WEBHOOK_SECRET: "${EASYPOST_WEBHOOK_SECRET:-}"
   EASYPOST_DEFAULT_PARCEL_WEIGHT: "${EASYPOST_DEFAULT_PARCEL_WEIGHT:-}"
@@ -88,6 +90,27 @@ services:
       retries: 10
     networks: [internal]
 
+  meilisearch:
+    # Same version as scripts/dev/meilisearch.ps1. No published port: only the
+    # backend reaches it, over the internal network (MEILISEARCH_HOST).
+    image: getmeili/meilisearch:v1.58.0
+    restart: unless-stopped
+    # floor value; dev measurement is a lower bound, revisit after the first compose run (docs/ops/memory.md)
+    mem_limit: 512m
+    environment:
+      MEILI_ENV: production
+      MEILI_MASTER_KEY: "${MEILISEARCH_API_KEY:?MEILISEARCH_API_KEY is required}"
+      MEILI_NO_ANALYTICS: "true"
+    volumes:
+      - meilisearch-data:/meili_data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:7700/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks: [internal]
+
   migrate:
     # Reuses the image built by the backend service (no build here, so the
     # same tag is never built twice). Build first: docker compose build, then
@@ -104,6 +127,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      meilisearch:
+        condition: service_healthy
     networks: [internal]
 
   backend:
@@ -118,6 +143,8 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      meilisearch:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
@@ -279,5 +306,6 @@ networks:
 volumes:
   postgres-data:
   redis-data:
+  meilisearch-data:
   caddy-data:
   caddy-config:

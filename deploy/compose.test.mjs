@@ -43,6 +43,9 @@ const LITERAL_ALLOWLIST = new Set([
   "WEBHOOK_PORT",
   "NEXT_TELEMETRY_DISABLED",
   "NODE_OPTIONS",
+  "MEILI_ENV",
+  "MEILI_NO_ANALYTICS",
+  "MEILISEARCH_HOST",
 ])
 
 test("the expected services exist", () => {
@@ -87,7 +90,12 @@ test("no environment value is a secret literal", () => {
 
 test("required secrets use the required-variable form", () => {
   const env = Object.fromEntries(toList(services.backend.environment))
-  for (const key of ["JWT_SECRET", "COOKIE_SECRET", "SELLER_HUB_INTERNAL_SECRET"]) {
+  for (const key of [
+    "JWT_SECRET",
+    "COOKIE_SECRET",
+    "SELLER_HUB_INTERNAL_SECRET",
+    "MEILISEARCH_API_KEY",
+  ]) {
     assert.match(String(env[key]), /\$\{[A-Z_]+:\?/, `${key} must use the :? form`)
   }
 })
@@ -153,6 +161,7 @@ const MEM_FLOORS_MB = {
   caddy: 128,
   postgres: 512,
   redis: 128,
+  meilisearch: 512,
 }
 
 test("every service has a mem_limit at or above its floor", () => {
@@ -188,6 +197,11 @@ test("dependency conditions", () => {
   assert.equal(cond("backend", "postgres"), "service_healthy")
   assert.equal(cond("backend", "redis"), "service_healthy")
   assert.equal(cond("backend", "migrate"), "service_completed_successfully")
+  // The backend loads the Meilisearch provider at boot (and migrate runs the
+  // search index migration plan), so both wait for a healthy Meilisearch.
+  assert.equal(cond("migrate", "meilisearch"), "service_healthy")
+  assert.equal(cond("backend", "meilisearch"), "service_healthy")
+  assert.equal(cond("migrate", "redis"), "service_healthy")
   assert.equal(cond("seller-hub", "postgres"), "service_healthy")
   assert.equal(cond("seller-hub", "redis"), "service_healthy")
   assert.equal(cond("seller-hub", "backend"), "service_healthy")
