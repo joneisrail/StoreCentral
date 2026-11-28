@@ -46,7 +46,10 @@ COPY deploy/check-env.mjs deploy/required-env.json ./deploy/
 # Docker initialises an empty named volume from the image directory's
 # ownership, so the optimiser cache volume mounted on cache/images is
 # writable by node. The optimiser writes to <distDir>/cache/images.
-RUN mkdir -p /app/apps/storefront/.next/cache/images && chown -R node:node /app/apps/storefront/.next/cache/images
+# mkdir -p also creates the parent .next/cache as root, and Next writes its
+# data cache (.next/cache/fetch-cache) there at runtime as node; the volume is
+# mounted only on cache/images, so the parent is chowned (non-recursively) too.
+RUN mkdir -p /app/apps/storefront/.next/cache/images && chown node:node /app/apps/storefront/.next/cache && chown -R node:node /app/apps/storefront/.next/cache/images
 USER node
 EXPOSE 8000
 HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=5 \

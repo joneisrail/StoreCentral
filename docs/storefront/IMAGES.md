@@ -167,7 +167,7 @@ Image file names carry a timestamp, so a URL never changes content. Medusa's loc
 
 ### Image cache volume
 
-The optimiser writes resized images to `<distDir>/cache/images` (`ImageOptimizerCache` in `next/dist/server/image-optimizer.js`); in the standalone image that is `/app/apps/storefront/.next/cache/images`. `deploy/docker-compose.yml` mounts the named volume `storefront-image-cache` there, and only there, so resized images survive restarts and redeploys. `deploy/storefront.Dockerfile` creates that directory owned by `node` before `USER node`, and Docker initialises an empty named volume from the image directory's ownership.
+The optimiser writes resized images to `<distDir>/cache/images` (`ImageOptimizerCache` in `next/dist/server/image-optimizer.js`); in the standalone image that is `/app/apps/storefront/.next/cache/images`. `deploy/docker-compose.yml` mounts the named volume `storefront-image-cache` there, and only there, so resized images survive restarts and redeploys. `deploy/storefront.Dockerfile` creates that directory owned by `node` before `USER node`, and Docker initialises an empty named volume from the image directory's ownership. It also chowns the parent `.next/cache` to `node` (non-recursively, no volume on it) so Next's own data cache (`.next/cache/fetch-cache`) can be written at runtime.
 
 The volume does not cover all of `.next/cache`: that directory also holds Next's data cache (`fetch-cache`). On a volume it would be kept across redeploys, so a new release could serve old products and prices, and it has no size cap. Each new image starts with an empty data cache.
 

@@ -351,6 +351,8 @@ test("storefront image Dockerfile creates the cache dir for node before USER nod
   assert.ok(before.includes(`mkdir -p ${dir}`), "cache dir must be created before USER node")
   assert.ok(before.includes(`chown -R node:node ${dir}`), "cache dir must be chowned before USER node")
   assert.doesNotMatch(before, /chown -R node:node \/app\/apps\/storefront\/\.next\/cache(\s|$)/)
+  // The parent must belong to node too so Next's fetch-cache can be written.
+  assert.match(before, /chown node:node \/app\/apps\/storefront\/\.next\/cache(\s|&|$)/)
 })
 
 test("caddyfile storefront host compresses and never adds a second Cache-Control", () => {
