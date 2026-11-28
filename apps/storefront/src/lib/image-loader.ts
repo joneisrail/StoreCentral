@@ -6,7 +6,13 @@ const MAX_WIDTH = 3840
 const DEFAULT_QUALITY = 75
 const LOCAL_HOSTS = ["localhost", "127.0.0.1", "[::1]"]
 
+const isBlank = (value: unknown): boolean =>
+  value === undefined || value === null || (typeof value === "string" && value.trim() === "")
+
 const clamp = (value: unknown, min: number, max: number, fallback: number): number => {
+  if (isBlank(value)) {
+    return fallback
+  }
   const n = Number(value)
   if (!Number.isFinite(n)) {
     return fallback

@@ -154,3 +154,22 @@ describe("imageLoader", () => {
     }
   })
 })
+
+describe("imageLoader missing values", () => {
+  it("treats undefined, null and blank quality as not provided", () => {
+    for (const q of [undefined, null, "", "  "]) {
+      expect(
+        imageLoader({ src: "/a.jpg", width: 64, quality: q as unknown as number })
+      ).toMatch(/&q=75$/)
+    }
+    expect(imageLoader({ src: "/a.jpg", width: 64, quality: 0 })).toMatch(/&q=1$/)
+  })
+
+  it("treats null and blank width as the minimum", () => {
+    for (const w of [null, "", "  "]) {
+      expect(
+        imageLoader({ src: "/a.jpg", width: w as unknown as number })
+      ).toContain("&w=16&")
+    }
+  })
+})
