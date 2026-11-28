@@ -52,6 +52,14 @@ beforeEach(() => {
 afterEach(cleanup)
 
 describe("SearchResults", () => {
+  it("keeps the viewport-high minimum after results settle, even with zero hits", () => {
+    state.current = settled("rose", 0)
+    const { container } = render(ui("rose"))
+    expect(
+      container.querySelector("[data-testid=results-reserve]")?.className
+    ).toContain("min-h-[100svh]")
+  })
+
   it("renders the query as text, not markup", () => {
     const { container } = render(ui("<b>x</b>"))
     const h1 = container.querySelector("h1")!

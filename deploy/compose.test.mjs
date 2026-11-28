@@ -21,6 +21,15 @@ const caddyfile = read("./Caddyfile")
 const dockerignore = read("../.dockerignore")
 const services = compose.services ?? {}
 
+// A site block ends at the first closing brace in column 0; nested blocks are
+// tab-indented, so their braces never match.
+const hostBlock = (host) => {
+  const start = caddyfile.indexOf(`{$${host}} {`)
+  assert.ok(start >= 0, `${host} block missing`)
+  const rest = caddyfile.slice(start)
+  return rest.slice(0, rest.search(/\n\}/) + 2)
+}
+
 const NODE_SERVICES = ["migrate", "backend", "seller-hub", "storefront", "pos"]
 
 const toList = (env) =>
@@ -237,6 +246,17 @@ test("storefront public URL is a build arg and a runtime env", () => {
   assert.ok("NEXT_PUBLIC_MEDUSA_BACKEND_URL" in env)
 })
 
+test("storefront image origin is an optional build arg and runtime env", () => {
+  const args = Object.fromEntries(toList(services.storefront.build.args))
+  const env = Object.fromEntries(toList(services.storefront.environment))
+  for (const [where, map] of [["build arg", args], ["environment", env]]) {
+    assert.equal(map.NEXT_PUBLIC_IMAGE_ORIGIN, "${NEXT_PUBLIC_IMAGE_ORIGIN:-}", `${where} must use the :- form`)
+  }
+  const dockerfile = read("./storefront.Dockerfile")
+  assert.match(dockerfile, /^ARG NEXT_PUBLIC_IMAGE_ORIGIN$/m)
+  assert.match(dockerfile, /NEXT_PUBLIC_IMAGE_ORIGIN=\$NEXT_PUBLIC_IMAGE_ORIGIN/)
+})
+
 test("services build from the repo root with their own Dockerfile", () => {
   for (const [name, file] of [
     ["backend", "backend"],
@@ -275,8 +295,9 @@ test("caddyfile hub host proxies only webhooks and 404s the rest", () => {
 })
 
 test("caddyfile routes the other hosts", () => {
-  assert.match(caddyfile, /\{\$STORE_HOST\}\s*\{\s*reverse_proxy storefront:8000/)
-  assert.match(caddyfile, /\{\$ADMIN_HOST\}\s*\{\s*reverse_proxy backend:9000/)
+  assert.match(hostBlock("STORE_HOST"), /reverse_proxy storefront:8000/)
+  const admin = hostBlock("ADMIN_HOST")
+  assert.equal((admin.match(/reverse_proxy backend:9000/g) ?? []).length, 2)
   assert.match(caddyfile, /\{\$POS_HOST\}\s*\{\s*reverse_proxy pos:8001/)
 })
 
@@ -307,4 +328,51 @@ test("env example has names and non-secret defaults only", () => {
     if (!line || line.startsWith("#")) continue
     assert.doesNotMatch(line, /change-?me|supersecret|your-/i)
   }
+})
+
+test("storefront mounts a persistent optimiser cache volume", () => {
+  assert.ok(Object.hasOwn(compose.volumes ?? {}, "storefront-image-cache"))
+  assert.ok(
+    services.storefront.volumes.includes("storefront-image-cache:/app/apps/storefront/.next/cache/images"),
+  )
+  // Never the whole .next/cache: it also holds Next's data (fetch) cache.
+  assert.ok(
+    !services.storefront.volumes.some((v) => /:\/app\/apps\/storefront\/\.next\/cache\/?$/.test(v)),
+    "the volume must not cover all of .next/cache",
+  )
+})
+
+test("storefront image Dockerfile creates the cache dir for node before USER node", () => {
+  const dockerfile = read("./storefront.Dockerfile")
+  const dir = "/app/apps/storefront/.next/cache/images"
+  const user = dockerfile.indexOf("\nUSER node")
+  assert.ok(user >= 0, "USER node missing")
+  const before = dockerfile.slice(0, user)
+  assert.ok(before.includes(`mkdir -p ${dir}`), "cache dir must be created before USER node")
+  assert.ok(before.includes(`chown -R node:node ${dir}`), "cache dir must be chowned before USER node")
+  assert.doesNotMatch(before, /chown -R node:node \/app\/apps\/storefront\/\.next\/cache(\s|$)/)
+  // The parent must belong to node too so Next's fetch-cache can be written.
+  assert.match(before, /chown node:node \/app\/apps\/storefront\/\.next\/cache(\s|&|$)/)
+})
+
+test("caddyfile storefront host compresses and never adds a second Cache-Control", () => {
+  const block = hostBlock("STORE_HOST")
+  assert.match(block, /encode zstd gzip/)
+  assert.doesNotMatch(block.replace(/^\s*#.*$/gm, ""), /Cache-Control/i)
+})
+
+test("caddyfile admin host caches product images under /static", () => {
+  const block = hostBlock("ADMIN_HOST")
+  assert.match(
+    block,
+    /@productimages\s*\{\s*path \/static\/\*\s*not path \/static\/private-\* \/static\/\*\/private-\*\s*\}/,
+  )
+  assert.match(
+    block,
+    /handle @productimages\s*\{\s*reverse_proxy backend:9000\s*\{\s*header_down Cache-Control "public, max-age=2678400"\s*\}\s*\}/,
+  )
+  // Private files (private-<timestamp>-<name>) fall through to the default handle.
+  assert.match(block, /\n\thandle\s*\{\s*reverse_proxy backend:9000\s*\}/)
+  assert.doesNotMatch(block, /handle \/static\/\*/)
+  assert.equal((block.match(/Cache-Control/g) ?? []).length, 1)
 })

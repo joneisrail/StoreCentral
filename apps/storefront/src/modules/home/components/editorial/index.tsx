@@ -1,5 +1,6 @@
 import type { EditorialBlock } from "@lib/content/homepage"
 import { Heading, Text } from "@modules/common/components/ui"
+import SafeImage from "@modules/common/components/safe-image"
 import LocalizedClientLink from "@modules/common/components/localized-client-link"
 
 import Reveal from "../reveal"
@@ -18,13 +19,13 @@ const Editorial = ({ blocks }: { blocks: EditorialBlock[] }) => {
             className="grid min-w-0 grid-cols-1 items-center gap-8 small:grid-cols-2"
           >
             {block.image ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={block.image.src}
-                alt={block.image.alt}
-                loading="lazy"
-                className="aspect-[4/3] w-full rounded-soft object-cover"
-              />
+              <div className="relative aspect-[4/3] w-full overflow-hidden rounded-soft">
+                <SafeImage
+                  src={block.image.src}
+                  alt={block.image.alt}
+                  sizes="(min-width: 1440px) 680px, (min-width: 1024px) 50vw, 100vw"
+                />
+              </div>
             ) : null}
             <div className="flex min-w-0 flex-col items-start gap-4">
               <Heading level="h2" className="break-words">

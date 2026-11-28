@@ -51,6 +51,30 @@ measurements plus 25 percent are below every floor, so the floors apply.
 These are conservative starting points. After the first compose run, record
 `docker stats` here and tighten or raise them.
 
+## Storefront image optimiser
+
+Since storefront Phase 7 the storefront resizes and encodes images itself
+(`/_next/image`, sharp, AVIF then WebP). Points for the 512m limit:
+
+- sharp (libvips) allocates its pixel buffers in native memory, outside the
+  V8 heap, so `--max-old-space-size=384` does not cap it. Heap plus sharp
+  must stay under the container's 512m, or the kernel kills the container.
+- `next.config.js` limits this: `experimental.imgOptConcurrency: 1` (one sharp
+  job at a time) and `experimental.imgOptMaxInputPixels: 25000000` (sources
+  above 25 MP are refused; the catalogue originals are about 3 MP).
+- AVIF encoding is CPU heavy. After a deploy with an empty cache, the first
+  request for each image, width and format pays the encode; the first page
+  views are slower until the cache warms. Resized files are kept on the
+  `storefront-image-cache` volume, so a normal redeploy keeps them.
+- Disk: `images.maximumDiskCacheSize` is 2 GB (least recently used entries are
+  evicted). Without it Next uses half the free disk.
+- Clearing the cache: stop the storefront, then
+  `docker volume rm <project>_storefront-image-cache` and start it again;
+  Docker recreates the volume owned by `node` from the image.
+
+Record the storefront's `docker stats` peak after a cold-cache crawl of the
+home page, a listing and a product page; raise the limit if it nears 512m.
+
 ## Laptop advice
 
 The dev machine runs low on memory when all five processes run together

@@ -19,6 +19,7 @@ ARG NEXT_PUBLIC_DEFAULT_REGION
 ARG NEXT_PUBLIC_STRIPE_KEY
 ARG NEXT_PUBLIC_STORE_NAME
 ARG NEXT_PUBLIC_NEWSLETTER_ACTION_URL
+ARG NEXT_PUBLIC_IMAGE_ORIGIN
 ENV NEXT_PUBLIC_MEDUSA_BACKEND_URL=$NEXT_PUBLIC_MEDUSA_BACKEND_URL \
     NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY=$NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY \
     NEXT_PUBLIC_BASE_URL=$NEXT_PUBLIC_BASE_URL \
@@ -26,6 +27,7 @@ ENV NEXT_PUBLIC_MEDUSA_BACKEND_URL=$NEXT_PUBLIC_MEDUSA_BACKEND_URL \
     NEXT_PUBLIC_STRIPE_KEY=$NEXT_PUBLIC_STRIPE_KEY \
     NEXT_PUBLIC_STORE_NAME=$NEXT_PUBLIC_STORE_NAME \
     NEXT_PUBLIC_NEWSLETTER_ACTION_URL=$NEXT_PUBLIC_NEWSLETTER_ACTION_URL \
+    NEXT_PUBLIC_IMAGE_ORIGIN=$NEXT_PUBLIC_IMAGE_ORIGIN \
     NEXT_TELEMETRY_DISABLED=1
 RUN yarn workspace @dtc/storefront build
 
@@ -41,6 +43,13 @@ COPY --from=build --chown=node:node /app/apps/storefront/.next/static ./apps/sto
 COPY --from=build --chown=node:node /app/apps/storefront/public ./apps/storefront/public
 WORKDIR /app/apps/storefront
 COPY deploy/check-env.mjs deploy/required-env.json ./deploy/
+# Docker initialises an empty named volume from the image directory's
+# ownership, so the optimiser cache volume mounted on cache/images is
+# writable by node. The optimiser writes to <distDir>/cache/images.
+# mkdir -p also creates the parent .next/cache as root, and Next writes its
+# data cache (.next/cache/fetch-cache) there at runtime as node; the volume is
+# mounted only on cache/images, so the parent is chowned (non-recursively) too.
+RUN mkdir -p /app/apps/storefront/.next/cache/images && chown node:node /app/apps/storefront/.next/cache && chown -R node:node /app/apps/storefront/.next/cache/images
 USER node
 EXPOSE 8000
 HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=5 \

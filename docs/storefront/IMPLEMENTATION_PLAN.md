@@ -8,7 +8,7 @@ Date: 2026-11-25. Status: proposal, waiting for owner approval before Phase 1 (b
 2. **Fragrance attributes.** Where brand, notes, family, gender, concentration live. Recommended: product `metadata` (typed keys) for notes, family, gender, concentration; brand as a product category tree or a thin brand module. You supply the real catalog and the allowed values so nothing is invented.
 3. **Catalog source.** Local data is 4 demo products. Phase 1 acceptance needs a realistic catalog (import via the Phase 4a channel import, or a CSV).
 4. **Market.** US only, usd. Remove the `dk` fallback.
-5. **Images.** Where the originals are hosted, and whether Cloudflare is the CDN.
+5. **Images.** Settled: the Next.js optimiser with a loader that rewrites stored `/static/` URLs onto `NEXT_PUBLIC_IMAGE_ORIGIN` (default: the backend URL). Cloudflare is documented as an option, not configured. See `docs/storefront/IMAGES.md`.
 6. **Visual direction.** Approve the palette and a serif/sans pair, or give references.
 
 ## Phases (the brief's numbering)
@@ -22,7 +22,7 @@ Date: 2026-11-25. Status: proposal, waiting for owner approval before Phase 1 (b
 | 4 | Catalog | `/store` listing with filters exists | Add brand, gender, family, note, availability filters (needs index fields), URL params, list toggle, wishlist |
 | 5 | Product page | Starter PDP | Notes, specs, reviews (backend review module exists), recently viewed, SEO metadata |
 | 6 | Search | Done (Meilisearch); see `SEARCH_ARCHITECTURE.md` | Index extension, `/search` page, autocomplete, popular/recent searches, keyboard nav. CI, production hosting and the Docker image are not verified |
-| 7 | Images | Unoptimised | Optimisation, CDN, blur placeholders, cache headers, CLS fixes |
+| 7 | Images | Done (optimiser on, origin-rewriting loader); see `IMAGES.md` | Optimisation, cache headers, CLS fixes. CDN is documented, not configured; blur placeholders not built. The Caddyfile, Docker image build and cache volume are not verified |
 | 8 | Cart and checkout | Starter flow, Stripe | Test with the real provider; never simulate payment |
 | 9 | Customer experience | Accounts, orders, addresses exist | Add wishlist, recently viewed, order tracking |
 | 10 | Fragrance discovery | Not started | Family pages and finder from real metadata |

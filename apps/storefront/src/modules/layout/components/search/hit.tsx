@@ -1,8 +1,7 @@
 "use client"
 
-import Image from "next/image"
-
 import { renderHighlight } from "@lib/util/highlight"
+import SafeImage from "@modules/common/components/safe-image"
 import PlaceholderImage from "@modules/common/icons/placeholder-image"
 import { hitPriceLabels } from "@modules/store/components/store-hits/price"
 import type { ProductHit } from "./rows"
@@ -12,13 +11,13 @@ export type { ProductHit } from "./rows"
 export const Thumbnail = ({ src }: { src: string | null }) => (
   <div className="relative h-14 w-11 shrink-0 overflow-hidden rounded-soft bg-paper">
     {src ? (
-      <Image
+      <SafeImage
         src={src}
         alt=""
-        fill
         sizes="44px"
         className="object-cover object-center"
         draggable={false}
+        placeholderSize={18}
       />
     ) : (
       <div className="flex h-full w-full items-center justify-center text-warm-grey">

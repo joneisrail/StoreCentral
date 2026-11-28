@@ -215,6 +215,7 @@ services:
         NEXT_PUBLIC_STRIPE_KEY: "${NEXT_PUBLIC_STRIPE_KEY:-}"
         NEXT_PUBLIC_STORE_NAME: "${NEXT_PUBLIC_STORE_NAME:-}"
         NEXT_PUBLIC_NEWSLETTER_ACTION_URL: "${NEXT_PUBLIC_NEWSLETTER_ACTION_URL:-}"
+        NEXT_PUBLIC_IMAGE_ORIGIN: "${NEXT_PUBLIC_IMAGE_ORIGIN:-}"
     image: storecentral/storefront:local
     restart: unless-stopped
     # floor value; dev measurement is a lower bound, revisit after the first compose run (docs/ops/memory.md)
@@ -232,6 +233,7 @@ services:
       NEXT_PUBLIC_STRIPE_KEY: "${NEXT_PUBLIC_STRIPE_KEY:-}"
       NEXT_PUBLIC_STORE_NAME: "${NEXT_PUBLIC_STORE_NAME:-}"
       NEXT_PUBLIC_NEWSLETTER_ACTION_URL: "${NEXT_PUBLIC_NEWSLETTER_ACTION_URL:-}"
+      NEXT_PUBLIC_IMAGE_ORIGIN: "${NEXT_PUBLIC_IMAGE_ORIGIN:-}"
     depends_on:
       backend:
         condition: service_healthy
@@ -241,6 +243,12 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
+    volumes:
+      # Resized images from the Next optimiser survive restarts and redeploys.
+      # Only cache/images: the rest of .next/cache holds Next's data (fetch)
+      # cache, which must start empty with each new image so products and
+      # prices are not served stale across a redeploy.
+      - storefront-image-cache:/app/apps/storefront/.next/cache/images
     networks: [internal]
 
   pos:
@@ -309,3 +317,4 @@ volumes:
   meilisearch-data:
   caddy-data:
   caddy-config:
+  storefront-image-cache:

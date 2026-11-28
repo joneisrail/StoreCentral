@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, cleanup, render, userEvent } from "../../../test/render"
+import { renderToString } from "react-dom/server"
 import StoreTemplate from "./index"
 
 vi.mock("@lib/search-client", () => ({
@@ -8,10 +9,12 @@ vi.mock("@lib/search-client", () => ({
   searchClient: {},
   priceAttribute: (field: string, currency: string) => `${field}_${currency}`,
 }))
+const searchRendersChildren = vi.hoisted(() => ({ value: true }))
 vi.mock("react-instantsearch", () => ({
-  InstantSearch: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  InstantSearch: ({ children }: { children: React.ReactNode }) =>
+    searchRendersChildren.value ? <>{children}</> : null,
   Configure: () => null,
-  useInstantSearch: () => ({ results: { nbHits: 5 } }),
+  useInstantSearch: () => ({ status: "idle", results: { nbHits: 5 } }),
 }))
 vi.mock("instantsearch.js/es/lib/routers", () => ({ history: () => ({}) }))
 vi.mock("@modules/store/components/store-hits", () => ({
@@ -34,7 +37,24 @@ const hitsView = () =>
 const toggle = (label: string) =>
   document.querySelector(`[aria-label="${label}"]`) as HTMLElement
 
+describe("StoreTemplate server render", () => {
+  it("includes the reserve even though InstantSearch renders nothing on the server", () => {
+    searchRendersChildren.value = false
+    const html = renderToString(<StoreTemplate currencyCode="usd" />)
+    searchRendersChildren.value = true
+    expect(html).toContain("min-h-[100svh]")
+    expect(html).not.toContain('data-testid="hits"')
+  })
+})
+
 describe("StoreTemplate view wiring", () => {
+  it("keeps the viewport-high minimum once results have settled", () => {
+    render(<StoreTemplate currencyCode="usd" />)
+    const col = document.querySelector("[data-testid=results-reserve]")
+    expect(col?.querySelector("[data-testid=hits]")).not.toBeNull()
+    expect(col?.className).toContain("min-h-[100svh]")
+  })
+
   it("writes and removes view in the URL when toggled", async () => {
     const spy = vi.spyOn(window.history, "replaceState")
     render(<StoreTemplate currencyCode="usd" />)

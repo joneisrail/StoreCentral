@@ -3,12 +3,38 @@
 
 {$STORE_HOST} {
 	reverse_proxy storefront:8000
+
+	# Text, scripts and SVG shrink a lot on the wire.
+	encode zstd gzip
+
+	# No Cache-Control rules here on purpose: Next already sends
+	# "public, max-age=31536000, immutable" on /_next/static/* and
+	# "public, max-age=2678400, must-revalidate" on /_next/image*, so Caddy
+	# must not add a second Cache-Control.
 }
 
 # The Medusa backend, including the admin dashboard and the EasyPost webhooks
 # under its own /webhooks path.
 {$ADMIN_HOST} {
-	reverse_proxy backend:9000
+	# Product image file names carry a timestamp, so a URL never changes
+	# content. This deliberately overrides Express's default max-age=0;
+	# header_down with two arguments sets (replaces) the response field.
+	# Medusa's local file provider writes private files (product export and
+	# import CSVs) into the same folder as private-<timestamp>-<name>, at the
+	# top level or under an upload subfolder; those keep the default handle
+	# and Express's max-age=0. Path matching in Caddy is case-insensitive.
+	@productimages {
+		path /static/*
+		not path /static/private-* /static/*/private-*
+	}
+	handle @productimages {
+		reverse_proxy backend:9000 {
+			header_down Cache-Control "public, max-age=2678400"
+		}
+	}
+	handle {
+		reverse_proxy backend:9000
+	}
 }
 
 {$POS_HOST} {
