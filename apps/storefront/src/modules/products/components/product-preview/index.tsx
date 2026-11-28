@@ -13,7 +13,7 @@ const ACTION_INSET_REM = 0.5
 const ACTION_GAP_REM = 0.25
 const BADGE_RIGHT_REM = ACTION_SIZE_REM + ACTION_INSET_REM + ACTION_GAP_REM
 
-const GRID_SIZES = "(min-width: 1024px) 25vw, (min-width: 640px) 33vw, 50vw"
+const GRID_SIZES = "(min-width: 1280px) 25vw, (min-width: 1024px) 33vw, 50vw"
 const LIST_SIZES = "(min-width: 640px) 40vw, 40vw"
 
 export type ProductCardViewProps = {

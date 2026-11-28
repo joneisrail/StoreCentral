@@ -1,5 +1,6 @@
 import type { Promo } from "@lib/content/homepage"
 import { Heading, Text } from "@modules/common/components/ui"
+import SafeImage from "@modules/common/components/safe-image"
 import LocalizedClientLink from "@modules/common/components/localized-client-link"
 
 import Reveal from "../reveal"
@@ -19,13 +20,13 @@ const PromoBanners = ({ promos }: { promos: Promo[] }) => {
               className="flex min-w-0 flex-col overflow-hidden rounded-soft border border-line bg-paper"
             >
               {promo.image ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={promo.image.src}
-                  alt={promo.image.alt}
-                  loading="lazy"
-                  className="aspect-[16/9] w-full object-cover"
-                />
+                <div className="relative aspect-[16/9] w-full overflow-hidden">
+                  <SafeImage
+                    src={promo.image.src}
+                    alt={promo.image.alt}
+                    sizes="(min-width: 1440px) 684px, (min-width: 1024px) 50vw, 100vw"
+                  />
+                </div>
               ) : null}
               <div className="flex flex-col items-start gap-3 p-6">
                 <Heading level="h2" className="break-words">

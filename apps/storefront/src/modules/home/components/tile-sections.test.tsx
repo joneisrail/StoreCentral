@@ -50,6 +50,6 @@ describe.each([
     const { container } = render(make(list))
     const imgs = container.querySelectorAll("img")
     expect(imgs).toHaveLength(1)
-    expect(imgs[0].className).toContain("aspect-")
+    expect(imgs[0].parentElement?.className).toContain("aspect-")
   })
 })
