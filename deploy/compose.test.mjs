@@ -319,3 +319,46 @@ test("env example has names and non-secret defaults only", () => {
     assert.doesNotMatch(line, /change-?me|supersecret|your-/i)
   }
 })
+
+const hostBlock = (host) => {
+  const start = caddyfile.indexOf(`{$${host}} {`)
+  assert.ok(start >= 0, `${host} block missing`)
+  const rest = caddyfile.slice(start)
+  return rest.slice(0, rest.indexOf("\n}") + 2)
+}
+
+test("storefront mounts a persistent optimiser cache volume", () => {
+  assert.ok(Object.hasOwn(compose.volumes ?? {}, "storefront-image-cache"))
+  assert.ok(
+    services.storefront.volumes.includes("storefront-image-cache:/app/apps/storefront/.next/cache"),
+  )
+})
+
+test("storefront image Dockerfile creates the cache dir for node before USER node", () => {
+  const dockerfile = read("./storefront.Dockerfile")
+  const cmd =
+    "RUN mkdir -p /app/apps/storefront/.next/cache && chown -R node:node /app/apps/storefront/.next/cache"
+  const created = dockerfile.indexOf(cmd)
+  const user = dockerfile.indexOf("\nUSER node")
+  assert.ok(created >= 0, "cache dir creation with node ownership missing")
+  assert.ok(user >= 0, "USER node missing")
+  assert.ok(created < user, "cache dir must be created before USER node")
+})
+
+test("caddyfile storefront host compresses and sets long-lived image cache headers", () => {
+  const block = hostBlock("STORE_HOST")
+  assert.match(block, /encode zstd gzip/)
+  assert.match(block, /@static path \/_next\/static\/\*/)
+  assert.match(block, /header @static Cache-Control "public, max-age=31536000, immutable"/)
+  assert.match(block, /@optimised path \/_next\/image\*/)
+  assert.match(
+    block,
+    /header @optimised \?Cache-Control "public, max-age=2678400, stale-while-revalidate=86400"/,
+  )
+})
+
+test("caddyfile admin host caches product images under /static", () => {
+  const block = hostBlock("ADMIN_HOST")
+  assert.match(block, /@productimages path \/static\/\*/)
+  assert.match(block, /header @productimages Cache-Control "public, max-age=2678400"/)
+})

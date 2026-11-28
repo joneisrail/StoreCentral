@@ -3,12 +3,29 @@
 
 {$STORE_HOST} {
 	reverse_proxy storefront:8000
+
+	# Text, scripts and SVG shrink a lot on the wire.
+	encode zstd gzip
+
+	# Next fingerprints everything under /_next/static, so it never changes.
+	@static path /_next/static/*
+	header @static Cache-Control "public, max-age=31536000, immutable"
+
+	# Resized images from the optimiser. The ? prefix sets the header only when
+	# the upstream sent none, so a Cache-Control from Next itself wins.
+	@optimised path /_next/image*
+	header @optimised ?Cache-Control "public, max-age=2678400, stale-while-revalidate=86400"
 }
 
 # The Medusa backend, including the admin dashboard and the EasyPost webhooks
 # under its own /webhooks path.
 {$ADMIN_HOST} {
 	reverse_proxy backend:9000
+
+	# Product image file names carry a timestamp, so a URL never changes
+	# content. This deliberately overrides Express's default max-age=0.
+	@productimages path /static/*
+	header @productimages Cache-Control "public, max-age=2678400"
 }
 
 {$POS_HOST} {

@@ -243,6 +243,9 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
+    volumes:
+      # Resized images from the Next optimiser survive restarts and redeploys.
+      - storefront-image-cache:/app/apps/storefront/.next/cache
     networks: [internal]
 
   pos:
@@ -311,3 +314,4 @@ volumes:
   meilisearch-data:
   caddy-data:
   caddy-config:
+  storefront-image-cache:

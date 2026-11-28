@@ -43,6 +43,9 @@ COPY --from=build --chown=node:node /app/apps/storefront/.next/static ./apps/sto
 COPY --from=build --chown=node:node /app/apps/storefront/public ./apps/storefront/public
 WORKDIR /app/apps/storefront
 COPY deploy/check-env.mjs deploy/required-env.json ./deploy/
+# Docker initialises an empty named volume from the image directory's
+# ownership, so the optimiser cache volume mounted here is writable by node.
+RUN mkdir -p /app/apps/storefront/.next/cache && chown -R node:node /app/apps/storefront/.next/cache
 USER node
 EXPOSE 8000
 HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=5 \
