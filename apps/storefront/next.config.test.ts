@@ -15,7 +15,6 @@ const ENV_KEYS = [
   "NEXT_PUBLIC_IMAGE_ORIGIN",
   "MEDUSA_CLOUD_S3_HOSTNAME",
   "MEDUSA_CLOUD_S3_PATHNAME",
-  "IMAGE_ALLOW_LOCAL_ORIGIN",
 ]
 
 type Env = Record<string, string | undefined>
@@ -29,6 +28,7 @@ type ImagesConfig = {
   imageSizes?: number[]
   qualities?: number[]
   minimumCacheTTL?: number
+  maximumDiskCacheSize?: number
   dangerouslyAllowLocalIP?: boolean
   remotePatterns?: Array<{
     protocol?: string
@@ -38,7 +38,14 @@ type ImagesConfig = {
   }>
 }
 
-const loadImagesConfig = (env: Env): ImagesConfig => {
+type NextConfigShape = {
+  images: ImagesConfig
+  experimental?: Record<string, unknown>
+}
+
+const loadImagesConfig = (env: Env): ImagesConfig => loadConfig(env).images
+
+const loadConfig = (env: Env): NextConfigShape => {
   const saved: Env = {}
   for (const key of ENV_KEYS) {
     saved[key] = process.env[key]
@@ -58,7 +65,7 @@ const loadImagesConfig = (env: Env): ImagesConfig => {
   }
   delete requireCjs.cache[CONFIG_PATH]
   try {
-    return requireCjs(CONFIG_PATH).images
+    return requireCjs(CONFIG_PATH)
   } finally {
     for (const key of ENV_KEYS) {
       if (saved[key] === undefined) {
@@ -91,6 +98,34 @@ describe("next.config.js images", () => {
     expect(images.deviceSizes).toEqual([360, 480, 640, 768, 1024, 1280, 1600])
     expect(images.imageSizes).toEqual([64, 96, 128, 180, 256, 384])
     expect(images.qualities).toEqual([60, 75])
+  })
+
+  it("caps the disk cache, the input size and the sharp concurrency", () => {
+    const config = loadConfig({})
+    expect(config.images.maximumDiskCacheSize).toBe(2000000000)
+    expect(config.experimental?.imgOptMaxInputPixels).toBe(25000000)
+    expect(config.experimental?.imgOptConcurrency).toBe(1)
+  })
+
+  it("has no amazonaws.com pattern unless MEDUSA_CLOUD_S3_HOSTNAME sets it", () => {
+    for (const NODE_ENV of ["production", "development"]) {
+      for (const origin of [undefined, "https://img.example.com", "http://localhost:9000"]) {
+        const images = loadImagesConfig({ NODE_ENV, NEXT_PUBLIC_IMAGE_ORIGIN: origin })
+        expect(
+          images.remotePatterns?.some((p) => p.hostname.includes("amazonaws.com"))
+        ).toBe(false)
+        expect(images.remotePatterns?.some((p) => p.hostname.includes("*"))).toBe(false)
+      }
+    }
+    const withS3 = loadImagesConfig({
+      MEDUSA_CLOUD_S3_HOSTNAME: "bucket.s3.eu-west-1.amazonaws.com",
+      MEDUSA_CLOUD_S3_PATHNAME: "/media/**",
+    })
+    expect(
+      withS3.remotePatterns
+        ?.filter((p) => p.hostname.includes("amazonaws.com"))
+        .map((p) => p.hostname)
+    ).toEqual(["bucket.s3.eu-west-1.amazonaws.com"])
   })
 
   const localhostEntries = (images: ImagesConfig) =>

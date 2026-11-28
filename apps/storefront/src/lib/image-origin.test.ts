@@ -37,16 +37,36 @@ describe("resolveImageOrigin", () => {
 })
 
 describe("buildRemotePatterns", () => {
-  it("includes the image origin, localhost and both S3 patterns", () => {
+  it("includes the image origin and the development localhost only", () => {
     const patterns = buildRemotePatterns({
       NEXT_PUBLIC_IMAGE_ORIGIN: "https://img.example.com",
     })
     expect(patterns).toEqual([
       { protocol: "https", hostname: "img.example.com" },
       { protocol: "http", hostname: "localhost" },
-      { protocol: "https", hostname: "*.s3.*.amazonaws.com" },
-      { protocol: "https", hostname: "*.s3.amazonaws.com" },
     ])
+  })
+
+  it("never includes a generic S3 wildcard, in any environment", () => {
+    for (const NODE_ENV of ["production", "development", undefined]) {
+      for (const origin of [undefined, "https://img.example.com", "http://localhost:9000"]) {
+        const patterns = buildRemotePatterns({
+          NODE_ENV,
+          NEXT_PUBLIC_IMAGE_ORIGIN: origin,
+        })
+        expect(patterns.some((p) => p.hostname.includes("amazonaws.com"))).toBe(false)
+        expect(patterns.some((p) => p.hostname.includes("*"))).toBe(false)
+      }
+    }
+  })
+
+  it("allows an S3 host only when it is the configured origin", () => {
+    expect(
+      buildRemotePatterns({
+        NODE_ENV: "production",
+        NEXT_PUBLIC_IMAGE_ORIGIN: "https://bucket.s3.eu-west-1.amazonaws.com",
+      })
+    ).toEqual([{ protocol: "https", hostname: "bucket.s3.eu-west-1.amazonaws.com" }])
   })
 
   it("keeps the port of the origin", () => {
@@ -70,7 +90,8 @@ describe("buildRemotePatterns", () => {
   })
 
   it("works without any origin", () => {
-    expect(buildRemotePatterns({})).toHaveLength(3)
+    expect(buildRemotePatterns({})).toEqual([{ protocol: "http", hostname: "localhost" }])
+    expect(buildRemotePatterns({ NODE_ENV: "production" })).toEqual([])
   })
 
   const localhostEntries = (env: Record<string, string | undefined>) =>

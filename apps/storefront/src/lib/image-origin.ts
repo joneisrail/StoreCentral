@@ -31,11 +31,6 @@ export const resolveImageOrigin = (
 const DEV_LOCALHOST: RemotePattern = { protocol: "http", hostname: "localhost" }
 const LOCAL_HOSTS = ["localhost", "127.0.0.1", "[::1]"]
 
-const STATIC_PATTERNS: RemotePattern[] = [
-  { protocol: "https", hostname: "*.s3.*.amazonaws.com" },
-  { protocol: "https", hostname: "*.s3.amazonaws.com" },
-]
-
 export const buildRemotePatterns = (
   env: Env = process.env
 ): RemotePattern[] => {
@@ -56,7 +51,10 @@ export const buildRemotePatterns = (
   if (!production) {
     patterns.push(DEV_LOCALHOST)
   }
-  patterns.push(...STATIC_PATTERNS)
+  // No generic S3 wildcards: picomatch's `*` also matches dots, so
+  // `*.s3.*.amazonaws.com` would admit any bucket and make the optimiser an
+  // open resizing proxy. A Medusa Cloud bucket is added by next.config.js from
+  // MEDUSA_CLOUD_S3_HOSTNAME only.
 
   const seen = new Set<string>()
   return patterns.filter((p) => {

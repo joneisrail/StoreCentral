@@ -53,10 +53,9 @@ const buildRemotePatterns = (env) => {
   if (!production) {
     patterns.push({ protocol: "http", hostname: "localhost" })
   }
-  patterns.push(
-    { protocol: "https", hostname: "*.s3.*.amazonaws.com" },
-    { protocol: "https", hostname: "*.s3.amazonaws.com" }
-  )
+  // No generic S3 wildcards (*.s3.*.amazonaws.com): picomatch's `*` also
+  // matches dots, so any bucket would match and the optimiser would resize
+  // images for anyone. Only the Medusa Cloud bucket below is allowed.
   const seen = new Set()
   return patterns.filter((p) => {
     const key = `${p.protocol}|${p.hostname}|${p.port || ""}`
@@ -74,6 +73,14 @@ const buildRemotePatterns = (env) => {
 const nextConfig = {
   output: "standalone",
   reactStrictMode: true,
+  experimental: {
+    // One sharp job at a time: the container has mem_limit 512m and sharp's
+    // native memory sits outside the V8 heap cap (docs/ops/memory.md).
+    imgOptConcurrency: 1,
+    // Refuse source images above 25 MP (default ~268 MP); the catalogue
+    // originals are about 3 MP.
+    imgOptMaxInputPixels: 25000000,
+  },
   logging: {
     fetches: {
       fullUrl: true,
@@ -101,6 +108,9 @@ const nextConfig = {
     qualities: [60, 75],
     // 31 days. Resized images are keyed by URL, width, quality and format.
     minimumCacheTTL: 2678400,
+    // 2 GB on the storefront-image-cache volume, evicted least recently used.
+    // Next's default is half the free disk space.
+    maximumDiskCacheSize: 2000000000,
     remotePatterns: [
       ...buildRemotePatterns(process.env),
       ...(S3_HOSTNAME && S3_PATHNAME
