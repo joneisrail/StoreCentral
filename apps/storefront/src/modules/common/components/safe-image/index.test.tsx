@@ -50,4 +50,25 @@ describe("SafeImage", () => {
     const box = container.querySelector('[data-testid="box"]')
     expect(box?.className).toContain("aspect-[4/3]")
   })
+
+  it("shows the new image again when src changes after an error", () => {
+    const view = render(
+      <div className="relative">
+        <SafeImage src="/bad.jpg" alt="x" sizes="50vw" />
+      </div>
+    )
+    act(() => {
+      view.container.querySelector("img")?.dispatchEvent(new Event("error"))
+    })
+    expect(view.container.querySelector("img")).toBeNull()
+    act(() => {
+      view.rerender(
+        <div className="relative">
+          <SafeImage src="/good.jpg" alt="x" sizes="50vw" />
+        </div>
+      )
+    })
+    expect(view.container.querySelector("img")).not.toBeNull()
+    expect(view.container.querySelector("svg")).toBeNull()
+  })
 })

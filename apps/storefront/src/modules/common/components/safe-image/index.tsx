@@ -19,7 +19,7 @@ type SafeImageProps = {
  * Fill-mode `next/image` for use inside a caller-owned aspect-ratio box.
  * A failed load renders the placeholder in the same box, so nothing shifts.
  */
-const SafeImage = ({
+const SafeImageInner = ({
   src,
   alt,
   sizes,
@@ -53,5 +53,10 @@ const SafeImage = ({
     />
   )
 }
+
+/** Keyed by src so a failed state never outlives the image that failed. */
+const SafeImage = (props: SafeImageProps) => (
+  <SafeImageInner key={props.src} {...props} />
+)
 
 export default SafeImage
