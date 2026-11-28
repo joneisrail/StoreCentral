@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import imageLoader, { rewriteImageSrc } from "./image-loader"
+import imageLoader, {
+  buildImageUrl,
+  type ImageLoaderEnv,
+  rewriteImageSrc,
+} from "./image-loader"
 
 describe("rewriteImageSrc", () => {
   const origin = "https://admin.example.com"
@@ -140,7 +144,8 @@ describe("imageLoader", () => {
     expect(imageLoader({ src: "/a.jpg", width: 64, quality: 60.4 })).toMatch(/&q=60$/)
   })
 
-  it("wraps absolute http urls", () => {
+  it("wraps absolute http urls on the image origin host", () => {
+    vi.stubEnv("NEXT_PUBLIC_IMAGE_ORIGIN", "https://img.example.com")
     expect(
       imageLoader({ src: "https://img.example.com/x.jpg", width: 64 }).startsWith(
         "/_next/image?url=https%3A%2F%2Fimg.example.com%2Fx.jpg"
@@ -171,5 +176,79 @@ describe("imageLoader missing values", () => {
         imageLoader({ src: "/a.jpg", width: w as unknown as number })
       ).toContain("&w=16&")
     }
+  })
+})
+
+describe("buildImageUrl pass-through for hosts the optimiser does not serve", () => {
+  const prod: ImageLoaderEnv = {
+    imageOrigin: "https://img.example.com",
+    backendUrl: "https://admin.example.com",
+    nodeEnv: "production",
+  }
+  const wrapped = (out: string) => out.startsWith("/_next/image?url=")
+  const build = (src: string, env: ImageLoaderEnv = prod) => buildImageUrl({ src, width: 384 }, env)
+
+  it("returns an unknown host unchanged", () => {
+    for (const src of [
+      "https://cdn.shopify.com/s/files/1/a.jpg",
+      "https://woo.example.org/wp-content/uploads/a.jpg",
+      "https://bucket.s3.eu-west-1.amazonaws.com/a.jpg",
+    ]) {
+      expect(build(src)).toBe(src)
+    }
+  })
+
+  it("wraps the image origin host", () => {
+    expect(wrapped(build("https://img.example.com/static/a.jpg"))).toBe(true)
+    expect(wrapped(build("https://img.example.com/other/a.jpg"))).toBe(true)
+  })
+
+  it("does not wrap the origin host on another protocol", () => {
+    expect(build("http://img.example.com/other/a.jpg")).toBe(
+      "http://img.example.com/other/a.jpg"
+    )
+  })
+
+  it("wraps the backend host when it is the optimiser origin", () => {
+    const env = { ...prod, imageOrigin: undefined }
+    expect(wrapped(build("https://admin.example.com/static/a.jpg", env))).toBe(true)
+    expect(wrapped(build("https://admin.example.com/uploads/a.jpg", env))).toBe(true)
+  })
+
+  it("wraps backend /static/ urls re-hosted onto a separate origin", () => {
+    const out = build("https://admin.example.com/static/a.jpg")
+    expect(new URLSearchParams(out.split("?")[1]).get("url")).toBe(
+      "https://img.example.com/static/a.jpg"
+    )
+  })
+
+  it("wraps root-relative srcs", () => {
+    expect(build("/hero.jpg")).toBe("/_next/image?url=%2Fhero.jpg&w=384&q=75")
+    expect(build("/hero.jpg", { imageOrigin: undefined, backendUrl: undefined, nodeEnv: "production" })).toBe(
+      "/_next/image?url=%2Fhero.jpg&w=384&q=75"
+    )
+  })
+
+  it("wraps localhost on any port outside production", () => {
+    const dev = { imageOrigin: undefined, backendUrl: undefined, nodeEnv: "development" }
+    expect(wrapped(build("http://localhost:9000/uploads/a.jpg", dev))).toBe(true)
+    expect(wrapped(build("http://localhost:1234/a.jpg", dev))).toBe(true)
+    // the any-port rule is http only
+    expect(build("https://localhost:9000/a.jpg", dev)).toBe("https://localhost:9000/a.jpg")
+  })
+
+  it("in production wraps localhost only on the configured origin port", () => {
+    const local = { imageOrigin: undefined, backendUrl: "http://localhost:9000", nodeEnv: "production" }
+    expect(wrapped(build("http://localhost:9000/uploads/a.jpg", local))).toBe(true)
+    expect(build("http://localhost:8000/a.jpg", local)).toBe("http://localhost:8000/a.jpg")
+    expect(build("http://127.0.0.1:9000/a.jpg", local)).toBe("http://127.0.0.1:9000/a.jpg")
+  })
+
+  it("in production with a public origin passes localhost through", () => {
+    // /static/ on localhost is re-hosted onto the origin first, so it is wrapped
+    expect(wrapped(build("http://localhost:9000/static/a.jpg"))).toBe(true)
+    expect(build("http://localhost:9000/uploads/a.jpg")).toBe(
+      "http://localhost:9000/uploads/a.jpg"
+    )
   })
 })
