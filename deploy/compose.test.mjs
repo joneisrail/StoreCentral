@@ -21,6 +21,15 @@ const caddyfile = read("./Caddyfile")
 const dockerignore = read("../.dockerignore")
 const services = compose.services ?? {}
 
+// A site block ends at the first closing brace in column 0; nested blocks are
+// tab-indented, so their braces never match.
+const hostBlock = (host) => {
+  const start = caddyfile.indexOf(`{$${host}} {`)
+  assert.ok(start >= 0, `${host} block missing`)
+  const rest = caddyfile.slice(start)
+  return rest.slice(0, rest.search(/\n\}/) + 2)
+}
+
 const NODE_SERVICES = ["migrate", "backend", "seller-hub", "storefront", "pos"]
 
 const toList = (env) =>
@@ -286,8 +295,9 @@ test("caddyfile hub host proxies only webhooks and 404s the rest", () => {
 })
 
 test("caddyfile routes the other hosts", () => {
-  assert.match(caddyfile, /\{\$STORE_HOST\}\s*\{\s*reverse_proxy storefront:8000/)
-  assert.match(caddyfile, /\{\$ADMIN_HOST\}\s*\{\s*reverse_proxy backend:9000/)
+  assert.match(hostBlock("STORE_HOST"), /reverse_proxy storefront:8000/)
+  const admin = hostBlock("ADMIN_HOST")
+  assert.equal((admin.match(/reverse_proxy backend:9000/g) ?? []).length, 2)
   assert.match(caddyfile, /\{\$POS_HOST\}\s*\{\s*reverse_proxy pos:8001/)
 })
 
@@ -320,13 +330,6 @@ test("env example has names and non-secret defaults only", () => {
   }
 })
 
-const hostBlock = (host) => {
-  const start = caddyfile.indexOf(`{$${host}} {`)
-  assert.ok(start >= 0, `${host} block missing`)
-  const rest = caddyfile.slice(start)
-  return rest.slice(0, rest.indexOf("\n}") + 2)
-}
-
 test("storefront mounts a persistent optimiser cache volume", () => {
   assert.ok(Object.hasOwn(compose.volumes ?? {}, "storefront-image-cache"))
   assert.ok(
@@ -336,29 +339,24 @@ test("storefront mounts a persistent optimiser cache volume", () => {
 
 test("storefront image Dockerfile creates the cache dir for node before USER node", () => {
   const dockerfile = read("./storefront.Dockerfile")
-  const cmd =
-    "RUN mkdir -p /app/apps/storefront/.next/cache && chown -R node:node /app/apps/storefront/.next/cache"
-  const created = dockerfile.indexOf(cmd)
+  const dir = "/app/apps/storefront/.next/cache"
   const user = dockerfile.indexOf("\nUSER node")
-  assert.ok(created >= 0, "cache dir creation with node ownership missing")
   assert.ok(user >= 0, "USER node missing")
-  assert.ok(created < user, "cache dir must be created before USER node")
+  const before = dockerfile.slice(0, user)
+  assert.ok(before.includes(`mkdir -p ${dir}`), "cache dir must be created before USER node")
+  assert.ok(before.includes(`chown -R node:node ${dir}`), "cache dir must be chowned before USER node")
 })
 
-test("caddyfile storefront host compresses and sets long-lived image cache headers", () => {
+test("caddyfile storefront host compresses and never adds a second Cache-Control", () => {
   const block = hostBlock("STORE_HOST")
   assert.match(block, /encode zstd gzip/)
-  assert.match(block, /@static path \/_next\/static\/\*/)
-  assert.match(block, /header @static Cache-Control "public, max-age=31536000, immutable"/)
-  assert.match(block, /@optimised path \/_next\/image\*/)
-  assert.match(
-    block,
-    /header @optimised \?Cache-Control "public, max-age=2678400, stale-while-revalidate=86400"/,
-  )
+  assert.doesNotMatch(block.replace(/^\s*#.*$/gm, ""), /Cache-Control/i)
 })
 
 test("caddyfile admin host caches product images under /static", () => {
   const block = hostBlock("ADMIN_HOST")
-  assert.match(block, /@productimages path \/static\/\*/)
-  assert.match(block, /header @productimages Cache-Control "public, max-age=2678400"/)
+  assert.match(
+    block,
+    /handle \/static\/\*\s*\{\s*reverse_proxy backend:9000\s*\{\s*header_down Cache-Control "public, max-age=2678400"\s*\}\s*\}/,
+  )
 })
